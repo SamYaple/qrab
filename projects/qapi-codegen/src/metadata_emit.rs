@@ -113,18 +113,18 @@ fn type_wire_name(name: &str, attrs: &[Attribute]) -> String {
 /// Returns `None` for non-primitive (struct / enum / list) types.
 fn qapi_prim_for_type(t: &str) -> Option<&'static str> {
     Some(match t {
-        "str" | "String" => "Str",
+        "str" => "Str",
         "bool" => "Bool",
-        "int" | "i64" | "int64" => "I64",
-        "i8" | "int8" => "I8",
-        "i16" | "int16" => "I16",
-        "i32" | "int32" => "I32",
-        "u8" | "uint8" => "U8",
-        "u16" | "uint16" => "U16",
-        "u32" | "uint32" => "U32",
-        "u64" | "uint64" | "size" => "U64",
-        "number" | "f64" => "F64",
-        "null" | "()" => "Null",
+        "int" | "int64" => "I64",
+        "int8" => "I8",
+        "int16" => "I16",
+        "int32" => "I32",
+        "uint8" => "U8",
+        "uint16" => "U16",
+        "uint32" => "U32",
+        "uint64" | "size" => "U64",
+        "number" => "F64",
+        "null" => "Null",
         "any" => "Any",
         _ => return None,
     })
@@ -256,9 +256,34 @@ impl TypePool {
             .strip_prefix("Vec<")
             .and_then(|s| s.strip_suffix('>'))
         {
-            return Some(self.intern_field(inner.trim(), true, struct_names, enum_names));
+            let inner_idx = self
+                .intern_returns(inner.trim(), struct_names, enum_names)
+                .unwrap_or_else(|| self.intern_scalar("null", struct_names, enum_names));
+            let inner_name = self.entries[inner_idx as usize].name.clone();
+            return Some(self.intern(TypeKey {
+                kind: "List",
+                name: format!("List<{inner_name}>"),
+                prim: "Null",
+                inner: inner_idx,
+            }));
         }
-        Some(self.intern_field(rust_returns, false, struct_names, enum_names))
+        // Return attributes already contain Rust names; field and variant IR
+        // retain QAPI names. Do not confuse a declared String with builtin str.
+        let schema_type = match rust_returns {
+            "String" => "str",
+            "i8" => "int8",
+            "i16" => "int16",
+            "i32" => "int32",
+            "i64" => "int64",
+            "u8" => "uint8",
+            "u16" => "uint16",
+            "u32" => "uint32",
+            "u64" => "uint64",
+            "f64" => "number",
+            "serde_json::Value" => "any",
+            other => other,
+        };
+        Some(self.intern_field(schema_type, false, struct_names, enum_names))
     }
 
     fn emit(&self) -> String {
@@ -501,24 +526,14 @@ struct EnumEmit {
     versions: VersionRange,
 }
 
-/// Pull a payload struct name out of a tuple-variant kind. For primitives
-/// (str/int/etc.) we return `None` and the variant carries no payload struct;
-/// the consumer treats those variants as primitive-payload alternates.
-fn payload_for_variant(kind: &EnumVariantKind) -> Option<String> {
-    if let EnumVariantKind::Tuple(t) = kind {
-        // Map QAPI primitives onto the corresponding name in the type pool —
-        // but for the variant payload we just store the type name; the UI
-        // resolves through STRUCTS / known primitive constants.
-        if qapi_prim_for_type(t).is_some() {
-            return None;
-        }
-        Some(rustify_name(t))
-    } else {
-        None
-    }
-}
-
-fn emit_enum_variants(ue: &UnifiedEnum, var_name: &str) -> String {
+/// Intern payloads with the same scalar/list rules as struct fields.
+fn emit_enum_variants(
+    ue: &UnifiedEnum,
+    var_name: &str,
+    pool: &mut TypePool,
+    struct_names: &BTreeSet<String>,
+    enum_names: &BTreeSet<String>,
+) -> String {
     let mut s = String::new();
     s.push_str(&format!("static {}: &[EnumVariantMeta] = &[\n", var_name));
     for v in &ue.ir.variants {
@@ -526,19 +541,28 @@ fn emit_enum_variants(ue: &UnifiedEnum, var_name: &str) -> String {
         let wire = item_attr(&v.meta.attributes, "name")
             .map(String::from)
             .unwrap_or_else(|| v.name.clone());
-        let payload = payload_for_variant(&v.kind);
+        let payload_type = if let EnumVariantKind::Tuple(ty) = &v.kind {
+            Some(pool.intern_field(ty, v.array, struct_names, enum_names))
+        } else {
+            None
+        };
+        let payload = payload_type.and_then(|index| {
+            let ty = &pool.entries[index as usize];
+            (ty.kind == "Struct").then(|| ty.name.clone())
+        });
         let (since, until) = variant_versions(ue, &v.name);
         let dep = has_feature(&v.meta.attributes, "deprecated");
         let unstable = has_feature(&v.meta.attributes, "unstable");
         let doc = v.meta.doc.clone().unwrap_or_default();
         s.push_str(&format!(
-            "    EnumVariantMeta {{ name: {}, wire_name: {}, payload_struct: {}, since: {}, until: {}, deprecated: {}, unstable: {}, doc: {} }},\n",
+            "    EnumVariantMeta {{ name: {}, wire_name: {}, payload_struct: {}, payload_type: {}, since: {}, until: {}, deprecated: {}, unstable: {}, doc: {} }},\n",
             rs_str(&rust),
             rs_str(&wire),
             match payload {
                 Some(p) => format!("Some({})", rs_str(&p)),
                 None => "None".to_string(),
             },
+            payload_type.map(|index| format!("Some({index})")).unwrap_or_else(|| "None".into()),
             ver_tuple(since),
             ver_opt(until),
             dep,
@@ -732,7 +756,13 @@ pub fn emit(registry: &UnifiedRegistry) -> String {
                     "Alternate"
                 };
                 let var_name = format!("VARIANTS_{}", rust_name);
-                bodies.push_str(&emit_enum_variants(ue, &var_name));
+                bodies.push_str(&emit_enum_variants(
+                    ue,
+                    &var_name,
+                    &mut pool,
+                    &struct_names,
+                    &enum_names,
+                ));
                 let decl = format!("ENUM_{}", rust_name);
                 let ee = EnumEmit {
                     rust_name: rust_name.clone(),
@@ -830,7 +860,10 @@ pub struct FieldMeta {
 pub struct EnumVariantMeta {
     pub name: &'static str,
     pub wire_name: &'static str,
+    /// Direct struct payload, if any; scalar, enum and list payloads use payload_type.
     pub payload_struct: Option<&'static str>,
+    /// Index into TYPE_REFS, including null payloads; None means a unit variant.
+    pub payload_type: Option<u32>,
     pub since: Ver,
     pub until: Option<Ver>,
     pub deprecated: bool,

@@ -186,3 +186,9 @@ not builtin-value mapping: a declared `Visitor` remains a real struct, while
 the historical lowercase `visitor` opaque reference remains a JSON value.
 A QEMU-validated fixture is generated, compiled offline and round-tripped to
 check declarations, references, commands and metadata together.
+
+Metadata resolves field and variant references as QAPI names, and command
+returns as already mapped Rust names. A declared `String` is therefore distinct
+from builtin `str`. Enum variants expose `payload_type` indices into `TYPE_REFS`
+for scalar, null, enum, struct and list payloads; `payload_struct` is retained
+for direct struct payloads.

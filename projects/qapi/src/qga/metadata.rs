@@ -39,7 +39,10 @@ pub struct FieldMeta {
 pub struct EnumVariantMeta {
     pub name: &'static str,
     pub wire_name: &'static str,
+    /// Direct struct payload, if any; scalar, enum and list payloads use payload_type.
     pub payload_struct: Option<&'static str>,
+    /// Index into TYPE_REFS, including null payloads; None means a unit variant.
+    pub payload_type: Option<u32>,
     pub since: Ver,
     pub until: Option<Ver>,
     pub deprecated: bool,
@@ -99,7 +102,9 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::List, name: "List<str>", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Primitive, name: "int", prim: Prim::I64, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestCpuStatsType", prim: Prim::Null, inner: 0 },
+    TypeRef { kind: TypeKind::Struct, name: "GuestLinuxCpuStats", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestDeviceType", prim: Prim::Null, inner: 0 },
+    TypeRef { kind: TypeKind::Struct, name: "GuestDeviceIdPci", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Primitive, name: "uint16", prim: Prim::U16, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDeviceId", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestPciAddress", prim: Prim::Null, inner: 0 },
@@ -107,55 +112,58 @@ pub static TYPE_REFS: &[TypeRef] = &[
     TypeRef { kind: TypeKind::Struct, name: "GuestCcwAddress", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDiskAddress", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDiskSmart", prim: Prim::Null, inner: 0 },
+    TypeRef { kind: TypeKind::Struct, name: "GuestNvMeSmart", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Primitive, name: "uint64", prim: Prim::U64, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDiskStats", prim: Prim::Null, inner: 0 },
+    TypeRef { kind: TypeKind::Enum, name: "GuestExecCaptureOutputMode", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestExecCaptureOutput", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestExec", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestExecStatus", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::Primitive, name: "i64", prim: Prim::I64, inner: 0 },
+    TypeRef { kind: TypeKind::Primitive, name: "int64", prim: Prim::I64, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFileRead", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestFileWhence", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFileSeek", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestDiskAddress>", prim: Prim::Null, inner: 13 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestDiskAddress>", prim: Prim::Null, inner: 15 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFilesystemTrimResult", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestFilesystemTrimResult>", prim: Prim::Null, inner: 25 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestFilesystemTrimResult>", prim: Prim::Null, inner: 29 },
+    TypeRef { kind: TypeKind::Enum, name: "QgaSeek", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFileWrite", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestFsfreezeStatus", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFilesystemTrimResponse", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestCpuStats", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestCpuStats>", prim: Prim::Null, inner: 30 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestCpuStats>", prim: Prim::Null, inner: 35 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDeviceInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestDeviceInfo>", prim: Prim::Null, inner: 32 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestDeviceInfo>", prim: Prim::Null, inner: 37 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDiskInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestDiskInfo>", prim: Prim::Null, inner: 34 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestDiskInfo>", prim: Prim::Null, inner: 39 },
     TypeRef { kind: TypeKind::Struct, name: "GuestDiskStatsInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestDiskStatsInfo>", prim: Prim::Null, inner: 36 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestDiskStatsInfo>", prim: Prim::Null, inner: 41 },
     TypeRef { kind: TypeKind::Struct, name: "GuestFilesystemInfo", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestFilesystemInfo>", prim: Prim::Null, inner: 38 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestFilesystemInfo>", prim: Prim::Null, inner: 43 },
     TypeRef { kind: TypeKind::Struct, name: "GuestHostName", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestLoadAverage", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestMemoryBlockInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestMemoryBlock", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlock>", prim: Prim::Null, inner: 43 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlock>", prim: Prim::Null, inner: 48 },
     TypeRef { kind: TypeKind::Struct, name: "GuestOsInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestTimezone", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestUser", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestUser>", prim: Prim::Null, inner: 47 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestUser>", prim: Prim::Null, inner: 52 },
     TypeRef { kind: TypeKind::Struct, name: "GuestLogicalProcessor", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestLogicalProcessor>", prim: Prim::Null, inner: 49 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestLogicalProcessor>", prim: Prim::Null, inner: 54 },
     TypeRef { kind: TypeKind::Struct, name: "GuestAgentInfo", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestIpAddressType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Primitive, name: "number", prim: Prim::F64, inner: 0 },
     TypeRef { kind: TypeKind::Enum, name: "GuestMemoryBlockResponseType", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestNetworkInterface", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkInterface>", prim: Prim::Null, inner: 55 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkInterface>", prim: Prim::Null, inner: 60 },
     TypeRef { kind: TypeKind::Struct, name: "GuestNetworkRoute", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkRoute>", prim: Prim::Null, inner: 57 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestNetworkRoute>", prim: Prim::Null, inner: 62 },
     TypeRef { kind: TypeKind::Struct, name: "GuestIpAddress", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestIpAddress>", prim: Prim::Null, inner: 59 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestIpAddress>", prim: Prim::Null, inner: 64 },
     TypeRef { kind: TypeKind::Struct, name: "GuestNetworkInterfaceStat", prim: Prim::Null, inner: 0 },
     TypeRef { kind: TypeKind::Struct, name: "GuestMemoryBlockResponse", prim: Prim::Null, inner: 0 },
-    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlockResponse>", prim: Prim::Null, inner: 62 },
+    TypeRef { kind: TypeKind::List, name: "List<GuestMemoryBlockResponse>", prim: Prim::Null, inner: 67 },
     TypeRef { kind: TypeKind::Struct, name: "GuestAuthorizedKeys", prim: Prim::Null, inner: 0 },
 ];
 
@@ -236,7 +244,7 @@ static STRUCT_GuestCpuStats: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestCpuStatsBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Linux", wire_name: "linux", payload_struct: Some("GuestLinuxCpuStats"), since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Linux", wire_name: "linux", payload_struct: Some("GuestLinuxCpuStats"), payload_type: Some(7), since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_GuestCpuStatsBranch: EnumMeta = EnumMeta {
     name: "GuestCpuStatsBranch",
@@ -247,7 +255,7 @@ static ENUM_GuestCpuStatsBranch: EnumMeta = EnumMeta {
     until: None,
 };
 static VARIANTS_GuestCpuStatsType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Linux", wire_name: "linux", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Linux" },
+    EnumVariantMeta { name: "Linux", wire_name: "linux", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Linux" },
 ];
 static ENUM_GuestCpuStatsType: EnumMeta = EnumMeta {
     name: "GuestCpuStatsType",
@@ -258,7 +266,7 @@ static ENUM_GuestCpuStatsType: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_GuestDeviceId: &[FieldMeta] = &[
-    FieldMeta { name: "r#type", wire_name: "type", ty: 7, optional: false, is_discriminator: true, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device type" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 8, optional: false, is_discriminator: true, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device type" },
 ];
 static STRUCT_GuestDeviceId: StructMeta = StructMeta {
     name: "GuestDeviceId",
@@ -272,7 +280,7 @@ static STRUCT_GuestDeviceId: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestDeviceIdBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Pci", wire_name: "pci", payload_struct: Some("GuestDeviceIdPci"), since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Pci", wire_name: "pci", payload_struct: Some("GuestDeviceIdPci"), payload_type: Some(9), since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_GuestDeviceIdBranch: EnumMeta = EnumMeta {
     name: "GuestDeviceIdBranch",
@@ -283,8 +291,8 @@ static ENUM_GuestDeviceIdBranch: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_GuestDeviceIdPci: &[FieldMeta] = &[
-    FieldMeta { name: "vendor_id", wire_name: "vendor-id", ty: 8, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vendor ID" },
-    FieldMeta { name: "device_id", wire_name: "device-id", ty: 8, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device ID" },
+    FieldMeta { name: "vendor_id", wire_name: "vendor-id", ty: 10, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "vendor ID" },
+    FieldMeta { name: "device_id", wire_name: "device-id", ty: 10, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device ID" },
 ];
 static STRUCT_GuestDeviceIdPci: StructMeta = StructMeta {
     name: "GuestDeviceIdPCI",
@@ -301,7 +309,7 @@ static FIELDS_GuestDeviceInfo: &[FieldMeta] = &[
     FieldMeta { name: "driver_name", wire_name: "driver-name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "name of the associated driver" },
     FieldMeta { name: "driver_date", wire_name: "driver-date", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "driver release date, in nanoseconds since the epoch" },
     FieldMeta { name: "driver_version", wire_name: "driver-version", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "driver version" },
-    FieldMeta { name: "id", wire_name: "id", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device ID" },
+    FieldMeta { name: "id", wire_name: "id", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device ID" },
 ];
 static STRUCT_GuestDeviceInfo: StructMeta = StructMeta {
     name: "GuestDeviceInfo",
@@ -315,7 +323,7 @@ static STRUCT_GuestDeviceInfo: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestDeviceType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Pci", wire_name: "pci", payload_struct: None, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "PCI device" },
+    EnumVariantMeta { name: "Pci", wire_name: "pci", payload_struct: None, payload_type: None, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "PCI device" },
 ];
 static ENUM_GuestDeviceType: EnumMeta = EnumMeta {
     name: "GuestDeviceType",
@@ -326,14 +334,14 @@ static ENUM_GuestDeviceType: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_GuestDiskAddress: &[FieldMeta] = &[
-    FieldMeta { name: "pci_controller", wire_name: "pci-controller", ty: 10, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "controller's PCI address (fields are set to -1 if\ninvalid)" },
-    FieldMeta { name: "bus_type", wire_name: "bus-type", ty: 11, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bus type" },
+    FieldMeta { name: "pci_controller", wire_name: "pci-controller", ty: 12, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "controller's PCI address (fields are set to -1 if\ninvalid)" },
+    FieldMeta { name: "bus_type", wire_name: "bus-type", ty: 13, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bus type" },
     FieldMeta { name: "bus", wire_name: "bus", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bus id" },
     FieldMeta { name: "target", wire_name: "target", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "target id" },
     FieldMeta { name: "unit", wire_name: "unit", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "unit id" },
     FieldMeta { name: "serial", wire_name: "serial", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (3u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "serial number (since: 3.1)" },
     FieldMeta { name: "dev", wire_name: "dev", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (3u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device node (POSIX) or device UNC (Windows) (since: 3.1)" },
-    FieldMeta { name: "ccw_address", wire_name: "ccw-address", ty: 12, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "CCW address on s390x (since: 6.0)" },
+    FieldMeta { name: "ccw_address", wire_name: "ccw-address", ty: 14, optional: true, is_discriminator: false, recursive: false, since: (6u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "CCW address on s390x (since: 6.0)" },
 ];
 static STRUCT_GuestDiskAddress: StructMeta = StructMeta {
     name: "GuestDiskAddress",
@@ -347,26 +355,26 @@ static STRUCT_GuestDiskAddress: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestDiskBusType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Ide", wire_name: "ide", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IDE disks" },
-    EnumVariantMeta { name: "Fdc", wire_name: "fdc", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "floppy disks" },
-    EnumVariantMeta { name: "Scsi", wire_name: "scsi", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SCSI disks" },
-    EnumVariantMeta { name: "Virtio", wire_name: "virtio", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "virtio disks" },
-    EnumVariantMeta { name: "Xen", wire_name: "xen", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Xen disks" },
-    EnumVariantMeta { name: "Usb", wire_name: "usb", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "USB disks" },
-    EnumVariantMeta { name: "Uml", wire_name: "uml", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "UML disks" },
-    EnumVariantMeta { name: "Sata", wire_name: "sata", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SATA disks" },
-    EnumVariantMeta { name: "Sd", wire_name: "sd", payload_struct: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SD cards" },
-    EnumVariantMeta { name: "Unknown", wire_name: "unknown", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unknown bus type" },
-    EnumVariantMeta { name: "Ieee1394", wire_name: "ieee1394", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win IEEE 1394 bus type" },
-    EnumVariantMeta { name: "Ssa", wire_name: "ssa", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win SSA bus type" },
-    EnumVariantMeta { name: "Fibre", wire_name: "fibre", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win fiber channel bus type" },
-    EnumVariantMeta { name: "Raid", wire_name: "raid", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win RAID bus type" },
-    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win iScsi bus type" },
-    EnumVariantMeta { name: "Sas", wire_name: "sas", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win serial-attaches SCSI bus type" },
-    EnumVariantMeta { name: "Mmc", wire_name: "mmc", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win multimedia card (MMC) bus type" },
-    EnumVariantMeta { name: "Virtual", wire_name: "virtual", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win virtual bus type" },
-    EnumVariantMeta { name: "FileBackedVirtual", wire_name: "file-backed-virtual", payload_struct: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win file-backed bus type" },
-    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "NVMe disks (since 7.1)" },
+    EnumVariantMeta { name: "Ide", wire_name: "ide", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IDE disks" },
+    EnumVariantMeta { name: "Fdc", wire_name: "fdc", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "floppy disks" },
+    EnumVariantMeta { name: "Scsi", wire_name: "scsi", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SCSI disks" },
+    EnumVariantMeta { name: "Virtio", wire_name: "virtio", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "virtio disks" },
+    EnumVariantMeta { name: "Xen", wire_name: "xen", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Xen disks" },
+    EnumVariantMeta { name: "Usb", wire_name: "usb", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "USB disks" },
+    EnumVariantMeta { name: "Uml", wire_name: "uml", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "UML disks" },
+    EnumVariantMeta { name: "Sata", wire_name: "sata", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SATA disks" },
+    EnumVariantMeta { name: "Sd", wire_name: "sd", payload_struct: None, payload_type: None, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SD cards" },
+    EnumVariantMeta { name: "Unknown", wire_name: "unknown", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unknown bus type" },
+    EnumVariantMeta { name: "Ieee1394", wire_name: "ieee1394", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win IEEE 1394 bus type" },
+    EnumVariantMeta { name: "Ssa", wire_name: "ssa", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win SSA bus type" },
+    EnumVariantMeta { name: "Fibre", wire_name: "fibre", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win fiber channel bus type" },
+    EnumVariantMeta { name: "Raid", wire_name: "raid", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win RAID bus type" },
+    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win iScsi bus type" },
+    EnumVariantMeta { name: "Sas", wire_name: "sas", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win serial-attaches SCSI bus type" },
+    EnumVariantMeta { name: "Mmc", wire_name: "mmc", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win multimedia card (MMC) bus type" },
+    EnumVariantMeta { name: "Virtual", wire_name: "virtual", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win virtual bus type" },
+    EnumVariantMeta { name: "FileBackedVirtual", wire_name: "file-backed-virtual", payload_struct: None, payload_type: None, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win file-backed bus type" },
+    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "NVMe disks (since 7.1)" },
 ];
 static ENUM_GuestDiskBusType: EnumMeta = EnumMeta {
     name: "GuestDiskBusType",
@@ -380,9 +388,9 @@ static FIELDS_GuestDiskInfo: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device node (Linux) or device UNC (Windows)" },
     FieldMeta { name: "partition", wire_name: "partition", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether this is a partition or disk" },
     FieldMeta { name: "dependencies", wire_name: "dependencies", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of device dependencies; e.g. for LVs of the LVM\nthis will hold the list of PVs, for LUKS encrypted volume this\nwill contain the disk where the volume is placed.  (Linux)" },
-    FieldMeta { name: "address", wire_name: "address", ty: 13, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk address information (only for non-virtual devices)" },
+    FieldMeta { name: "address", wire_name: "address", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk address information (only for non-virtual devices)" },
     FieldMeta { name: "alias", wire_name: "alias", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "optional alias assigned to the disk, on Linux this is a name\nassigned by device mapper" },
-    FieldMeta { name: "smart", wire_name: "smart", ty: 14, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk smart information (Since 7.1)" },
+    FieldMeta { name: "smart", wire_name: "smart", ty: 16, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk smart information (Since 7.1)" },
 ];
 static STRUCT_GuestDiskInfo: StructMeta = StructMeta {
     name: "GuestDiskInfo",
@@ -396,7 +404,7 @@ static STRUCT_GuestDiskInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestDiskSmart: &[FieldMeta] = &[
-    FieldMeta { name: "r#type", wire_name: "type", ty: 11, optional: false, is_discriminator: true, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk bus type" },
+    FieldMeta { name: "r#type", wire_name: "type", ty: 13, optional: false, is_discriminator: true, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk bus type" },
 ];
 static STRUCT_GuestDiskSmart: StructMeta = StructMeta {
     name: "GuestDiskSmart",
@@ -410,26 +418,26 @@ static STRUCT_GuestDiskSmart: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestDiskSmartBranch: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: Some("GuestNvMeSmart"), since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    EnumVariantMeta { name: "Ide", wire_name: "ide", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IDE disks" },
-    EnumVariantMeta { name: "Fdc", wire_name: "fdc", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "floppy disks" },
-    EnumVariantMeta { name: "Scsi", wire_name: "scsi", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SCSI disks" },
-    EnumVariantMeta { name: "Virtio", wire_name: "virtio", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "virtio disks" },
-    EnumVariantMeta { name: "Xen", wire_name: "xen", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Xen disks" },
-    EnumVariantMeta { name: "Usb", wire_name: "usb", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "USB disks" },
-    EnumVariantMeta { name: "Uml", wire_name: "uml", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "UML disks" },
-    EnumVariantMeta { name: "Sata", wire_name: "sata", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SATA disks" },
-    EnumVariantMeta { name: "Sd", wire_name: "sd", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SD cards" },
-    EnumVariantMeta { name: "Unknown", wire_name: "unknown", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unknown bus type" },
-    EnumVariantMeta { name: "Ieee1394", wire_name: "ieee1394", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win IEEE 1394 bus type" },
-    EnumVariantMeta { name: "Ssa", wire_name: "ssa", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win SSA bus type" },
-    EnumVariantMeta { name: "Fibre", wire_name: "fibre", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win fiber channel bus type" },
-    EnumVariantMeta { name: "Raid", wire_name: "raid", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win RAID bus type" },
-    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win iScsi bus type" },
-    EnumVariantMeta { name: "Sas", wire_name: "sas", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win serial-attaches SCSI bus type" },
-    EnumVariantMeta { name: "Mmc", wire_name: "mmc", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win multimedia card (MMC) bus type" },
-    EnumVariantMeta { name: "Virtual", wire_name: "virtual", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win virtual bus type" },
-    EnumVariantMeta { name: "FileBackedVirtual", wire_name: "file-backed-virtual", payload_struct: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win file-backed bus type" },
+    EnumVariantMeta { name: "Nvme", wire_name: "nvme", payload_struct: Some("GuestNvMeSmart"), payload_type: Some(17), since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Ide", wire_name: "ide", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IDE disks" },
+    EnumVariantMeta { name: "Fdc", wire_name: "fdc", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "floppy disks" },
+    EnumVariantMeta { name: "Scsi", wire_name: "scsi", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SCSI disks" },
+    EnumVariantMeta { name: "Virtio", wire_name: "virtio", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "virtio disks" },
+    EnumVariantMeta { name: "Xen", wire_name: "xen", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Xen disks" },
+    EnumVariantMeta { name: "Usb", wire_name: "usb", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "USB disks" },
+    EnumVariantMeta { name: "Uml", wire_name: "uml", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "UML disks" },
+    EnumVariantMeta { name: "Sata", wire_name: "sata", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SATA disks" },
+    EnumVariantMeta { name: "Sd", wire_name: "sd", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "SD cards" },
+    EnumVariantMeta { name: "Unknown", wire_name: "unknown", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unknown bus type" },
+    EnumVariantMeta { name: "Ieee1394", wire_name: "ieee1394", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win IEEE 1394 bus type" },
+    EnumVariantMeta { name: "Ssa", wire_name: "ssa", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win SSA bus type" },
+    EnumVariantMeta { name: "Fibre", wire_name: "fibre", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win fiber channel bus type" },
+    EnumVariantMeta { name: "Raid", wire_name: "raid", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win RAID bus type" },
+    EnumVariantMeta { name: "Iscsi", wire_name: "iscsi", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win iScsi bus type" },
+    EnumVariantMeta { name: "Sas", wire_name: "sas", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win serial-attaches SCSI bus type" },
+    EnumVariantMeta { name: "Mmc", wire_name: "mmc", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win multimedia card (MMC) bus type" },
+    EnumVariantMeta { name: "Virtual", wire_name: "virtual", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win virtual bus type" },
+    EnumVariantMeta { name: "FileBackedVirtual", wire_name: "file-backed-virtual", payload_struct: None, payload_type: None, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Win file-backed bus type" },
 ];
 static ENUM_GuestDiskSmartBranch: EnumMeta = EnumMeta {
     name: "GuestDiskSmartBranch",
@@ -440,23 +448,23 @@ static ENUM_GuestDiskSmartBranch: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_GuestDiskStats: &[FieldMeta] = &[
-    FieldMeta { name: "read_sectors", wire_name: "read-sectors", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sectors read" },
-    FieldMeta { name: "read_ios", wire_name: "read-ios", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "reads completed successfully" },
-    FieldMeta { name: "read_merges", wire_name: "read-merges", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "read requests merged" },
-    FieldMeta { name: "write_sectors", wire_name: "write-sectors", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sectors written" },
-    FieldMeta { name: "write_ios", wire_name: "write-ios", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "writes completed" },
-    FieldMeta { name: "write_merges", wire_name: "write-merges", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "write requests merged" },
-    FieldMeta { name: "discard_sectors", wire_name: "discard-sectors", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sectors discarded" },
-    FieldMeta { name: "discard_ios", wire_name: "discard-ios", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "discards completed successfully" },
-    FieldMeta { name: "discard_merges", wire_name: "discard-merges", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "discard requests merged" },
-    FieldMeta { name: "flush_ios", wire_name: "flush-ios", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flush requests completed successfully" },
-    FieldMeta { name: "read_ticks", wire_name: "read-ticks", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent reading(ms)" },
-    FieldMeta { name: "write_ticks", wire_name: "write-ticks", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent writing(ms)" },
-    FieldMeta { name: "discard_ticks", wire_name: "discard-ticks", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent discarding(ms)" },
-    FieldMeta { name: "flush_ticks", wire_name: "flush-ticks", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent flushing(ms)" },
-    FieldMeta { name: "ios_pgr", wire_name: "ios-pgr", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of I/Os currently in flight" },
-    FieldMeta { name: "total_ticks", wire_name: "total-ticks", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent doing I/Os (ms)" },
-    FieldMeta { name: "weight_ticks", wire_name: "weight-ticks", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "weighted time spent doing I/Os since the last update\nof this field(ms)" },
+    FieldMeta { name: "read_sectors", wire_name: "read-sectors", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sectors read" },
+    FieldMeta { name: "read_ios", wire_name: "read-ios", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "reads completed successfully" },
+    FieldMeta { name: "read_merges", wire_name: "read-merges", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "read requests merged" },
+    FieldMeta { name: "write_sectors", wire_name: "write-sectors", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sectors written" },
+    FieldMeta { name: "write_ios", wire_name: "write-ios", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "writes completed" },
+    FieldMeta { name: "write_merges", wire_name: "write-merges", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "write requests merged" },
+    FieldMeta { name: "discard_sectors", wire_name: "discard-sectors", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "sectors discarded" },
+    FieldMeta { name: "discard_ios", wire_name: "discard-ios", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "discards completed successfully" },
+    FieldMeta { name: "discard_merges", wire_name: "discard-merges", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "discard requests merged" },
+    FieldMeta { name: "flush_ios", wire_name: "flush-ios", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "flush requests completed successfully" },
+    FieldMeta { name: "read_ticks", wire_name: "read-ticks", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent reading(ms)" },
+    FieldMeta { name: "write_ticks", wire_name: "write-ticks", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent writing(ms)" },
+    FieldMeta { name: "discard_ticks", wire_name: "discard-ticks", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent discarding(ms)" },
+    FieldMeta { name: "flush_ticks", wire_name: "flush-ticks", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent flushing(ms)" },
+    FieldMeta { name: "ios_pgr", wire_name: "ios-pgr", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of I/Os currently in flight" },
+    FieldMeta { name: "total_ticks", wire_name: "total-ticks", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time spent doing I/Os (ms)" },
+    FieldMeta { name: "weight_ticks", wire_name: "weight-ticks", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "weighted time spent doing I/Os since the last update\nof this field(ms)" },
 ];
 static STRUCT_GuestDiskStats: StructMeta = StructMeta {
     name: "GuestDiskStats",
@@ -471,9 +479,9 @@ static STRUCT_GuestDiskStats: StructMeta = StructMeta {
 };
 static FIELDS_GuestDiskStatsInfo: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk name" },
-    FieldMeta { name: "major", wire_name: "major", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "major device number of disk" },
-    FieldMeta { name: "minor", wire_name: "minor", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "minor device number of disk" },
-    FieldMeta { name: "stats", wire_name: "stats", ty: 16, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "I/O statistics" },
+    FieldMeta { name: "major", wire_name: "major", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "major device number of disk" },
+    FieldMeta { name: "minor", wire_name: "minor", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "minor device number of disk" },
+    FieldMeta { name: "stats", wire_name: "stats", ty: 19, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "I/O statistics" },
 ];
 static STRUCT_GuestDiskStatsInfo: StructMeta = StructMeta {
     name: "GuestDiskStatsInfo",
@@ -501,8 +509,8 @@ static STRUCT_GuestExec: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestExecCaptureOutput: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Flag", wire_name: "flag", payload_struct: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "captures both stdout and stderr if true.  Equivalent to\n`GuestExecCaptureOutputMode`::all.  (since 2.5)" },
-    EnumVariantMeta { name: "Mode", wire_name: "mode", payload_struct: Some("GuestExecCaptureOutputMode"), since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "capture mode; preferred interface" },
+    EnumVariantMeta { name: "Flag", wire_name: "flag", payload_struct: None, payload_type: Some(1), since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "captures both stdout and stderr if true.  Equivalent to\n`GuestExecCaptureOutputMode`::all.  (since 2.5)" },
+    EnumVariantMeta { name: "Mode", wire_name: "mode", payload_struct: None, payload_type: Some(20), since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "capture mode; preferred interface" },
 ];
 static ENUM_GuestExecCaptureOutput: EnumMeta = EnumMeta {
     name: "GuestExecCaptureOutput",
@@ -513,11 +521,11 @@ static ENUM_GuestExecCaptureOutput: EnumMeta = EnumMeta {
     until: None,
 };
 static VARIANTS_GuestExecCaptureOutputMode: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "do not capture any output" },
-    EnumVariantMeta { name: "Stdout", wire_name: "stdout", payload_struct: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "only capture stdout" },
-    EnumVariantMeta { name: "Stderr", wire_name: "stderr", payload_struct: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "only capture stderr" },
-    EnumVariantMeta { name: "Separated", wire_name: "separated", payload_struct: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "capture both stdout and stderr, but separated into\n`GuestExecStatus` out-data and err-data, respectively" },
-    EnumVariantMeta { name: "Merged", wire_name: "merged", payload_struct: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "capture both stdout and stderr, but merge together into\nout-data.  Not effective on windows guests." },
+    EnumVariantMeta { name: "None", wire_name: "none", payload_struct: None, payload_type: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "do not capture any output" },
+    EnumVariantMeta { name: "Stdout", wire_name: "stdout", payload_struct: None, payload_type: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "only capture stdout" },
+    EnumVariantMeta { name: "Stderr", wire_name: "stderr", payload_struct: None, payload_type: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "only capture stderr" },
+    EnumVariantMeta { name: "Separated", wire_name: "separated", payload_struct: None, payload_type: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "capture both stdout and stderr, but separated into\n`GuestExecStatus` out-data and err-data, respectively" },
+    EnumVariantMeta { name: "Merged", wire_name: "merged", payload_struct: None, payload_type: None, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "capture both stdout and stderr, but merge together into\nout-data.  Not effective on windows guests." },
 ];
 static ENUM_GuestExecCaptureOutputMode: EnumMeta = EnumMeta {
     name: "GuestExecCaptureOutputMode",
@@ -532,7 +540,7 @@ static FIELDS_GuestExecCommand: &[FieldMeta] = &[
     FieldMeta { name: "arg", wire_name: "arg", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "argument list to pass to executable" },
     FieldMeta { name: "env", wire_name: "env", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "environment variables to pass to executable" },
     FieldMeta { name: "input_data", wire_name: "input-data", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "data to be passed to process stdin (base64 encoded)" },
-    FieldMeta { name: "capture_output", wire_name: "capture-output", ty: 17, optional: true, is_discriminator: false, recursive: false, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bool flag to enable capture of stdout/stderr of\nrunning process.  Defaults to false." },
+    FieldMeta { name: "capture_output", wire_name: "capture-output", ty: 21, optional: true, is_discriminator: false, recursive: false, since: (8u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bool flag to enable capture of stdout/stderr of\nrunning process.  Defaults to false." },
     FieldMeta { name: "capture_output_legacy", wire_name: "capture-output", ty: 1, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((8u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "bool flag to enable capture of\nstdout/stderr of running process. defaults to false." },
 ];
 static STRUCT_GuestExecCommand: StructMeta = StructMeta {
@@ -672,7 +680,7 @@ static STRUCT_GuestFileSeek: StructMeta = StructMeta {
 static FIELDS_GuestFileSeekCommand: &[FieldMeta] = &[
     FieldMeta { name: "handle", wire_name: "handle", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filehandle returned by `guest-file-open`" },
     FieldMeta { name: "offset", wire_name: "offset", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bytes to skip over in the file stream" },
-    FieldMeta { name: "whence", wire_name: "whence", ty: 22, optional: false, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Symbolic or numeric code for interpreting offset" },
+    FieldMeta { name: "whence", wire_name: "whence", ty: 26, optional: false, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Symbolic or numeric code for interpreting offset" },
     FieldMeta { name: "whence_legacy", wire_name: "whence", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (0u32, 15u32, 0u32), until: Some((2u32, 6u32, 0u32)), deprecated: false, unstable: false, doc: "0 for SEEK_SET, 1 for SEEK_CUR, or 2 for SEEK_END" },
 ];
 static STRUCT_GuestFileSeekCommand: StructMeta = StructMeta {
@@ -690,10 +698,10 @@ static FIELDS_GuestFilesystemInfo: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "disk name" },
     FieldMeta { name: "mountpoint", wire_name: "mountpoint", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "mount point path" },
     FieldMeta { name: "r#type", wire_name: "type", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "file system type string" },
-    FieldMeta { name: "disk", wire_name: "disk", ty: 24, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "an array of disk hardware information that the volume lies\non, which may be empty if the disk type is not supported" },
-    FieldMeta { name: "used_bytes", wire_name: "used-bytes", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "file system used bytes (since 3.0)" },
-    FieldMeta { name: "total_bytes", wire_name: "total-bytes", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystem capacity in bytes for unprivileged users\n(since 3.0)" },
-    FieldMeta { name: "total_bytes_privileged", wire_name: "total-bytes-privileged", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystem capacity in bytes for privileged\nusers (since 9.1)" },
+    FieldMeta { name: "disk", wire_name: "disk", ty: 28, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "an array of disk hardware information that the volume lies\non, which may be empty if the disk type is not supported" },
+    FieldMeta { name: "used_bytes", wire_name: "used-bytes", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "file system used bytes (since 3.0)" },
+    FieldMeta { name: "total_bytes", wire_name: "total-bytes", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystem capacity in bytes for unprivileged users\n(since 3.0)" },
+    FieldMeta { name: "total_bytes_privileged", wire_name: "total-bytes-privileged", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystem capacity in bytes for privileged\nusers (since 9.1)" },
 ];
 static STRUCT_GuestFilesystemInfo: StructMeta = StructMeta {
     name: "GuestFilesystemInfo",
@@ -707,7 +715,7 @@ static STRUCT_GuestFilesystemInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestFilesystemTrimResponse: &[FieldMeta] = &[
-    FieldMeta { name: "paths", wire_name: "paths", ty: 26, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of `GuestFilesystemTrimResult` per path that was\ntrimmed" },
+    FieldMeta { name: "paths", wire_name: "paths", ty: 30, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of `GuestFilesystemTrimResult` per path that was\ntrimmed" },
 ];
 static STRUCT_GuestFilesystemTrimResponse: StructMeta = StructMeta {
     name: "GuestFilesystemTrimResponse",
@@ -738,8 +746,8 @@ static STRUCT_GuestFilesystemTrimResult: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestFileWhence: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Value", wire_name: "value", payload_struct: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Integral value (0 for set, 1 for cur, 2 for end), available\nfor historical reasons, and might differ from the host's or\nguest's SEEK_* values (since: 0.15)" },
-    EnumVariantMeta { name: "Name", wire_name: "name", payload_struct: Some("QgaSeek"), since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Symbolic name, and preferred interface" },
+    EnumVariantMeta { name: "Value", wire_name: "value", payload_struct: None, payload_type: Some(5), since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Integral value (0 for set, 1 for cur, 2 for end), available\nfor historical reasons, and might differ from the host's or\nguest's SEEK_* values (since: 0.15)" },
+    EnumVariantMeta { name: "Name", wire_name: "name", payload_struct: None, payload_type: Some(31), since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Symbolic name, and preferred interface" },
 ];
 static ENUM_GuestFileWhence: EnumMeta = EnumMeta {
     name: "GuestFileWhence",
@@ -808,9 +816,9 @@ static STRUCT_GuestFsfreezeFreezeList: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestFsfreezeStatus: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Thawed", wire_name: "thawed", payload_struct: None, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystems thawed/unfrozen" },
-    EnumVariantMeta { name: "Frozen", wire_name: "frozen", payload_struct: None, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "all non-network guest filesystems frozen" },
-    EnumVariantMeta { name: "Error", wire_name: "error", payload_struct: None, since: (0u32, 15u32, 0u32), until: Some((1u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    EnumVariantMeta { name: "Thawed", wire_name: "thawed", payload_struct: None, payload_type: None, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filesystems thawed/unfrozen" },
+    EnumVariantMeta { name: "Frozen", wire_name: "frozen", payload_struct: None, payload_type: None, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "all non-network guest filesystems frozen" },
+    EnumVariantMeta { name: "Error", wire_name: "error", payload_struct: None, payload_type: None, since: (0u32, 15u32, 0u32), until: Some((1u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "" },
 ];
 static ENUM_GuestFsfreezeStatus: EnumMeta = EnumMeta {
     name: "GuestFsfreezeStatus",
@@ -1071,7 +1079,7 @@ static STRUCT_GuestInfo: StructMeta = StructMeta {
 };
 static FIELDS_GuestIpAddress: &[FieldMeta] = &[
     FieldMeta { name: "ip_address", wire_name: "ip-address", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP address" },
-    FieldMeta { name: "ip_address_type", wire_name: "ip-address-type", ty: 52, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of @ip-address (e.g. ipv4, ipv6)" },
+    FieldMeta { name: "ip_address_type", wire_name: "ip-address-type", ty: 57, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Type of @ip-address (e.g. ipv4, ipv6)" },
     FieldMeta { name: "prefix", wire_name: "prefix", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Network prefix length of @ip-address" },
 ];
 static STRUCT_GuestIpAddress: StructMeta = StructMeta {
@@ -1086,8 +1094,8 @@ static STRUCT_GuestIpAddress: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestIpAddressType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Ipv4", wire_name: "ipv4", payload_struct: None, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 4" },
-    EnumVariantMeta { name: "Ipv6", wire_name: "ipv6", payload_struct: None, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 6" },
+    EnumVariantMeta { name: "Ipv4", wire_name: "ipv4", payload_struct: None, payload_type: None, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 4" },
+    EnumVariantMeta { name: "Ipv6", wire_name: "ipv6", payload_struct: None, payload_type: None, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "IP version 6" },
 ];
 static ENUM_GuestIpAddressType: EnumMeta = EnumMeta {
     name: "GuestIpAddressType",
@@ -1099,16 +1107,16 @@ static ENUM_GuestIpAddressType: EnumMeta = EnumMeta {
 };
 static FIELDS_GuestLinuxCpuStats: &[FieldMeta] = &[
     FieldMeta { name: "cpu", wire_name: "cpu", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "CPU index in guest OS" },
-    FieldMeta { name: "user", wire_name: "user", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in user mode" },
-    FieldMeta { name: "nice", wire_name: "nice", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in user mode with low priority (nice)" },
-    FieldMeta { name: "system", wire_name: "system", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in system mode" },
-    FieldMeta { name: "idle", wire_name: "idle", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in the idle task" },
-    FieldMeta { name: "iowait", wire_name: "iowait", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time waiting for I/O to complete (since Linux 2.5.41)" },
-    FieldMeta { name: "irq", wire_name: "irq", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time servicing interrupts (since Linux 2.6.0-test4)" },
-    FieldMeta { name: "softirq", wire_name: "softirq", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time servicing softirqs (since Linux 2.6.0-test4)" },
-    FieldMeta { name: "steal", wire_name: "steal", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Stolen time by host (since Linux 2.6.11)" },
-    FieldMeta { name: "guest", wire_name: "guest", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "ime spent running a virtual CPU for guest operating systems\nunder the  control of the Linux kernel (since Linux 2.6.24)" },
-    FieldMeta { name: "guestnice", wire_name: "guestnice", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent running a niced guest (since Linux 2.6.33)" },
+    FieldMeta { name: "user", wire_name: "user", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in user mode" },
+    FieldMeta { name: "nice", wire_name: "nice", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in user mode with low priority (nice)" },
+    FieldMeta { name: "system", wire_name: "system", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in system mode" },
+    FieldMeta { name: "idle", wire_name: "idle", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent in the idle task" },
+    FieldMeta { name: "iowait", wire_name: "iowait", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time waiting for I/O to complete (since Linux 2.5.41)" },
+    FieldMeta { name: "irq", wire_name: "irq", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time servicing interrupts (since Linux 2.6.0-test4)" },
+    FieldMeta { name: "softirq", wire_name: "softirq", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time servicing softirqs (since Linux 2.6.0-test4)" },
+    FieldMeta { name: "steal", wire_name: "steal", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Stolen time by host (since Linux 2.6.11)" },
+    FieldMeta { name: "guest", wire_name: "guest", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "ime spent running a virtual CPU for guest operating systems\nunder the  control of the Linux kernel (since Linux 2.6.24)" },
+    FieldMeta { name: "guestnice", wire_name: "guestnice", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time spent running a niced guest (since Linux 2.6.33)" },
 ];
 static STRUCT_GuestLinuxCpuStats: StructMeta = StructMeta {
     name: "GuestLinuxCpuStats",
@@ -1122,9 +1130,9 @@ static STRUCT_GuestLinuxCpuStats: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestLoadAverage: &[FieldMeta] = &[
-    FieldMeta { name: "load1m", wire_name: "load1m", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "1-minute load avage" },
-    FieldMeta { name: "load5m", wire_name: "load5m", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "5-minute load avage" },
-    FieldMeta { name: "load15m", wire_name: "load15m", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "15-minute load avage" },
+    FieldMeta { name: "load1m", wire_name: "load1m", ty: 58, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "1-minute load avage" },
+    FieldMeta { name: "load5m", wire_name: "load5m", ty: 58, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "5-minute load avage" },
+    FieldMeta { name: "load15m", wire_name: "load15m", ty: 58, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "15-minute load avage" },
 ];
 static STRUCT_GuestLoadAverage: StructMeta = StructMeta {
     name: "GuestLoadAverage",
@@ -1154,7 +1162,7 @@ static STRUCT_GuestLogicalProcessor: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestMemoryBlock: &[FieldMeta] = &[
-    FieldMeta { name: "phys_index", wire_name: "phys-index", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Arbitrary guest-specific unique identifier of the\nMEMORY BLOCK." },
+    FieldMeta { name: "phys_index", wire_name: "phys-index", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Arbitrary guest-specific unique identifier of the\nMEMORY BLOCK." },
     FieldMeta { name: "online", wire_name: "online", ty: 1, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Whether the MEMORY BLOCK is enabled in guest." },
     FieldMeta { name: "can_offline", wire_name: "can-offline", ty: 1, optional: true, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Whether offlining the MEMORY BLOCK is possible.  This\nmember is always filled in by the guest agent when the structure\nis returned, and always ignored on input (hence it can be\nomitted then)." },
 ];
@@ -1170,7 +1178,7 @@ static STRUCT_GuestMemoryBlock: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestMemoryBlockInfo: &[FieldMeta] = &[
-    FieldMeta { name: "size", wire_name: "size", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the size (in bytes) of the guest memory blocks, which are the\nminimal units of memory block online/offline operations (also\ncalled Logical Memory Hotplug)." },
+    FieldMeta { name: "size", wire_name: "size", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the size (in bytes) of the guest memory blocks, which are the\nminimal units of memory block online/offline operations (also\ncalled Logical Memory Hotplug)." },
 ];
 static STRUCT_GuestMemoryBlockInfo: StructMeta = StructMeta {
     name: "GuestMemoryBlockInfo",
@@ -1184,8 +1192,8 @@ static STRUCT_GuestMemoryBlockInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestMemoryBlockResponse: &[FieldMeta] = &[
-    FieldMeta { name: "phys_index", wire_name: "phys-index", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "same with the 'phys-index' member of\n`GuestMemoryBlock`." },
-    FieldMeta { name: "response", wire_name: "response", ty: 54, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the result of memory block operation." },
+    FieldMeta { name: "phys_index", wire_name: "phys-index", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "same with the 'phys-index' member of\n`GuestMemoryBlock`." },
+    FieldMeta { name: "response", wire_name: "response", ty: 59, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the result of memory block operation." },
     FieldMeta { name: "error_code", wire_name: "error-code", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the error number.  When memory block operation fails,\nwe assign the value of 'errno' to this member, it indicates what\ngoes wrong.  When the operation succeeds, it will be omitted." },
 ];
 static STRUCT_GuestMemoryBlockResponse: StructMeta = StructMeta {
@@ -1200,10 +1208,10 @@ static STRUCT_GuestMemoryBlockResponse: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_GuestMemoryBlockResponseType: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Success", wire_name: "success", payload_struct: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the operation of online/offline memory block is\nsuccessful." },
-    EnumVariantMeta { name: "NotFound", wire_name: "not-found", payload_struct: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "can't find the corresponding memoryXXX directory in\nsysfs." },
-    EnumVariantMeta { name: "OperationNotSupported", wire_name: "operation-not-supported", payload_struct: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "for some old kernels, it does not support\nonline or offline memory block." },
-    EnumVariantMeta { name: "OperationFailed", wire_name: "operation-failed", payload_struct: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the operation of online/offline memory block\nfails, because of some errors happen." },
+    EnumVariantMeta { name: "Success", wire_name: "success", payload_struct: None, payload_type: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the operation of online/offline memory block is\nsuccessful." },
+    EnumVariantMeta { name: "NotFound", wire_name: "not-found", payload_struct: None, payload_type: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "can't find the corresponding memoryXXX directory in\nsysfs." },
+    EnumVariantMeta { name: "OperationNotSupported", wire_name: "operation-not-supported", payload_struct: None, payload_type: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "for some old kernels, it does not support\nonline or offline memory block." },
+    EnumVariantMeta { name: "OperationFailed", wire_name: "operation-failed", payload_struct: None, payload_type: None, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the operation of online/offline memory block\nfails, because of some errors happen." },
 ];
 static ENUM_GuestMemoryBlockResponseType: EnumMeta = EnumMeta {
     name: "GuestMemoryBlockResponseType",
@@ -1242,8 +1250,8 @@ static STRUCT_GuestNetworkGetRoute: StructMeta = StructMeta {
 static FIELDS_GuestNetworkInterface: &[FieldMeta] = &[
     FieldMeta { name: "name", wire_name: "name", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name of interface for which info are being delivered" },
     FieldMeta { name: "hardware_address", wire_name: "hardware-address", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Hardware address of @name" },
-    FieldMeta { name: "ip_addresses", wire_name: "ip-addresses", ty: 60, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of addresses assigned to @name" },
-    FieldMeta { name: "statistics", wire_name: "statistics", ty: 61, optional: true, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "various statistic counters related to @name (since\n2.11)" },
+    FieldMeta { name: "ip_addresses", wire_name: "ip-addresses", ty: 65, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "List of addresses assigned to @name" },
+    FieldMeta { name: "statistics", wire_name: "statistics", ty: 66, optional: true, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "various statistic counters related to @name (since\n2.11)" },
 ];
 static STRUCT_GuestNetworkInterface: StructMeta = StructMeta {
     name: "GuestNetworkInterface",
@@ -1257,14 +1265,14 @@ static STRUCT_GuestNetworkInterface: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestNetworkInterfaceStat: &[FieldMeta] = &[
-    FieldMeta { name: "rx_bytes", wire_name: "rx-bytes", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total bytes received" },
-    FieldMeta { name: "rx_packets", wire_name: "rx-packets", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total packets received" },
-    FieldMeta { name: "rx_errs", wire_name: "rx-errs", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bad packets received" },
-    FieldMeta { name: "rx_dropped", wire_name: "rx-dropped", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "receiver dropped packets" },
-    FieldMeta { name: "tx_bytes", wire_name: "tx-bytes", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total bytes transmitted" },
-    FieldMeta { name: "tx_packets", wire_name: "tx-packets", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total packets transmitted" },
-    FieldMeta { name: "tx_errs", wire_name: "tx-errs", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "packet transmit problems" },
-    FieldMeta { name: "tx_dropped", wire_name: "tx-dropped", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "dropped packets transmitted" },
+    FieldMeta { name: "rx_bytes", wire_name: "rx-bytes", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total bytes received" },
+    FieldMeta { name: "rx_packets", wire_name: "rx-packets", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total packets received" },
+    FieldMeta { name: "rx_errs", wire_name: "rx-errs", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "bad packets received" },
+    FieldMeta { name: "rx_dropped", wire_name: "rx-dropped", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "receiver dropped packets" },
+    FieldMeta { name: "tx_bytes", wire_name: "tx-bytes", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total bytes transmitted" },
+    FieldMeta { name: "tx_packets", wire_name: "tx-packets", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total packets transmitted" },
+    FieldMeta { name: "tx_errs", wire_name: "tx-errs", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "packet transmit problems" },
+    FieldMeta { name: "tx_dropped", wire_name: "tx-dropped", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: None, deprecated: false, unstable: false, doc: "dropped packets transmitted" },
 ];
 static STRUCT_GuestNetworkInterfaceStat: StructMeta = StructMeta {
     name: "GuestNetworkInterfaceStat",
@@ -1284,7 +1292,7 @@ static FIELDS_GuestNetworkRoute: &[FieldMeta] = &[
     FieldMeta { name: "gateway", wire_name: "gateway", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The IP address of the next hop router" },
     FieldMeta { name: "mask", wire_name: "mask", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Subnet Mask (IPv4 only)" },
     FieldMeta { name: "irtt", wire_name: "irtt", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Initial round-trip delay (not for windows, IPv4 only)" },
-    FieldMeta { name: "flags", wire_name: "flags", ty: 15, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Route flags (not for windows)" },
+    FieldMeta { name: "flags", wire_name: "flags", ty: 18, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Route flags (not for windows)" },
     FieldMeta { name: "refcnt", wire_name: "refcnt", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The route's reference count (not for windows)" },
     FieldMeta { name: "r#use", wire_name: "use", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Route usage count (not for windows)" },
     FieldMeta { name: "window", wire_name: "window", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "TCP window size, used for flow control (not for windows,\nIPv4 only)" },
@@ -1312,26 +1320,26 @@ static FIELDS_GuestNvMeSmart: &[FieldMeta] = &[
     FieldMeta { name: "available_spare", wire_name: "available-spare", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "available_spare_threshold", wire_name: "available-spare-threshold", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
     FieldMeta { name: "percentage_used", wire_name: "percentage-used", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "data_units_read_lo", wire_name: "data-units-read-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "data_units_read_hi", wire_name: "data-units-read-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "data_units_written_lo", wire_name: "data-units-written-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "data_units_written_hi", wire_name: "data-units-written-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "host_read_commands_lo", wire_name: "host-read-commands-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "host_read_commands_hi", wire_name: "host-read-commands-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "host_write_commands_lo", wire_name: "host-write-commands-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "host_write_commands_hi", wire_name: "host-write-commands-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "controller_busy_time_lo", wire_name: "controller-busy-time-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "controller_busy_time_hi", wire_name: "controller-busy-time-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "power_cycles_lo", wire_name: "power-cycles-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "power_cycles_hi", wire_name: "power-cycles-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "power_on_hours_lo", wire_name: "power-on-hours-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "power_on_hours_hi", wire_name: "power-on-hours-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "unsafe_shutdowns_lo", wire_name: "unsafe-shutdowns-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "unsafe_shutdowns_hi", wire_name: "unsafe-shutdowns-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "media_errors_lo", wire_name: "media-errors-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "media_errors_hi", wire_name: "media-errors-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "number_of_error_log_entries_lo", wire_name: "number-of-error-log-entries-lo", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
-    FieldMeta { name: "number_of_error_log_entries_hi", wire_name: "number-of-error-log-entries-hi", ty: 15, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "data_units_read_lo", wire_name: "data-units-read-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "data_units_read_hi", wire_name: "data-units-read-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "data_units_written_lo", wire_name: "data-units-written-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "data_units_written_hi", wire_name: "data-units-written-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "host_read_commands_lo", wire_name: "host-read-commands-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "host_read_commands_hi", wire_name: "host-read-commands-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "host_write_commands_lo", wire_name: "host-write-commands-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "host_write_commands_hi", wire_name: "host-write-commands-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "controller_busy_time_lo", wire_name: "controller-busy-time-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "controller_busy_time_hi", wire_name: "controller-busy-time-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "power_cycles_lo", wire_name: "power-cycles-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "power_cycles_hi", wire_name: "power-cycles-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "power_on_hours_lo", wire_name: "power-on-hours-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "power_on_hours_hi", wire_name: "power-on-hours-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "unsafe_shutdowns_lo", wire_name: "unsafe-shutdowns-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "unsafe_shutdowns_hi", wire_name: "unsafe-shutdowns-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "media_errors_lo", wire_name: "media-errors-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "media_errors_hi", wire_name: "media-errors-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "number_of_error_log_entries_lo", wire_name: "number-of-error-log-entries-lo", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "number_of_error_log_entries_hi", wire_name: "number-of-error-log-entries-hi", ty: 18, optional: false, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_GuestNvMeSmart: StructMeta = StructMeta {
     name: "GuestNVMeSmart",
@@ -1398,7 +1406,7 @@ static STRUCT_GuestPing: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestSetMemoryBlocks: &[FieldMeta] = &[
-    FieldMeta { name: "mem_blks", wire_name: "mem-blks", ty: 44, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The memory blocks to be reconfigured.  This list is\nprocessed node by node in order.  In each node @phys-index is\nused to look up the guest MEMORY BLOCK, for which @online\nspecifies the requested state.  The set of distinct\n@phys-index's is only required to be a subset of the\nguest-supported identifiers.  There's no restriction on list\nlength or on repeating the same @phys-index (with possibly\ndifferent @online field).  Preferably the input list should\ndescribe a modified subset of `guest-get-memory-blocks`' return\nvalue." },
+    FieldMeta { name: "mem_blks", wire_name: "mem-blks", ty: 49, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The memory blocks to be reconfigured.  This list is\nprocessed node by node in order.  In each node @phys-index is\nused to look up the guest MEMORY BLOCK, for which @online\nspecifies the requested state.  The set of distinct\n@phys-index's is only required to be a subset of the\nguest-supported identifiers.  There's no restriction on list\nlength or on repeating the same @phys-index (with possibly\ndifferent @online field).  Preferably the input list should\ndescribe a modified subset of `guest-get-memory-blocks`' return\nvalue." },
 ];
 static STRUCT_GuestSetMemoryBlocks: StructMeta = StructMeta {
     name: "guest-set-memory-blocks",
@@ -1442,7 +1450,7 @@ static STRUCT_GuestSetUserPassword: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestSetVcpus: &[FieldMeta] = &[
-    FieldMeta { name: "vcpus", wire_name: "vcpus", ty: 50, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The logical processors to be reconfigured.  This list is\nprocessed node by node in order.  In each node @logical-id is\nused to look up the guest VCPU, for which @online specifies the\nrequested state.  The set of distinct @logical-id's is only\nrequired to be a subset of the guest-supported identifiers.\nThere's no restriction on list length or on repeating the same\n@logical-id (with possibly different @online field).  Preferably\nthe input list should describe a modified subset of\n`guest-get-vcpus`' return value." },
+    FieldMeta { name: "vcpus", wire_name: "vcpus", ty: 55, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The logical processors to be reconfigured.  This list is\nprocessed node by node in order.  In each node @logical-id is\nused to look up the guest VCPU, for which @online specifies the\nrequested state.  The set of distinct @logical-id's is only\nrequired to be a subset of the guest-supported identifiers.\nThere's no restriction on list length or on repeating the same\n@logical-id (with possibly different @online field).  Preferably\nthe input list should describe a modified subset of\n`guest-get-vcpus`' return value." },
 ];
 static STRUCT_GuestSetVcpus: StructMeta = StructMeta {
     name: "guest-set-vcpus",
@@ -1598,7 +1606,7 @@ static STRUCT_GuestTimezone: StructMeta = StructMeta {
 };
 static FIELDS_GuestUser: &[FieldMeta] = &[
     FieldMeta { name: "user", wire_name: "user", ty: 0, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Username" },
-    FieldMeta { name: "login_time", wire_name: "login-time", ty: 53, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time of login of this user on the computer.  If\nmultiple instances of the user are logged in, the earliest login\ntime is reported.  The value is in fractional seconds since\nepoch time." },
+    FieldMeta { name: "login_time", wire_name: "login-time", ty: 58, optional: false, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Time of login of this user on the computer.  If\nmultiple instances of the user are logged in, the earliest login\ntime is reported.  The value is in fractional seconds since\nepoch time." },
     FieldMeta { name: "domain", wire_name: "domain", ty: 0, optional: true, is_discriminator: false, recursive: false, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Logon domain (windows only)" },
 ];
 static STRUCT_GuestUser: StructMeta = StructMeta {
@@ -1613,9 +1621,9 @@ static STRUCT_GuestUser: StructMeta = StructMeta {
     until: None,
 };
 static VARIANTS_QgaSeek: &[EnumVariantMeta] = &[
-    EnumVariantMeta { name: "Set", wire_name: "set", payload_struct: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Set to the specified offset (same effect as 'whence':0)" },
-    EnumVariantMeta { name: "Cur", wire_name: "cur", payload_struct: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Add offset to the current location (same effect as 'whence':1)" },
-    EnumVariantMeta { name: "End", wire_name: "end", payload_struct: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Add offset to the end of the file (same effect as 'whence':2)" },
+    EnumVariantMeta { name: "Set", wire_name: "set", payload_struct: None, payload_type: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Set to the specified offset (same effect as 'whence':0)" },
+    EnumVariantMeta { name: "Cur", wire_name: "cur", payload_struct: None, payload_type: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Add offset to the current location (same effect as 'whence':1)" },
+    EnumVariantMeta { name: "End", wire_name: "end", payload_struct: None, payload_type: None, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Add offset to the end of the file (same effect as 'whence':2)" },
 ];
 static ENUM_QgaSeek: EnumMeta = EnumMeta {
     name: "QgaSeek",
@@ -1627,50 +1635,50 @@ static ENUM_QgaSeek: EnumMeta = EnumMeta {
 };
 
 pub static COMMANDS: &[CommandMeta] = &[
-    CommandMeta { wire_name: "guest-exec", rust_name: "GuestExecCommand", args: &STRUCT_GuestExecCommand, returns: Some(18), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Execute a command in the guest\n\nReturns: PID", category: "guest" },
-    CommandMeta { wire_name: "guest-exec-status", rust_name: "GuestExecStatusCommand", args: &STRUCT_GuestExecStatusCommand, returns: Some(19), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Check status of process associated with PID retrieved via\n`guest-exec`.  Reap the process and associated metadata if it has\nexited.", category: "guest" },
+    CommandMeta { wire_name: "guest-exec", rust_name: "GuestExecCommand", args: &STRUCT_GuestExecCommand, returns: Some(22), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Execute a command in the guest\n\nReturns: PID", category: "guest" },
+    CommandMeta { wire_name: "guest-exec-status", rust_name: "GuestExecStatusCommand", args: &STRUCT_GuestExecStatusCommand, returns: Some(23), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Check status of process associated with PID retrieved via\n`guest-exec`.  Reap the process and associated metadata if it has\nexited.", category: "guest" },
     CommandMeta { wire_name: "guest-file-close", rust_name: "GuestFileClose", args: &STRUCT_GuestFileClose, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Close an open file in the guest", category: "guest" },
     CommandMeta { wire_name: "guest-file-flush", rust_name: "GuestFileFlush", args: &STRUCT_GuestFileFlush, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Write file changes buffered in userspace to disk/kernel buffers", category: "guest" },
-    CommandMeta { wire_name: "guest-file-open", rust_name: "GuestFileOpen", args: &STRUCT_GuestFileOpen, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Open a file in the guest and retrieve a file handle for it\n\nReturns: Guest file handle", category: "guest" },
-    CommandMeta { wire_name: "guest-file-read", rust_name: "GuestFileReadCommand", args: &STRUCT_GuestFileReadCommand, returns: Some(21), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Read from an open file in the guest.  Data will be base64-encoded.\nAs this command is just for limited, ad-hoc debugging, such as log\nfile access, the number of bytes to read is limited to 48 MB.", category: "guest" },
-    CommandMeta { wire_name: "guest-file-seek", rust_name: "GuestFileSeekCommand", args: &STRUCT_GuestFileSeekCommand, returns: Some(23), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Seek to a position in the file, as with fseek(), and return the\ncurrent file position afterward.  Also encapsulates ftell()'s\nfunctionality, with offset=0 and whence=1.", category: "guest" },
-    CommandMeta { wire_name: "guest-file-write", rust_name: "GuestFileWriteCommand", args: &STRUCT_GuestFileWriteCommand, returns: Some(27), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Write to an open file in the guest.", category: "guest" },
-    CommandMeta { wire_name: "guest-fsfreeze-freeze", rust_name: "GuestFsfreezeFreeze", args: &STRUCT_GuestFsfreezeFreeze, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sync and freeze all freezable, local guest filesystems.  If this\ncommand succeeded, you may call `guest-fsfreeze-thaw` later to\nunfreeze.\n\nOn error, all filesystems will be thawed.  If no filesystems are\nfrozen as a result of this call, then `guest-fsfreeze-status` will\nremain \"thawed\" and calling `guest-fsfreeze-thaw` is not necessary.\n\nReturns: Number of file systems currently frozen.\n\n.. note:: On Windows, the command is implemented with the help of a\n   Volume Shadow-copy Service DLL helper.  The frozen state is\n   limited for up to 10 seconds by VSS.", category: "guest" },
-    CommandMeta { wire_name: "guest-fsfreeze-freeze-list", rust_name: "GuestFsfreezeFreezeList", args: &STRUCT_GuestFsfreezeFreezeList, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sync and freeze specified guest filesystems.  See also\n`guest-fsfreeze-freeze`.\n\nOn error, all filesystems will be thawed.\n\nReturns: Number of file systems currently frozen.", category: "guest" },
-    CommandMeta { wire_name: "guest-fsfreeze-status", rust_name: "GuestFsfreezeStatusCommand", args: &STRUCT_GuestFsfreezeStatusCommand, returns: Some(28), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get guest fsfreeze state.\n\n.. note:: This may fail to properly report the current state as a\n   result of some other guest processes having issued an fs\n   freeze/thaw.", category: "guest" },
-    CommandMeta { wire_name: "guest-fsfreeze-thaw", rust_name: "GuestFsfreezeThaw", args: &STRUCT_GuestFsfreezeThaw, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unfreeze all frozen guest filesystems\n\nReturns: Number of file systems thawed by this call\n\n.. note:: If the return value does not match the previous call to\n   `guest-fsfreeze-freeze`, this likely means some freezable\n   filesystems were unfrozen before this call, and that the\n   filesystem state may have changed before issuing this command.", category: "guest" },
-    CommandMeta { wire_name: "guest-fstrim", rust_name: "GuestFstrim", args: &STRUCT_GuestFstrim, returns: Some(29), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Discard (or \"trim\") blocks which are not in use by the filesystem.\n\nReturns: status of all trimmed paths.  (since 2.4)", category: "guest" },
-    CommandMeta { wire_name: "guest-get-cpustats", rust_name: "GuestGetCpustats", args: &STRUCT_GuestGetCpustats, returns: Some(31), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about CPU stats.\n\nReturns: List of CPU stats of guest.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-devices", rust_name: "GuestGetDevices", args: &STRUCT_GuestGetDevices, returns: Some(33), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about device drivers in Windows guest", category: "guest" },
-    CommandMeta { wire_name: "guest-get-disks", rust_name: "GuestGetDisks", args: &STRUCT_GuestGetDisks, returns: Some(35), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Returns: The list of disks in the guest.  For Windows these are only\n    the physical disks.  On Linux these are all root block devices\n    of non-zero size including e.g. removable devices, loop devices,\n    NBD, etc.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-diskstats", rust_name: "GuestGetDiskstats", args: &STRUCT_GuestGetDiskstats, returns: Some(37), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about disk stats.\n\nReturns: List of disk stats of guest.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-fsinfo", rust_name: "GuestGetFsinfo", args: &STRUCT_GuestGetFsinfo, returns: Some(39), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Returns: The list of filesystems information mounted in the guest.\n    The returned mountpoints may be specified to\n    `guest-fsfreeze-freeze-list`.  Network filesystems (such as CIFS\n    and NFS) are not listed.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-host-name", rust_name: "GuestGetHostName", args: &STRUCT_GuestGetHostName, returns: Some(40), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Return a name for the machine.\n\nThe returned name is not necessarily a fully-qualified domain name,\nor even present in DNS or some other name service at all.  It need\nnot even be unique on your local network or site, but usually it is.\n\nReturns: the host name of the machine", category: "guest" },
-    CommandMeta { wire_name: "guest-get-load", rust_name: "GuestGetLoad", args: &STRUCT_GuestGetLoad, returns: Some(41), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve CPU process load information\n\n.. note:: Windows does not have load average API, so QGA emulates it\n   by calculating the average CPU usage in the last 1, 5, 15 minutes\n   similar as Linux does this.  Calculation starts from the first\n   time this command is called.\n\nReturns: load information", category: "guest" },
-    CommandMeta { wire_name: "guest-get-memory-block-info", rust_name: "GuestGetMemoryBlockInfo", args: &STRUCT_GuestGetMemoryBlockInfo, returns: Some(42), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get information relating to guest memory blocks.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-memory-blocks", rust_name: "GuestGetMemoryBlocks", args: &STRUCT_GuestGetMemoryBlocks, returns: Some(44), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve the list of the guest's memory blocks.\n\nThis is a read-only operation.\n\nReturns: The list of all memory blocks the guest knows about.  Each\n    memory block is put on the list exactly once, but their order is\n    unspecified.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-osinfo", rust_name: "GuestGetOsinfo", args: &STRUCT_GuestGetOsinfo, returns: Some(45), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve guest operating system information", category: "guest" },
-    CommandMeta { wire_name: "guest-get-time", rust_name: "GuestGetTime", args: &STRUCT_GuestGetTime, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get the information about guest's System Time relative to the Epoch\nof 1970-01-01 in UTC.\n\nReturns: Time in nanoseconds.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-timezone", rust_name: "GuestGetTimezone", args: &STRUCT_GuestGetTimezone, returns: Some(46), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieves the timezone information from the guest.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-users", rust_name: "GuestGetUsers", args: &STRUCT_GuestGetUsers, returns: Some(48), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieves a list of currently active users on the VM.\n\nReturns: A unique list of users.", category: "guest" },
-    CommandMeta { wire_name: "guest-get-vcpus", rust_name: "GuestGetVcpus", args: &STRUCT_GuestGetVcpus, returns: Some(50), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve the list of the guest's logical processors.\n\nThis is a read-only operation.\n\nReturns: The list of all VCPUs the guest knows about.  Each VCPU is\n    put on the list exactly once, but their order is unspecified.", category: "guest" },
-    CommandMeta { wire_name: "guest-info", rust_name: "GuestInfo", args: &STRUCT_GuestInfo, returns: Some(51), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get some information about the guest agent.", category: "guest" },
-    CommandMeta { wire_name: "guest-network-get-interfaces", rust_name: "GuestNetworkGetInterfaces", args: &STRUCT_GuestNetworkGetInterfaces, returns: Some(56), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get list of guest IP addresses, MAC addresses and netmasks.", category: "guest" },
-    CommandMeta { wire_name: "guest-network-get-route", rust_name: "GuestNetworkGetRoute", args: &STRUCT_GuestNetworkGetRoute, returns: Some(58), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about route of network.\n\nReturns: List of route info of guest.", category: "guest" },
+    CommandMeta { wire_name: "guest-file-open", rust_name: "GuestFileOpen", args: &STRUCT_GuestFileOpen, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Open a file in the guest and retrieve a file handle for it\n\nReturns: Guest file handle", category: "guest" },
+    CommandMeta { wire_name: "guest-file-read", rust_name: "GuestFileReadCommand", args: &STRUCT_GuestFileReadCommand, returns: Some(25), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Read from an open file in the guest.  Data will be base64-encoded.\nAs this command is just for limited, ad-hoc debugging, such as log\nfile access, the number of bytes to read is limited to 48 MB.", category: "guest" },
+    CommandMeta { wire_name: "guest-file-seek", rust_name: "GuestFileSeekCommand", args: &STRUCT_GuestFileSeekCommand, returns: Some(27), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Seek to a position in the file, as with fseek(), and return the\ncurrent file position afterward.  Also encapsulates ftell()'s\nfunctionality, with offset=0 and whence=1.", category: "guest" },
+    CommandMeta { wire_name: "guest-file-write", rust_name: "GuestFileWriteCommand", args: &STRUCT_GuestFileWriteCommand, returns: Some(32), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Write to an open file in the guest.", category: "guest" },
+    CommandMeta { wire_name: "guest-fsfreeze-freeze", rust_name: "GuestFsfreezeFreeze", args: &STRUCT_GuestFsfreezeFreeze, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sync and freeze all freezable, local guest filesystems.  If this\ncommand succeeded, you may call `guest-fsfreeze-thaw` later to\nunfreeze.\n\nOn error, all filesystems will be thawed.  If no filesystems are\nfrozen as a result of this call, then `guest-fsfreeze-status` will\nremain \"thawed\" and calling `guest-fsfreeze-thaw` is not necessary.\n\nReturns: Number of file systems currently frozen.\n\n.. note:: On Windows, the command is implemented with the help of a\n   Volume Shadow-copy Service DLL helper.  The frozen state is\n   limited for up to 10 seconds by VSS.", category: "guest" },
+    CommandMeta { wire_name: "guest-fsfreeze-freeze-list", rust_name: "GuestFsfreezeFreezeList", args: &STRUCT_GuestFsfreezeFreezeList, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Sync and freeze specified guest filesystems.  See also\n`guest-fsfreeze-freeze`.\n\nOn error, all filesystems will be thawed.\n\nReturns: Number of file systems currently frozen.", category: "guest" },
+    CommandMeta { wire_name: "guest-fsfreeze-status", rust_name: "GuestFsfreezeStatusCommand", args: &STRUCT_GuestFsfreezeStatusCommand, returns: Some(33), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get guest fsfreeze state.\n\n.. note:: This may fail to properly report the current state as a\n   result of some other guest processes having issued an fs\n   freeze/thaw.", category: "guest" },
+    CommandMeta { wire_name: "guest-fsfreeze-thaw", rust_name: "GuestFsfreezeThaw", args: &STRUCT_GuestFsfreezeThaw, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Unfreeze all frozen guest filesystems\n\nReturns: Number of file systems thawed by this call\n\n.. note:: If the return value does not match the previous call to\n   `guest-fsfreeze-freeze`, this likely means some freezable\n   filesystems were unfrozen before this call, and that the\n   filesystem state may have changed before issuing this command.", category: "guest" },
+    CommandMeta { wire_name: "guest-fstrim", rust_name: "GuestFstrim", args: &STRUCT_GuestFstrim, returns: Some(34), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Discard (or \"trim\") blocks which are not in use by the filesystem.\n\nReturns: status of all trimmed paths.  (since 2.4)", category: "guest" },
+    CommandMeta { wire_name: "guest-get-cpustats", rust_name: "GuestGetCpustats", args: &STRUCT_GuestGetCpustats, returns: Some(36), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about CPU stats.\n\nReturns: List of CPU stats of guest.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-devices", rust_name: "GuestGetDevices", args: &STRUCT_GuestGetDevices, returns: Some(38), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about device drivers in Windows guest", category: "guest" },
+    CommandMeta { wire_name: "guest-get-disks", rust_name: "GuestGetDisks", args: &STRUCT_GuestGetDisks, returns: Some(40), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Returns: The list of disks in the guest.  For Windows these are only\n    the physical disks.  On Linux these are all root block devices\n    of non-zero size including e.g. removable devices, loop devices,\n    NBD, etc.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-diskstats", rust_name: "GuestGetDiskstats", args: &STRUCT_GuestGetDiskstats, returns: Some(42), allow_oob: false, allow_preconfig: false, success_response: true, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about disk stats.\n\nReturns: List of disk stats of guest.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-fsinfo", rust_name: "GuestGetFsinfo", args: &STRUCT_GuestGetFsinfo, returns: Some(44), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Returns: The list of filesystems information mounted in the guest.\n    The returned mountpoints may be specified to\n    `guest-fsfreeze-freeze-list`.  Network filesystems (such as CIFS\n    and NFS) are not listed.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-host-name", rust_name: "GuestGetHostName", args: &STRUCT_GuestGetHostName, returns: Some(45), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Return a name for the machine.\n\nThe returned name is not necessarily a fully-qualified domain name,\nor even present in DNS or some other name service at all.  It need\nnot even be unique on your local network or site, but usually it is.\n\nReturns: the host name of the machine", category: "guest" },
+    CommandMeta { wire_name: "guest-get-load", rust_name: "GuestGetLoad", args: &STRUCT_GuestGetLoad, returns: Some(46), allow_oob: false, allow_preconfig: false, success_response: true, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve CPU process load information\n\n.. note:: Windows does not have load average API, so QGA emulates it\n   by calculating the average CPU usage in the last 1, 5, 15 minutes\n   similar as Linux does this.  Calculation starts from the first\n   time this command is called.\n\nReturns: load information", category: "guest" },
+    CommandMeta { wire_name: "guest-get-memory-block-info", rust_name: "GuestGetMemoryBlockInfo", args: &STRUCT_GuestGetMemoryBlockInfo, returns: Some(47), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get information relating to guest memory blocks.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-memory-blocks", rust_name: "GuestGetMemoryBlocks", args: &STRUCT_GuestGetMemoryBlocks, returns: Some(49), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve the list of the guest's memory blocks.\n\nThis is a read-only operation.\n\nReturns: The list of all memory blocks the guest knows about.  Each\n    memory block is put on the list exactly once, but their order is\n    unspecified.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-osinfo", rust_name: "GuestGetOsinfo", args: &STRUCT_GuestGetOsinfo, returns: Some(50), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve guest operating system information", category: "guest" },
+    CommandMeta { wire_name: "guest-get-time", rust_name: "GuestGetTime", args: &STRUCT_GuestGetTime, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get the information about guest's System Time relative to the Epoch\nof 1970-01-01 in UTC.\n\nReturns: Time in nanoseconds.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-timezone", rust_name: "GuestGetTimezone", args: &STRUCT_GuestGetTimezone, returns: Some(51), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieves the timezone information from the guest.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-users", rust_name: "GuestGetUsers", args: &STRUCT_GuestGetUsers, returns: Some(53), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 10u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieves a list of currently active users on the VM.\n\nReturns: A unique list of users.", category: "guest" },
+    CommandMeta { wire_name: "guest-get-vcpus", rust_name: "GuestGetVcpus", args: &STRUCT_GuestGetVcpus, returns: Some(55), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve the list of the guest's logical processors.\n\nThis is a read-only operation.\n\nReturns: The list of all VCPUs the guest knows about.  Each VCPU is\n    put on the list exactly once, but their order is unspecified.", category: "guest" },
+    CommandMeta { wire_name: "guest-info", rust_name: "GuestInfo", args: &STRUCT_GuestInfo, returns: Some(56), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get some information about the guest agent.", category: "guest" },
+    CommandMeta { wire_name: "guest-network-get-interfaces", rust_name: "GuestNetworkGetInterfaces", args: &STRUCT_GuestNetworkGetInterfaces, returns: Some(61), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Get list of guest IP addresses, MAC addresses and netmasks.", category: "guest" },
+    CommandMeta { wire_name: "guest-network-get-route", rust_name: "GuestNetworkGetRoute", args: &STRUCT_GuestNetworkGetRoute, returns: Some(63), allow_oob: false, allow_preconfig: false, success_response: true, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Retrieve information about route of network.\n\nReturns: List of route info of guest.", category: "guest" },
     CommandMeta { wire_name: "guest-ping", rust_name: "GuestPing", args: &STRUCT_GuestPing, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Ping the guest agent, a non-error return implies success", category: "guest" },
-    CommandMeta { wire_name: "guest-set-memory-blocks", rust_name: "GuestSetMemoryBlocks", args: &STRUCT_GuestSetMemoryBlocks, returns: Some(63), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Attempt to reconfigure (currently: enable/disable) state of memory\nblocks inside the guest.\n\nReturns: The operation results, it is a list of\n    `GuestMemoryBlockResponse`, which is corresponding to the input\n    list.\n\n    Note: it will return an empty list if the @mem-blks list was\n    empty on input, or there is an error, and in this case, guest\n    state will not be changed.", category: "guest" },
+    CommandMeta { wire_name: "guest-set-memory-blocks", rust_name: "GuestSetMemoryBlocks", args: &STRUCT_GuestSetMemoryBlocks, returns: Some(68), allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Attempt to reconfigure (currently: enable/disable) state of memory\nblocks inside the guest.\n\nReturns: The operation results, it is a list of\n    `GuestMemoryBlockResponse`, which is corresponding to the input\n    list.\n\n    Note: it will return an empty list if the @mem-blks list was\n    empty on input, or there is an error, and in this case, guest\n    state will not be changed.", category: "guest" },
     CommandMeta { wire_name: "guest-set-time", rust_name: "GuestSetTime", args: &STRUCT_GuestSetTime, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Set guest time.\n\nWhen a guest is paused or migrated to a file then loaded from that\nfile, the guest OS has no idea that there was a big gap in the time.\nDepending on how long the gap was, NTP might not be able to\nresynchronize the guest.\n\nThis command tries to set guest's System Time to the given value,\nthen sets the Hardware Clock (RTC) to the current System Time.  This\nwill make it easier for a guest to resynchronize without waiting for\nNTP.  If no @time is specified, then the time to set is read from\nRTC.  However, this may not be supported on all platforms (i.e.\nWindows).  If that's the case users are advised to always pass a\nvalue.", category: "guest" },
     CommandMeta { wire_name: "guest-set-user-password", rust_name: "GuestSetUserPassword", args: &STRUCT_GuestSetUserPassword, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "If the @crypted flag is true, it is the caller's responsibility to\nensure the correct crypt() encryption scheme is used.  This command\ndoes not attempt to interpret or report on the encryption scheme.\nRefer to the documentation of the guest operating system in question\nto determine what is supported.\n\nNot all guest operating systems will support use of the @crypted\nflag, as they may require the clear-text password\n\nThe @password parameter must always be base64 encoded before\ntransmission, even if already crypt()d, to ensure it is 8-bit safe\nwhen passed as JSON.", category: "guest" },
-    CommandMeta { wire_name: "guest-set-vcpus", rust_name: "GuestSetVcpus", args: &STRUCT_GuestSetVcpus, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Attempt to reconfigure (currently: enable/disable) logical\nprocessors inside the guest.\n\nReturns: The length of the initial sublist that has been\n    successfully processed.  The guest agent maximizes this value.\n    Possible cases:\n\n    - 0:\n      if the @vcpus list was empty on input.  Guest state has not\n      been changed.  Otherwise,\n    - < length(@vcpus):\n      more than zero initial nodes have been processed, but not the\n      entire @vcpus list.  Guest state has changed accordingly.  To\n      retrieve the error (assuming it persists), repeat the call\n      with the successfully processed initial sublist removed.\n      Otherwise,\n    - length(@vcpus):\n      call successful.\n\nErrors:\n    - If the reconfiguration of the first node in @vcpus failed.\n      Guest state has not been changed.", category: "guest" },
+    CommandMeta { wire_name: "guest-set-vcpus", rust_name: "GuestSetVcpus", args: &STRUCT_GuestSetVcpus, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Attempt to reconfigure (currently: enable/disable) logical\nprocessors inside the guest.\n\nReturns: The length of the initial sublist that has been\n    successfully processed.  The guest agent maximizes this value.\n    Possible cases:\n\n    - 0:\n      if the @vcpus list was empty on input.  Guest state has not\n      been changed.  Otherwise,\n    - < length(@vcpus):\n      more than zero initial nodes have been processed, but not the\n      entire @vcpus list.  Guest state has changed accordingly.  To\n      retrieve the error (assuming it persists), repeat the call\n      with the successfully processed initial sublist removed.\n      Otherwise,\n    - length(@vcpus):\n      call successful.\n\nErrors:\n    - If the reconfiguration of the first node in @vcpus failed.\n      Guest state has not been changed.", category: "guest" },
     CommandMeta { wire_name: "guest-shutdown", rust_name: "GuestShutdown", args: &STRUCT_GuestShutdown, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Initiate guest-activated shutdown.  Note: this is an asynchronous\nshutdown request, with no guarantee of successful shutdown.\n\nThis command does NOT return a response on success.  Success\ncondition is indicated by the VM exiting with a zero exit status or,\nwhen running with --no-shutdown, by issuing the `query-status` QMP\ncommand to confirm the VM status is \"shutdown\".", category: "guest" },
     CommandMeta { wire_name: "guest-ssh-add-authorized-keys", rust_name: "GuestSshAddAuthorizedKeys", args: &STRUCT_GuestSshAddAuthorizedKeys, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Append public keys to user .ssh/authorized_keys on Unix systems (not\nimplemented for other systems).", category: "guest" },
-    CommandMeta { wire_name: "guest-ssh-get-authorized-keys", rust_name: "GuestSshGetAuthorizedKeys", args: &STRUCT_GuestSshGetAuthorizedKeys, returns: Some(64), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Return the public keys from user .ssh/authorized_keys on Unix\nsystems (not implemented for other systems).", category: "guest" },
+    CommandMeta { wire_name: "guest-ssh-get-authorized-keys", rust_name: "GuestSshGetAuthorizedKeys", args: &STRUCT_GuestSshGetAuthorizedKeys, returns: Some(69), allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Return the public keys from user .ssh/authorized_keys on Unix\nsystems (not implemented for other systems).", category: "guest" },
     CommandMeta { wire_name: "guest-ssh-remove-authorized-keys", rust_name: "GuestSshRemoveAuthorizedKeys", args: &STRUCT_GuestSshRemoveAuthorizedKeys, returns: None, allow_oob: false, allow_preconfig: false, success_response: true, since: (5u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Remove public keys from the user .ssh/authorized_keys on Unix\nsystems (not implemented for other systems).  It's not an error if\nthe key is already missing.", category: "guest" },
     CommandMeta { wire_name: "guest-suspend-disk", rust_name: "GuestSuspendDisk", args: &STRUCT_GuestSuspendDisk, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Suspend guest to disk.\n\nThis command attempts to suspend the guest using three strategies,\nin this order:\n\n- systemd hibernate\n- pm-utils (via pm-hibernate)\n- manual write into sysfs\n\nThis command does NOT return a response on success.  There is a high\nchance the command succeeded if the VM exits with a zero exit status\nor, when running with --no-shutdown, by issuing the `query-status`\nQMP command to to confirm the VM status is \"shutdown\".  However, the\nVM could also exit (or set its status to \"shutdown\") due to other\nreasons.\n\nErrors:\n    - If suspend to disk is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
     CommandMeta { wire_name: "guest-suspend-hybrid", rust_name: "GuestSuspendHybrid", args: &STRUCT_GuestSuspendHybrid, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Save guest state to disk and suspend to ram.\n\nThis command attempts to suspend the guest by executing, in this\norder:\n\n- systemd hybrid-sleep\n- pm-utils (via pm-suspend-hybrid)\n\nIMPORTANT: `guest-suspend-hybrid` requires working wakeup support in\nQEMU.  You should check QMP command `query-current-machine` returns\nwakeup-suspend-support: true before issuing this command.  Failure\nin doing so can result in a suspended guest that QEMU will not be\nable to awaken, forcing the user to power cycle the guest to bring\nit back.\n\nThis command does NOT return a response on success.  There are two\noptions to check for success:\n\n1. Wait for the `SUSPEND` QMP event from QEMU\n2. Issue the `query-status` QMP command to confirm the VM status is\n   \"suspended\"\n\nErrors:\n    - If hybrid suspend is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
     CommandMeta { wire_name: "guest-suspend-ram", rust_name: "GuestSuspendRam", args: &STRUCT_GuestSuspendRam, returns: None, allow_oob: false, allow_preconfig: false, success_response: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Suspend guest to ram.\n\nThis command attempts to suspend the guest using three strategies,\nin this order:\n\n- systemd hibernate\n- pm-utils (via pm-hibernate)\n- manual write into sysfs\n\nIMPORTANT: `guest-suspend-ram` requires working wakeup support in\nQEMU.  You should check QMP command `query-current-machine` returns\nwakeup-suspend-support: true before issuing this command.  Failure\nin doing so can result in a suspended guest that QEMU will not be\nable to awaken, forcing the user to power cycle the guest to bring\nit back.\n\nThis command does NOT return a response on success.  There are two\noptions to check for success:\n\n1. Wait for the `SUSPEND` QMP event from QEMU\n2. Issue the `query-status` QMP command to confirm the VM status is\n   \"suspended\"\n\nErrors:\n    - If suspend to ram is not supported, Unsupported\n\n.. note:: It's strongly recommended to issue the `guest-sync`\n   command before sending commands when the guest resumes.", category: "guest" },
-    CommandMeta { wire_name: "guest-sync", rust_name: "GuestSync", args: &STRUCT_GuestSync, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  All guest agent responses should be ignored until\nthe provided unique integer value is returned, and it is up to the\nclient to handle stale whole or partially-delivered JSON text in\nsuch a way that this response can be obtained.\n\nIn cases where a partial stale response was previously received by\nthe client, this cannot always be done reliably.  One particular\nscenario being if qemu-ga responses are fed character-by-character\ninto a JSON parser.  In these situations, using\n`guest-sync-delimited` may be optimal.\n\nFor clients that fetch responses line by line and convert them to\nJSON objects, `guest-sync` should be sufficient, but note that in\ncases where the channel is dirty some attempts at parsing the\nresponse may result in a parser error.\n\nSuch clients should also precede this command with a 0xFF byte to\nmake sure the guest agent flushes any partially read JSON data from\na previous session.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
-    CommandMeta { wire_name: "guest-sync-delimited", rust_name: "GuestSyncDelimited", args: &STRUCT_GuestSyncDelimited, returns: Some(20), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value, and prepend to response a leading\nsentinel byte (0xFF) the client can check scan for.\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  It must be issued upon initial connection, and\nafter any client-side timeouts (including timeouts on receiving a\nresponse to this command).\n\nAfter issuing this request, all guest agent responses should be\nignored until the response containing the unique integer value the\nclient passed in is returned.  Receival of the 0xFF sentinel byte\nmust be handled as an indication that the client's\nlexer/tokenizer/parser state should be flushed/reset in preparation\nfor reliably receiving the subsequent response.  As an optimization,\nclients may opt to ignore all data until a sentinel value is\nreceiving to avoid unnecessary processing of stale data.\n\nSimilarly, clients should also precede this *request* with a 0xFF\nbyte to make sure the guest agent flushes any partially read JSON\ndata from a previous client connection.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
+    CommandMeta { wire_name: "guest-sync", rust_name: "GuestSync", args: &STRUCT_GuestSync, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (0u32, 15u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  All guest agent responses should be ignored until\nthe provided unique integer value is returned, and it is up to the\nclient to handle stale whole or partially-delivered JSON text in\nsuch a way that this response can be obtained.\n\nIn cases where a partial stale response was previously received by\nthe client, this cannot always be done reliably.  One particular\nscenario being if qemu-ga responses are fed character-by-character\ninto a JSON parser.  In these situations, using\n`guest-sync-delimited` may be optimal.\n\nFor clients that fetch responses line by line and convert them to\nJSON objects, `guest-sync` should be sufficient, but note that in\ncases where the channel is dirty some attempts at parsing the\nresponse may result in a parser error.\n\nSuch clients should also precede this command with a 0xFF byte to\nmake sure the guest agent flushes any partially read JSON data from\na previous session.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
+    CommandMeta { wire_name: "guest-sync-delimited", rust_name: "GuestSyncDelimited", args: &STRUCT_GuestSyncDelimited, returns: Some(24), allow_oob: false, allow_preconfig: false, success_response: true, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Echo back a unique integer value, and prepend to response a leading\nsentinel byte (0xFF) the client can check scan for.\n\nThis is used by clients talking to the guest agent over the wire to\nensure the stream is in sync and doesn't contain stale data from\nprevious client.  It must be issued upon initial connection, and\nafter any client-side timeouts (including timeouts on receiving a\nresponse to this command).\n\nAfter issuing this request, all guest agent responses should be\nignored until the response containing the unique integer value the\nclient passed in is returned.  Receival of the 0xFF sentinel byte\nmust be handled as an indication that the client's\nlexer/tokenizer/parser state should be flushed/reset in preparation\nfor reliably receiving the subsequent response.  As an optimization,\nclients may opt to ignore all data until a sentinel value is\nreceiving to avoid unnecessary processing of stale data.\n\nSimilarly, clients should also precede this *request* with a 0xFF\nbyte to make sure the guest agent flushes any partially read JSON\ndata from a previous client connection.\n\nReturns: The unique integer id passed in by the client", category: "guest" },
 ];
 
 pub static STRUCTS: phf::Map<&'static str, &'static StructMeta> = phf_map! {

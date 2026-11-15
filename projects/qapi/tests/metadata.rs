@@ -8,6 +8,40 @@
 use qapi::metadata::{EnumKind, COMMANDS, ENUMS, STRUCTS};
 
 #[test]
+fn metadata_references_resolve_including_enum_payloads() {
+    use qapi::metadata::{TypeKind, TYPE_REFS};
+    for (index, ty) in TYPE_REFS.iter().enumerate() {
+        match ty.kind {
+            TypeKind::Struct => assert!(STRUCTS.contains_key(ty.name), "{}", ty.name),
+            TypeKind::Enum => assert!(ENUMS.contains_key(ty.name), "{}", ty.name),
+            TypeKind::List => assert!((ty.inner as usize) < index),
+            TypeKind::Primitive => {}
+        }
+    }
+    for metadata in STRUCTS.values() {
+        for field in metadata.fields {
+            assert!((field.ty as usize) < TYPE_REFS.len());
+        }
+    }
+    for metadata in ENUMS.values() {
+        for variant in metadata.variants {
+            if metadata.kind == EnumKind::Unit {
+                assert!(variant.payload_type.is_none());
+            }
+            if let Some(payload) = variant.payload_type {
+                let ty = &TYPE_REFS[payload as usize];
+                if let Some(name) = variant.payload_struct {
+                    assert_eq!(ty.kind, TypeKind::Struct);
+                    assert_eq!(ty.name, name);
+                }
+            } else {
+                assert!(variant.payload_struct.is_none());
+            }
+        }
+    }
+}
+
+#[test]
 fn commands_table_has_full_qapi_surface() {
     // QEMU 10.2 carries roughly 280 QMP commands. A floor of 250 prevents
     // accidental schema-export regressions without needing to bump the
