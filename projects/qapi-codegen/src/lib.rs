@@ -51,11 +51,24 @@ pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
         .parse(input)
         .map_err(|error| match error {
             nom::Err::Error(error) | nom::Err::Failure(error) => {
-                let remainder = error.input.trim_start();
+                let remainder = error
+                    .input
+                    .trim_start_matches(parsers::common::is_whitespace);
                 let offset = input.len().saturating_sub(remainder.len());
                 let consumed = &input[..offset];
-                let line = consumed.bytes().filter(|byte| *byte == b'\n').count() + 1;
-                let column = consumed.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+                let (mut line, mut column) = (1, 1);
+                let mut chars = consumed.chars().peekable();
+                while let Some(c) = chars.next() {
+                    if c == '\r' || c == '\n' {
+                        if c == '\r' && chars.peek() == Some(&'\n') {
+                            chars.next();
+                        }
+                        line += 1;
+                        column = 1;
+                    } else {
+                        column += 1;
+                    }
+                }
                 anyhow::anyhow!(
                     "QAPI parse error at line {line}, column {column} ({:?}): {:?}",
                     error.code,

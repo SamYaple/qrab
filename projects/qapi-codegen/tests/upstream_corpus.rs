@@ -6,17 +6,20 @@ use std::path::Path;
 fn malformed_schema_diagnostics_locate_later_definitions() {
     qapi_codegen::set_parser_version((11, 1, 3));
     let prefix = "# Unicode comment: ☃\n{'struct':'Good','data':{}}\n\n    ";
-    for invalid in [
-        "{'struct':'Bad','data':{'value':}}",
-        "{'struct':'Bad','data':{'value':'str',}}",
-        "{'unknown':'Bad'}",
-        "unexpected",
-    ] {
-        let error = qapi_codegen::parse_schema(&format!("{prefix}{invalid}"))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("line 4, column 5"), "{error}");
-        assert!(error.contains(invalid), "{error}");
+    for ending in ["\n", "\r\n", "\r"] {
+        let prefix = prefix.replace('\n', ending);
+        for invalid in [
+            "{'struct':'Bad','data':{'value':}}",
+            "{'struct':'Bad','data':{'value':'str',}}",
+            "{'unknown':'Bad'}",
+            "unexpected",
+        ] {
+            let error = qapi_codegen::parse_schema(&format!("{prefix}{invalid}"))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("line 4, column 5"), "{error}");
+            assert!(error.contains(invalid), "{error}");
+        }
     }
     let error = qapi_codegen::parse_schema(&format!(
         "{prefix}{{'struct':'Bad','data':{{'value':'str','value':'int'}}}}"

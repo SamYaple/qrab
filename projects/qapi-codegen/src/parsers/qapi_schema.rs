@@ -1,4 +1,4 @@
-use super::common::qcomment;
+use super::common::{line_ending, lines, qcomment, whitespace1};
 use super::qapi_alternate::QapiAlternate;
 use super::qapi_command::QapiCommand;
 use super::qapi_documentation::{QapiFreeformDoc, QapiSectionDocumentation};
@@ -13,8 +13,7 @@ use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::multispace1;
-use nom::character::complete::{line_ending, space0};
+use nom::character::complete::space0;
 use nom::combinator::recognize;
 use nom::multi::many0;
 use nom::sequence::terminated;
@@ -66,7 +65,7 @@ impl<'i> QapiSchema<'i> {
             // Bare ## separator (not followed by doc content, common in v2.x)
             bare_doc_separator.map(|_| QapiSchemaToken::EmptyLines),
             qcomment.map(QapiSchemaToken::Comment),
-            multispace1.map(|_| QapiSchemaToken::EmptyLines),
+            whitespace1.map(|_| QapiSchemaToken::EmptyLines),
         )))
         .map(Self)
         .parse(input)
@@ -75,7 +74,7 @@ impl<'i> QapiSchema<'i> {
 
 // Failed documentation must not fall back to ordinary comments and vanish.
 fn invalid_documentation(input: &str) -> IResult<&str, QapiSchemaToken<'_>> {
-    let mut lines = input.lines();
+    let mut lines = lines(input);
     let first = lines.next().unwrap_or("").trim();
     let shorthand = first
         .strip_prefix("##")

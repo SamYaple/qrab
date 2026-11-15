@@ -45,6 +45,11 @@ where the QMP schema first appears, and QGA 0.15. Keep version-specific grammar 
 language changed, and accept explicit older input sets through the library or
 `--versions-file`; do not add a minimum-version rejection to the parser.
 
+Lexing follows QEMU's Python parser, including Unicode/C0 whitespace and
+LF, CRLF or CR line endings. Shared nom 8 helpers borrow the original source;
+parse errors report its line and column. A differential lexical corpus checks
+acceptance against the parser in the pinned QEMU tree.
+
 ## Regeneration
 
 Run from the repository root:

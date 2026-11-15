@@ -3,8 +3,8 @@
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
-use nom::bytes::complete::{escaped, tag, take_while1};
-use nom::character::complete::{line_ending, multispace0, not_line_ending, space0};
+use nom::bytes::complete::{escaped, tag, take_till, take_while, take_while1};
+use nom::character::complete::space0;
 use nom::combinator::{eof, not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
 use nom::multi::{many1, separated_list0};
@@ -20,10 +20,49 @@ pub fn qcomment(input: &str) -> IResult<&str, &str> {
     .parse(input)
 }
 
+// QEMU's Python lexer uses str.isspace(), including the four C0 separators.
+pub(crate) fn is_whitespace(c: char) -> bool {
+    c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
+}
+
+/// QEMU reads schema files with Python's universal newline handling.
+pub fn line_ending(input: &str) -> IResult<&str, &str> {
+    alt((tag("\r\n"), tag("\n"), tag("\r"))).parse(input)
+}
+
+pub fn not_line_ending(input: &str) -> IResult<&str, &str> {
+    take_till(|c| c == '\r' || c == '\n').parse(input)
+}
+
+pub(crate) fn lines(mut input: &str) -> impl Iterator<Item = &str> {
+    std::iter::from_fn(move || {
+        if input.is_empty() {
+            return None;
+        }
+        let end = input.find(['\r', '\n']).unwrap_or(input.len());
+        let line = &input[..end];
+        input = &input[end..];
+        if input.starts_with("\r\n") {
+            input = &input[2..];
+        } else if !input.is_empty() {
+            input = &input[1..];
+        }
+        Some(line)
+    })
+}
+
+pub fn whitespace0(input: &str) -> IResult<&str, &str> {
+    take_while(is_whitespace).parse(input)
+}
+
+pub fn whitespace1(input: &str) -> IResult<&str, &str> {
+    take_while1(is_whitespace).parse(input)
+}
+
 pub fn clean_lines(input: &str) -> IResult<&str, &str> {
     recognize((
-        multispace0,
-        opt((many1((multispace0, qcomment)), multispace0)),
+        whitespace0,
+        opt((many1((whitespace0, qcomment)), whitespace0)),
     ))
     .parse(input)
 }

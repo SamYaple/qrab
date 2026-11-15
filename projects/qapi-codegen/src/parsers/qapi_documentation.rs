@@ -1,8 +1,11 @@
-use super::parser_version;
+use super::{
+    common::{line_ending, lines, not_line_ending},
+    parser_version,
+};
 use nom::IResult;
 use nom::Parser;
 use nom::bytes::complete::{tag, tag_no_case};
-use nom::character::complete::{line_ending, not_line_ending, space0};
+use nom::character::complete::space0;
 use nom::combinator::{not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
 use nom::multi::{many0, many1};
@@ -398,7 +401,7 @@ impl<'i> QapiSectionDocumentation<'i> {
         let (input, _) = many0(take_empty_line).parse(input)?;
         let (input, _) = preceded(space0, tag("##")).parse(input)?;
 
-        let description = desc_str.map(|s| s.lines().collect()).unwrap_or_default();
+        let description = desc_str.map(|s| lines(s).collect()).unwrap_or_default();
 
         Ok((
             input,
