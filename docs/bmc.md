@@ -40,7 +40,7 @@ The page is console-first (`projects/bmc/assets`, plain HTML, CSS and ES
 modules):
 
 - **Status header** (sticky): VM name, a `PowerState · Health` chip from
-  `Systems/1`, the role badge and **Sign out**. The chip is re-read every 3 s
+  `Systems/1`, the role badge and **Sign out**. The chip is re-read every 3 s while visible
   and shortly after every `EventService/SSE` event, so pause, resume or a
   guest panic shows without a reload.
 - **Console toolbar**, attached to the display: **Connect console** /
@@ -50,7 +50,8 @@ modules):
   buttons are the `ResetType` values Redfish's `ResetActionInfo` allows (Power
   on = `On`, Pause, Resume, Reset = `ForceRestart`, Restart guest =
   `GracefulRestart`, Shut down = `GracefulShutdown`, Force off, Power cycle,
-  NMI), enabled for the current `PowerState`: only Power on while `Off`, only
+  NMI). Reset, Force off, Power cycle and NMI sit under **More power actions**,
+  a keyboard-accessible native disclosure. Buttons are enabled for the current `PowerState`: only Power on while `Off`, only
   Force off while powering on or off. All but Power on, Pause and Resume use an
   inline two-step confirm: the first
   click turns the button into **Confirm <action>** for 5 s and only a second
@@ -60,6 +61,8 @@ modules):
   **Connect console** is disabled; the Power group is unchanged. A console
   that was open when the VM went off, or after **Power on**, reconnects once
   the 3 s `Systems/1` poll reads `On` or `Paused`; nothing retries in between.
+  At narrow widths, **VM panels ↓** jumps keyboard focus past the display to
+  the details rail. Header offsets follow its measured height as the layout wraps.
 - **Side rail** beside the console (stacked below it at 1000 px and narrower),
   with keyboard-accessible tabs (arrow keys, Home, End). The selected tab is
   remembered per user in the browser's `localStorage`.
@@ -85,7 +88,11 @@ modules):
     `Qrab.1.0.EventsMissed` notice (a resume cursor already evicted, or one
     from before a manager restart) becomes a **Gap** row naming the missed
     count or the restart, shown under any filter; `Qrab.1.0.QmpEventsDropped`
-    notices set or clear the dropped-events warning. Nothing on this tab
+    notices set or clear the dropped-events warning. Expand an event to read
+    its full timestamp, sequence and formatted payload; payload text is never
+    interpreted as HTML. Expansion survives filtering, and missing or invalid
+    timestamps say **Time unavailable**. The list keeps at most 200 rows.
+    Nothing on this tab
     polls ([redfish.md](redfish.md#event-stream-sse)).
   - *Guest agent*: agent status, the filesystem freeze state and the last
     update run from `Oem.Qrab.GuestAgent` (update output and errors for
@@ -95,6 +102,7 @@ modules):
 Viewers get the same header and rail, but the console toolbar, power group,
 keyboard hint and guest-agent actions are not in the page at all. The palette
 is dark by default and switches to a light one with the system preference.
+Viewer details use the full available width.
 
 ## Runtime configuration
 

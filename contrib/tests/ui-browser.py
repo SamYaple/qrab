@@ -39,7 +39,7 @@ def system(power='On'):
 def install_bmc(context, role='admin', power='On'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_error': None,
-               'fail_system': None, 'fail_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'requests': []}
+               'fail_system': None, 'fail_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': []}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
     def route(request_route):
@@ -90,6 +90,7 @@ def install_bmc(context, role='admin', power='On'):
             data = {'Parameters': [{'Name': 'ResetType', 'AllowableValues': resets}]}
         elif path.endswith('/Events/Entries'):
             data = {'Members': [] if fixture['empty_events'] else [{'Id': str(i), 'Created': f'2026-11-15T04:00:{i:02d}Z', 'Oem': {'Qrab': {'Sequence': i, 'Event': event, 'Data': {'reason': 'requested by user'}}}} for i, event in [(1, 'STOP'), (2, 'RESUME'), (3, 'DEVICE_DELETED')]]}
+            data['Members'].extend(fixture['extra_events'])
         elif path.endswith('/EventService/SSE'):
             request_route.fulfill(body=': fixture\n\n', content_type='text/event-stream')
             return
@@ -108,6 +109,13 @@ def install_bmc(context, role='admin', power='On'):
     return fixture
 
 
+def capture(page, path):
+    # Full-page captures preserve fixed/sticky elements at the current scroll
+    # position unless reset, which can put a sticky header in mid-artifact.
+    page.evaluate("window.scrollTo(0, 0)")
+    page.screenshot(path=str(path), full_page=True)
+
+
 def no_overflow(page, name, width):
     measured = page.evaluate('({viewport:innerWidth, content:document.documentElement.scrollWidth})')
     assert measured['content'] <= measured['viewport'], f'{name} at {width}: {measured}'
@@ -123,7 +131,7 @@ def bmc_state_checks(browser, width, theme):
     page.clock.install()
     page.goto('http://ui.test' + base + '/bmc', wait_until='domcontentloaded')
     expect(page.locator('#loading')).to_be_visible()
-    page.screenshot(path=str(args.output / f'bmc-loading-{theme}-{width}.png'), full_page=True)
+    capture(page, args.output / f'bmc-loading-{theme}-{width}.png')
     page.wait_for_timeout(100)
     assert len(fixture['pending_session']) == 1
     request_route, data = fixture['pending_session'].pop()
@@ -142,7 +150,7 @@ def bmc_state_checks(browser, width, theme):
     assert page.locator('#power button:enabled, [data-agent]:enabled').count() == 0
     pause.dispatch_event('click')
     assert len(fixture['posts']) == 1
-    page.screenshot(path=str(args.output / f'bmc-pending-{theme}-{width}.png'), full_page=True)
+    capture(page, args.output / f'bmc-pending-{theme}-{width}.png')
     fixture['system']['PowerState'] = 'Paused'
     fixture['hold_posts'] = False
     fixture['pending_posts'].pop().fulfill(status=204)
@@ -156,7 +164,7 @@ def bmc_state_checks(browser, width, theme):
     assert page.locator('#power button:enabled, [data-agent]:enabled').count() == 0
     expect(page.locator('#connect')).to_be_disabled()
     no_overflow(page, 'bmc-stale', width)
-    page.screenshot(path=str(args.output / f'bmc-stale-{theme}-{width}.png'), full_page=True)
+    capture(page, args.output / f'bmc-stale-{theme}-{width}.png')
     fixture['fail_system'] = {'body': '<!doctype html><html><body>Gateway unavailable</body></html>', 'content_type': 'text/html'}
     page.clock.fast_forward(3100)
     expect(page.locator('#read-status')).to_contain_text('VM access is unavailable (503)')
@@ -204,7 +212,7 @@ def bmc_state_checks(browser, width, theme):
     requests = len(fixture['requests'])
     page.clock.fast_forward(10000)
     assert len(fixture['requests']) == requests, 'Logout/expiry must stop background requests'
-    page.screenshot(path=str(args.output / f'bmc-expired-{theme}-{width}.png'), full_page=True)
+    capture(page, args.output / f'bmc-expired-{theme}-{width}.png')
     assert not errors, errors
     context.close()
 
@@ -221,7 +229,7 @@ def bmc_state_checks(browser, width, theme):
     expect(page.locator('#events-empty')).to_have_text('No events recorded yet.')
     assert page.locator('#screen').bounding_box()['height'] <= 200
     no_overflow(page, 'bmc-off-empty', width)
-    page.screenshot(path=str(args.output / f'bmc-off-empty-{theme}-{width}.png'), full_page=True)
+    capture(page, args.output / f'bmc-off-empty-{theme}-{width}.png')
     fixture['system']['PowerState'] = 'On'
     page.clock.fast_forward(3100)
     expect(page.locator('#connect')).to_be_enabled()
@@ -229,11 +237,41 @@ def bmc_state_checks(browser, width, theme):
     assert fixture['posts'] == []
     context.close()
 
+    context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+    fixture = install_bmc(context, role='viewer')
+    fixture['extra_events'] = [
+        {'Id': '4', 'Created': 'not-a-timestamp', 'Oem': {'Qrab': {'Sequence': 4, 'Event': 'INVALID_TIME',
+            'Data': {'detail': "<img src=x onerror='window.payloadExecuted=true'>" + 'x' * 4000}}}},
+        {'Id': '5', 'Oem': {'Qrab': {'Sequence': 5, 'Event': 'MISSING_TIME', 'Data': {}}}},
+    ]
+    page = context.new_page()
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto('http://ui.test' + base + '/bmc')
+    page.locator('#dashboard').wait_for(state='visible')
+    page.locator('#tab-events').click()
+    for event_name in ['INVALID_TIME', 'MISSING_TIME']:
+        row = page.locator(f'#events li[data-event={event_name}]')
+        expect(row.locator('.event-time')).to_have_text('Time unavailable')
+    details = page.locator('#events li[data-event=INVALID_TIME] .event-details')
+    details.locator('summary').focus()
+    page.keyboard.press('Enter')
+    payload = details.locator('.event-payload')
+    expect(payload).to_contain_text('<img src=x')
+    assert payload.bounding_box()['height'] <= 280
+    assert page.locator('#events img').count() == 0
+    assert page.evaluate('window.payloadExecuted === undefined')
+    no_overflow(page, 'bmc-event-payload', width)
+    assert page.locator('#panel-events').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1')
+    capture(page, args.output / f'bmc-event-payload-{theme}-{width}.png')
+    assert not errors, errors
+    context.close()
+
 
 with sync_playwright() as playwright:
     browser = playwright.chromium.launch(executable_path=args.browser, headless=True, args=['--no-sandbox'])
     for theme in ([] if args.states_only else ['dark', 'light']):
-        for width in [1440, 768, 390]:
+        for width in [1440, 768, 390, 320]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
             for name in ['list', 'detail', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launched']:
@@ -245,7 +283,7 @@ with sync_playwright() as playwright:
                         assert bounds['width'] <= 24 and bounds['height'] <= 24, bounds
                     page.locator('input[name=os]').nth(1).check()
                     assert page.locator('input[name=os]').nth(1).is_checked()
-                page.screenshot(path=str(args.output / f'{name}-{theme}-{width}.png'), full_page=True)
+                capture(page, args.output / f'{name}-{theme}-{width}.png')
                 if name.startswith('detail'):
                     for selector in ['#effective-configuration', '#pod-resources', '#recent-events']:
                         disclosure = page.locator(selector)
@@ -254,7 +292,7 @@ with sync_playwright() as playwright:
                         page.keyboard.press('Enter')
                         assert disclosure.evaluate('(e) => e.open')
                     no_overflow(page, name + '-expanded', width)
-                    page.screenshot(path=str(args.output / f'{name}-expanded-{theme}-{width}.png'), full_page=True)
+                    capture(page, args.output / f'{name}-expanded-{theme}-{width}.png')
                     anchors = page.locator('.section-nav a').evaluate_all('(links) => links.map(a => a.hash.slice(1))')
                     assert all(page.locator('[id="' + anchor + '"]').count() == 1 for anchor in anchors), anchors
                 if name == 'launch-options':
@@ -287,13 +325,26 @@ with sync_playwright() as playwright:
                 page.goto('http://ui.test' + base + '/bmc')
                 page.locator('#dashboard').wait_for(state='visible')
                 assert page.locator('#vm-detail-link').get_attribute('href') == base
+                page.wait_for_function("Math.abs(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-height')) - document.querySelector('.topbar').getBoundingClientRect().height) <= 1")
+                if role == 'admin' and width <= 1000:
+                    page.locator('.panel-jump').click()
+                    assert page.evaluate('document.activeElement.id') == 'vm-panels'
+                    assert page.locator('#vm-panels').bounding_box()['y'] >= page.locator('.topbar').bounding_box()['height']
                 for tab in ['overview', 'metrics', 'events', 'agent', 'config']:
                     page.locator('#tab-' + tab).click()
                     no_overflow(page, f'bmc-{role}-{tab}', width)
-                    page.screenshot(path=str(args.output / f'bmc-{role}-{tab}-{theme}-{width}.png'), full_page=True)
+                    capture(page, args.output / f'bmc-{role}-{tab}-{theme}-{width}.png')
                 page.locator('#tab-events').click()
                 page.locator('#events-filter').fill('resume')
                 assert page.locator('#events li:visible').count() == 1
+                event = page.locator('#events li[data-event=RESUME] .event-details')
+                event.locator('summary').focus()
+                page.keyboard.press('Enter')
+                expect(event.locator('.event-payload')).to_contain_text('requested by user')
+                capture(page, args.output / f'bmc-event-expanded-{role}-{theme}-{width}.png')
+                page.locator('#events-filter').fill('not-a-match')
+                page.locator('#events-filter').clear()
+                assert event.evaluate('(e) => e.open')
                 page.locator('#tab-overview').focus()
                 page.keyboard.press('ArrowRight')
                 assert page.locator('#tab-metrics').get_attribute('aria-selected') == 'true'
@@ -301,6 +352,11 @@ with sync_playwright() as playwright:
                     assert page.locator('#connect').count() == 0
                     assert page.locator('[data-agent]').count() == 0
                 else:
+                    advanced = page.locator('#advanced-power')
+                    assert not advanced.evaluate('(e) => e.open')
+                    advanced.locator('summary').focus()
+                    page.keyboard.press('Enter')
+                    assert advanced.evaluate('(e) => e.open')
                     reset = page.locator('#power button[data-type=ForceRestart]')
                     reset.click()
                     assert len(fixture['posts']) == 0, 'First click must only arm a disruptive action'

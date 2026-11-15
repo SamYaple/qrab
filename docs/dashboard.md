@@ -128,6 +128,10 @@ routes return JSON errors; an HTML error from an ingress is shown as a short
 availability message, never as a document dumped into the error banner.
 Action URLs advertised by Redfish are normalized and restricted to the selected
 VM's Redfish bridge; they cannot select a different dashboard VM or origin.
+Rare power actions are grouped under **More power actions**, with the same
+two-step confirmations. On narrow screens, **VM panels ↓** moves focus past the
+console to the details. Event rows expand with Enter or a tap to show the full
+timestamp, sequence and wrapped payload; they do not depend on hover tooltips.
 
 ### Console power controls
 
@@ -589,11 +593,13 @@ python3 contrib/tests/ui-browser.py --previews target/ui-preview \
   --browser /path/to/chromium --output target/ui-browser
 ```
 
-This checks desktop, tablet and mobile layouts in light and dark themes, shared
+This checks desktop, tablet and mobile layouts down to 320px in light and dark themes, shared
 BMC admin/viewer controls, keyboard tabs, event filtering and two-step power
 confirmation. It also checks loading, stale reads and recovery, pending requests
 across polls, denied actions, empty history/filters, powered-off layouts and
 session expiry. `--states-only` runs just those BMC state checks during iteration.
+The event checks include malformed/missing timestamps and long payload text that
+must render without becoming HTML.
 It writes screenshots to the output directory. BMC requests use
 in-memory browser fixtures: it needs no credentials, cluster, VM or guest, and
 sends no action to a live VM. The separate `bmc-browser.py` test covers real

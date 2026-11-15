@@ -43,6 +43,14 @@ const POWER_ALLOWS = {
 };
 const TABS = ['overview', 'metrics', 'events', 'agent', 'config'];
 const element = id => document.getElementById(id);
+// Header wrapping changes with zoom, long names and narrow screens. Keep the
+// rail and anchor offsets tied to its actual height rather than a fixed guess.
+if (typeof ResizeObserver === 'function') {
+    const header = document.querySelector('.topbar');
+    new ResizeObserver(() => {
+        document.documentElement.style.setProperty('--topbar-height', `${Math.ceil(header.getBoundingClientRect().height)}px`);
+    }).observe(header);
+}
 let session, rfb, polling, metricsTimer, events, system, refreshTimer;
 let pendingAction = null, refreshTask = null, metricsTask = null, lastRead = null;
 let agentResult = [];
@@ -222,14 +230,30 @@ function showEventEmpty() {
 }
 // Gap markers stay visible under any filter: the gap may hide matching events.
 const matches = (row, filter) => !filter || row.classList.contains('gap') || row.dataset.event.toLowerCase().includes(filter);
+function eventTime(value) {
+    const at = value ? new Date(value) : null;
+    const known = at && Number.isFinite(at.getTime());
+    const time = node(known ? 'time' : 'span', known ? at.toLocaleTimeString() : 'Time unavailable', 'event-time');
+    if (known) { time.dateTime = at.toISOString(); time.title = at.toLocaleString(); }
+    return time;
+}
 function eventRow(event) {
-    const at = event.time ? new Date(event.time) : new Date();
-    const time = node('time', at.toLocaleTimeString());
-    time.dateTime = at.toISOString();
-    const data = event.truncated ? '(payload too large; omitted)' : JSON.stringify(event.data ?? {});
+    const time = eventTime(event.time);
+    const data = event.truncated ? 'Payload exceeded the event size limit and was omitted.' : JSON.stringify(event.data ?? {}, null, 2);
     const row = node('li');
-    row.append(time, node('b', event.event), node('code', data === '{}' ? '' : data));
-    row.title = `#${event.seq} ${data}`;
+    const details = node('details', undefined, 'event-details');
+    const summary = node('summary');
+    summary.append(time, ' ', node('b', event.event || 'Unknown event'));
+    const sequence = Number.isFinite(event.seq) ? `#${event.seq}` : 'Sequence unavailable';
+    details.append(summary, node('p', `${sequence} · ${time.dateTime || 'Timestamp unavailable'}`, 'event-context'));
+    if (data === '{}') details.append(node('p', 'No event payload.', 'empty-note'));
+    else {
+        const payload = node('pre', data, 'event-payload');
+        payload.tabIndex = 0;
+        payload.setAttribute('aria-label', `Payload for ${event.event || 'unknown event'}`);
+        details.append(payload);
+    }
+    row.append(details);
     row.dataset.event = String(event.event ?? '');
     row.hidden = !matches(row, eventFilter());
     return row;
@@ -246,15 +270,15 @@ element('events-filter').addEventListener('input', () => {
     showEventEmpty();
 });
 function gapRow(gap) {
-    const at = gap.time ? new Date(gap.time) : new Date();
-    const time = node('time', at.toLocaleTimeString());
-    time.dateTime = at.toISOString();
+    const time = eventTime(gap.time);
     const after = gap.resumes ? `; history resumes at #${gap.resumes}` : '';
     const text = gap.restarted
         ? `The VM manager restarted after #${gap.after} and numbers events from #1 again; events in between may be missing${after}`
         : `${gap.missed} event(s) after #${gap.after} were evicted before they could be shown${after}`;
     const row = node('li', undefined, 'gap');
-    row.append(time, node('b', 'Gap'), node('code', text));
+    const heading = node('div', undefined, 'event-heading');
+    heading.append(time, ' ', node('b', 'Gap'));
+    row.append(heading, node('p', text, 'gap-message'));
     row.dataset.event = '';
     return row;
 }
@@ -333,7 +357,7 @@ function showStatus() {
 }
 function updateActionControls() {
     const allows = POWER_ALLOWS[system?.PowerState];
-    for (const button of element('power')?.children || []) {
+    for (const button of element('power')?.querySelectorAll('button[data-type]') || []) {
         button.disabled = !session || Boolean(pendingAction) || !allows?.has(button.dataset.type);
     }
     const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
@@ -792,7 +816,7 @@ async function loadPower() {
     const info = await request(RESET_INFO);
     const allowed = new Set(info.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
     const target = () => system?.Actions?.['#ComputerSystem.Reset']?.target || `${SYSTEM}/Actions/ComputerSystem.Reset`;
-    element('power').replaceChildren(...RESETS.filter(([type]) => allowed.has(type)).map(([type, label, disruptive]) => {
+    const buttons = RESETS.filter(([type]) => allowed.has(type)).map(([type, label, disruptive]) => {
         const button = node('button', label, disruptive ? 'danger' : undefined);
         button.dataset.type = type;
         button.dataset.label = label;
@@ -806,7 +830,21 @@ async function loadPower() {
             });
         });
         return button;
-    }));
+    });
+    const advanced = new Set(['ForceRestart', 'ForceOff', 'PowerCycle', 'Nmi']);
+    const primary = buttons.filter(button => !advanced.has(button.dataset.type));
+    const secondary = buttons.filter(button => advanced.has(button.dataset.type));
+    if (secondary.length) {
+        const more = node('details', undefined, 'power-advanced');
+        more.id = 'advanced-power';
+        const controls = node('div', undefined, 'group advanced-actions');
+        controls.setAttribute('role', 'group');
+        controls.setAttribute('aria-label', 'More power actions');
+        controls.append(...secondary);
+        more.append(node('summary', 'More power actions'), controls);
+        primary.push(more);
+    }
+    element('power').replaceChildren(...primary);
     showStatus();
 }
 
