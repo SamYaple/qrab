@@ -2369,10 +2369,11 @@ async fn detail_draws_a_server_side_svg_sparkline_per_redfish_history_metric() {
         let end = start + body[start..].find("</figure>").unwrap();
         body[start..end].to_owned()
     };
-    // One SVG per metric with data, one polyline per series, scaled into the
-    // 240x48 viewBox over [start, end] and [0, peak].
+    // One accessible chart per metric with data, plus decorative line keys;
+    // one polyline per series scaled into the 240x48 viewBox.
     let cpu = figure("container-cpu");
-    assert_eq!(cpu.matches("<svg").count(), 1, "{cpu}");
+    assert_eq!(cpu.matches("role=\"img\"").count(), 1, "{cpu}");
+    assert_eq!(cpu.matches("aria-hidden=\"true\"").count(), 2, "{cpu}");
     assert_eq!(cpu.matches("<polyline").count(), 2, "{cpu}");
     assert!(cpu.contains("viewBox=\"0 0 240 48\""), "{cpu}");
     assert!(

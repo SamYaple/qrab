@@ -758,7 +758,9 @@ function drawChart(figure, answer, title) {
     answer.series.forEach((series, index) => {
         const item = node('li');
         const last = series.points.at(-1);
-        item.append(node('span', undefined, `swatch series-${index % SERIES_COLOURS}`), node('code', seriesLabel(series)), document.createTextNode(` ${last ? formatValue(last[1], answer.unit) : 'no data'}`));
+        const key = svgNode('svg', {viewBox: '0 0 32 10', class: 'swatch', 'aria-hidden': 'true'});
+        key.append(svgNode('line', {x1: 1, y1: 5, x2: 31, y2: 5, class: `series-${index % SERIES_COLOURS}`}));
+        item.append(key, node('code', seriesLabel(series)), document.createTextNode(` ${last ? formatValue(last[1], answer.unit) : 'no data'}`));
         legend.append(item);
     });
     replaceChartBody(figure, svg, legend);

@@ -479,7 +479,9 @@ fn sparkline(metric: &str, history: &redfish::History) -> Element {
             }
             ul { class: "spark-legend",
                 for (class, label, _, latest) in lines.iter() {
-                    li { span { class: "swatch {class}" } code { "{label}" } " {latest}" }
+                    li { svg { class: "swatch", view_box: "0 0 32 10", "aria-hidden": "true",
+                        line { class: "{class}", x1: "1", y1: "5", x2: "31", y2: "5" }
+                    } code { "{label}" } " {latest}" }
                 }
             } }
         }

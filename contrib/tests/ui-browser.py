@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Inspect dashboard previews and the shared BMC using isolated browser fixtures.
 
-Requires Playwright and Chromium or Firefox. No cluster, login, guest or production token.
+Requires Playwright and Chromium, Firefox or WebKit. No cluster, login, guest or production token.
 Generate previews with `cargo run -p qrab-dashboard --example preview -- OUT_DIR`.
 All BMC HTTP requests are intercepted; POSTs only mutate the in-memory fixture.
 """
@@ -24,11 +24,32 @@ parser.add_argument('--browser', help='Optional browser executable; Chromium def
 parser.add_argument('--previews', type=Path, required=True)
 parser.add_argument('--output', type=Path, default=Path('target/ui-browser'))
 parser.add_argument('--states-only', action='store_true', help='Run only BMC and dedicated-console state/lifecycle checks.')
+parser.add_argument('--forced-colors', action='store_true', help='Check the browser forced-colors high-contrast mode.')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 args.output.mkdir(parents=True, exist_ok=True)
 base = '/vms/qrab/web-1'
 resets = ['On', 'Pause', 'Resume', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'ForceOff', 'PowerCycle', 'Nmi']
+
+
+def browser_context(browser, **options):
+    if args.forced_colors:
+        options['forced_colors'] = 'active'
+    return browser.new_context(**options)
+
+
+def chart_keys(page, selector, lines):
+    for figure in page.locator(selector).all():
+        style = figure.evaluate('''(figure, selector) => {
+            const styles = nodes => [...nodes].map(node => {
+                const value = getComputedStyle(node);
+                return [value.stroke, value.strokeDasharray];
+            });
+            return {plots: styles(figure.querySelectorAll(selector)), keys: styles(figure.querySelectorAll('.swatch line'))};
+        }''', lines)
+        assert style['plots'] == style['keys'], ('Legend lines must match their chart', style)
+        assert all(stroke not in ['none', 'transparent', 'rgba(0, 0, 0, 0)'] for stroke, _ in style['keys'])
+        assert len({dash for _, dash in style['keys']}) == len(style['keys']), 'Series must remain distinguishable without color'
 
 
 def system(power='On'):
@@ -244,7 +265,7 @@ def wait_native(page, event, diagnostics=None):
 
 
 def long_content_checks(browser, width, theme, height=1000, scale=1):
-    context = browser.new_context(viewport={'width': width, 'height': height}, device_scale_factor=scale, color_scheme=theme)
+    context = browser_context(browser, viewport={'width': width, 'height': height}, device_scale_factor=scale, color_scheme=theme)
     fixture = install_bmc(context)
     fixture['vm_name'] = 'vm-' + 'a' * 60
     fixture['user_name'] = 'sam.with-a-long-operator-name-for-production'
@@ -269,7 +290,7 @@ def long_content_checks(browser, width, theme, height=1000, scale=1):
 
 def console_state_checks(browser, width, theme):
     with native_console_socket() as (origin, opened, closed):
-        context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+        context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
         fixture = install_bmc(context, legacy=True, origin=origin)
         page = context.new_page()
         page.clock.install()
@@ -337,7 +358,7 @@ def console_state_checks(browser, width, theme):
 
 
 def bmc_state_checks(browser, width, theme):
-    context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+    context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
     fixture = install_bmc(context)
     fixture['hold_session'] = True
     page = context.new_page()
@@ -439,7 +460,7 @@ def bmc_state_checks(browser, width, theme):
     assert not errors, errors
     context.close()
 
-    context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+    context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
     fixture = install_bmc(context, power='Off')
     fixture['empty_events'] = True
     page = context.new_page()
@@ -460,7 +481,7 @@ def bmc_state_checks(browser, width, theme):
     assert fixture['posts'] == []
     context.close()
 
-    context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+    context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
     fixture = install_bmc(context, role='viewer')
     fixture['extra_events'] = [
         {'Id': '4', 'Created': 'not-a-timestamp', 'Oem': {'Qrab': {'Sequence': 4, 'Event': 'INVALID_TIME',
@@ -492,7 +513,7 @@ def bmc_state_checks(browser, width, theme):
 
 
 def metric_focus_checks(browser):
-    context = browser.new_context(viewport={'width': 390, 'height': 1000})
+    context = browser_context(browser, viewport={'width': 390, 'height': 1000})
     fixture = install_bmc(context)
     page = context.new_page()
     errors = []
@@ -509,8 +530,8 @@ def metric_focus_checks(browser):
         expect(status).not_to_have_text(previous)
         expect(status).not_to_have_text('Loading…')
 
-    expect(chart.locator('svg')).to_be_visible()
-    chart.locator('svg').focus()
+    expect(chart.locator('svg.chart')).to_be_visible()
+    chart.locator('svg.chart').focus()
     expect(page.locator('#history-availability')).to_have_text('Metric history available.')
     page.evaluate('''() => {
         window.metricAnnouncements = [];
@@ -525,7 +546,7 @@ def metric_focus_checks(browser):
         }
     }''')
     poll()
-    expect(chart.locator('svg')).to_be_focused()
+    expect(chart.locator('svg.chart')).to_be_focused()
     assert page.evaluate('window.metricAnnouncements') == [], 'Ordinary polls must not repeat live announcements'
     sample_announcements = page.evaluate('window.sampleAnnouncements')
     assert sample_announcements == [], ('An unchanged selected sample must remain quiet', sample_announcements)
@@ -533,8 +554,8 @@ def metric_focus_checks(browser):
     for width in [768, 390, 320]:
         page.set_viewport_size({'width': width, 'height': 1000})
         plot_width = max(240, chart.locator('.chart-body').evaluate('(e) => e.clientWidth'))
-        expect(chart.locator('svg')).to_have_attribute('width', str(plot_width))
-        expect(chart.locator('svg')).to_be_focused()
+        expect(chart.locator('svg.chart')).to_have_attribute('width', str(plot_width))
+        expect(chart.locator('svg.chart')).to_be_focused()
         expect(chart.locator('.readout')).to_have_text(selected)
     hit = chart.locator('rect.hit').bounding_box()
     page.mouse.move(hit['x'] + 1, hit['y'] + hit['height'] / 2)
@@ -550,14 +571,14 @@ def metric_focus_checks(browser):
     expect(chart.locator('.chart-empty')).to_be_focused()
     fixture['empty_metrics'] = False
     poll()
-    expect(chart.locator('svg')).to_be_focused()
+    expect(chart.locator('svg.chart')).to_be_focused()
     fixture['fail_history'] = True
     poll()
     expect(chart.locator('.chart-error')).to_be_focused()
     expect(page.locator('#history-availability')).to_have_text('Metric history unavailable.')
     fixture['fail_history'] = False
     poll()
-    expect(chart.locator('svg')).to_be_focused()
+    expect(chart.locator('svg.chart')).to_be_focused()
     assert page.evaluate('window.metricAnnouncements') == ['Metric history unavailable.', 'Metric history available.']
     # Background updates must not move the user's focus from another control.
     range_button = page.locator('.ranges button').first
@@ -590,11 +611,16 @@ with sync_playwright() as playwright:
     browser = getattr(playwright, args.engine).launch(**options)
     for theme in ([] if args.states_only else ['dark', 'light']):
         for width in [1440, 768, 390, 320]:
-            context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+            context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
             for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
+                if args.forced_colors:
+                    assert page.evaluate("matchMedia('(forced-colors: active)').matches")
+                    current = page.locator('.site-nav [aria-current=page]')
+                    if current.count():
+                        assert 'underline' in current.evaluate('(e) => getComputedStyle(e).textDecorationLine')
                 no_overflow(page, name, width)
                 if name in ['launch', 'launch-os']:
                     assert page.locator('#name').get_attribute('maxlength') == '43'
@@ -634,6 +660,7 @@ with sync_playwright() as playwright:
                     expect(row.locator('td[data-label=Storage]')).to_contain_text('8.0 GiB reported')
                 capture(page, args.output / f'{name}-{theme}-{width}.png')
                 if name.startswith('detail'):
+                    chart_keys(page, '.spark:has(polyline)', 'polyline')
                     more_power = page.locator('#more-power-actions')
                     if more_power.count():
                         assert not more_power.evaluate('(e) => e.open')
@@ -703,7 +730,7 @@ with sync_playwright() as playwright:
                     assert values['disk0_size_gib'] == '0'
             context.close()
             for role in ['admin', 'viewer']:
-                context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
+                context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
                 fixture = install_bmc(context, role)
                 page = context.new_page()
                 errors = []
@@ -722,6 +749,10 @@ with sync_playwright() as playwright:
                         expect(page.locator('svg.chart')).to_have_count(5)
                         expect(page.locator('[data-metric="nic-rx"] .chart-empty')).to_have_text('No samples over the last 1h.')
                         assert 'undefined' not in page.locator('#metric-history').inner_text()
+                        chart_keys(page, '.history-chart:has(svg.chart)', 'svg.chart .line')
+                        if args.forced_colors:
+                            selected_range = page.locator('.ranges [aria-pressed=true]')
+                            assert selected_range.evaluate('(e) => parseFloat(getComputedStyle(e).outlineWidth) >= 2')
                         chart = page.locator('svg.chart').first
                         chart.focus()
                         page.keyboard.press('Home')

@@ -649,6 +649,9 @@ python3 contrib/tests/ui-browser.py --engine firefox --previews target/ui-previe
 python3 -m playwright install webkit
 python3 contrib/tests/ui-browser.py --engine webkit --previews target/ui-preview \
   --output target/ui-browser-webkit
+# Browser emulation of system high-contrast colors:
+python3 contrib/tests/ui-browser.py --forced-colors --previews target/ui-preview \
+  --output target/ui-browser-forced-colors
 ```
 
 This checks desktop, tablet and mobile layouts down to 320px in light and dark themes, shared
@@ -676,6 +679,12 @@ delivery cycle, avoiding a WebKit resize loop. Resizing keeps a keyboard-selecte
 sample; a stationary mouse event from layout does not replace that selection.
 The checks resize an already-focused chart and then verify genuine pointer input.
 Pending chart resize work and its observer are stopped when the session ends.
+Chart series use matching line patterns in their plots and SVG legend keys,
+so color is not the only distinction. The keys are decorative to assistive
+technology. Forced-colors mode uses the system chart colors and preserves
+current-navigation, selected-tab and pressed-range indicators. The browser
+checks compare plot/key styles and include an optional forced-colors run;
+this emulation does not substitute for testing an actual OS accessibility setup.
 It writes screenshots to the output directory. BMC requests use
 in-memory browser fixtures; the dedicated console's socket is a temporary
 loopback WebSocket held during RFB negotiation. It needs no credentials,
