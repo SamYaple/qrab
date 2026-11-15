@@ -7,13 +7,16 @@
 #   - the VM host pings the guest every 0.2 s;
 #   - the guest reports its boot id to a listener here every second (its
 #     egress, which must arrive from its own /32: no masquerade);
+#   - the guest streams a counter over one TCP connection to a listener here
+#     (an established flow that must survive every move without a reset);
 #   - a Pod probes the guest's SSH every 0.5 s.
 # After every move it requires:
 #   - the migration Succeeded;
 #   - the NIC's anchor and the VM host's BGP route are on the VM's new node
 #     (single hop);
 #   - the guest's boot id, TPM state and UEFI variables are unchanged;
-#   - no ping or report gap exceeds MAX_GAP_S.
+#   - no ping, report or stream gap exceeds MAX_GAP_S, and the stream is still
+#     its first connection.
 # It prints per-move downtime (the manager's switch and QEMU's downtime) and
 # loss. Deletes the VM at the end. Its root disk is a retained 1 GiB clone
 # (contrib/storage/README.md).
@@ -24,6 +27,7 @@ vm=${1:-nicmig}
 ns=qrab
 host_ip=${HOST_IP:-10.203.0.1}
 host_port=${HOST_PORT:-18185}
+stream_port=$((host_port + 1))
 max_gap=${MAX_GAP_S:-2}
 work=$(mktemp -d)
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
@@ -60,6 +64,19 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_response(200); self.end_headers()
     def log_message(self,*a): pass
 http.server.ThreadingHTTPServer((sys.argv[1],int(sys.argv[2])),H).serve_forever()' "$host_ip" "$host_port" > "$work/reports.log" 2>&1 &
+pids+=($!)
+# One line per received counter line: time, connection number, line.
+python3 -u -c '
+import socketserver,sys,time,itertools
+ids=itertools.count(1)
+class H(socketserver.StreamRequestHandler):
+    def handle(self):
+        n=next(ids)
+        for line in self.rfile:
+            print(f"{time.time():.3f}", n, line.decode(errors="replace").strip(), flush=True)
+        print(f"{time.time():.3f}", n, "closed", flush=True)
+socketserver.ThreadingTCPServer.allow_reuse_address=True
+socketserver.ThreadingTCPServer((sys.argv[1],int(sys.argv[2])),H).serve_forever()' "$host_ip" "$stream_port" > "$work/stream.log" 2>&1 &
 pids+=($!)
 
 log "creating VM $vm"
@@ -106,10 +123,12 @@ spec:
         wget -q -T 1 -O /dev/null "http://$host_ip:$host_port/?from=$vm&boot=\$boot" &
         sleep 1
       done &
+      i=0; while true; do i=\$((i + 1)); echo \$i; sleep 1; done | nc $host_ip $stream_port &
 EOF
 wait_for 420 "VM Running" sh -c "[ \"\$(kubectl -n $ns get virtualmachine $vm -o jsonpath='{.status.phase}')\" = Running ]"
 address=$(field virtualmachine "$vm" '{.status.nics[0].address}')
 wait_for 180 "the guest reporting" grep -q "from=$vm&boot=" "$work/reports.log"
+wait_for 60 "the guest's TCP stream" grep -q '^[0-9.]* 1 [0-9]' "$work/stream.log"
 boot_before=$(grep "from=$vm&boot=" "$work/reports.log" | tail -1 | sed 's/.*boot=//')
 log "running on $(field virtualmachine "$vm" '{.status.nodeName}'), guest $address, boot $boot_before"
 
@@ -170,11 +189,13 @@ EOF
   ping_gap=$(awk -v s="$start" -v e="$done_at" -F'[][]' '/bytes from/ {t=$2+0; if (t>=s && t<=e) {if (p && t-p>g) g=t-p; p=t}} END {printf "%.2f", g+0}' "$work/ping.log")
   lost=$(awk -v s="$start" -v e="$done_at" -F'[][]' '/no answer yet/ {t=$2+0; if (t>=s && t<=e) n++} END {print n+0}' "$work/ping.log")
   report_gap=$(awk -v s="$start" -v e="$done_at" -v f="from=$vm&" '$3 ~ f {t=$1+0; if (t>=s && t<=e) {if (p && t-p>g) g=t-p; p=t}} END {printf "%.2f", g+0}' "$work/reports.log")
+  stream_gap=$(awk -v s="$start" -v e="$done_at" '$2 == 1 && $3 ~ /^[0-9]+$/ {t=$1+0; if (t>=s && t<=e) {if (p && t-p>g) g=t-p; p=t}} END {printf "%.2f", g+0}' "$work/stream.log")
+  wait_for 10 "the guest's stream on its first connection after move $step" sh -c "tail -1 '$work/stream.log' | grep -q '^[0-9.]* 1 [0-9]'"
   src=$(grep "from=$vm&" "$work/reports.log" | tail -1 | cut -d' ' -f2)
   [ "$src" = "$address" ] || fail "move $step: the guest's egress arrived from $src, not $address (masqueraded?)"
-  awk -v a="$ping_gap" -v b="$report_gap" -v m="$max_gap" 'BEGIN {exit !(a <= m && b <= m)}' \
-    || fail "move $step: ping gap ${ping_gap}s, report gap ${report_gap}s exceed ${max_gap}s"
-  summary+=("move $step $source_node->$target: switch ${switched:-?} ms, QEMU downtime ${downtime:-?} ms, ping gap ${ping_gap}s ($lost unanswered), report gap ${report_gap}s, anchor $anchor")
+  awk -v a="$ping_gap" -v b="$report_gap" -v c="$stream_gap" -v m="$max_gap" 'BEGIN {exit !(a <= m && b <= m && c <= m)}' \
+    || fail "move $step: ping gap ${ping_gap}s, report gap ${report_gap}s, stream gap ${stream_gap}s exceed ${max_gap}s"
+  summary+=("move $step $source_node->$target: switch ${switched:-?} ms, QEMU downtime ${downtime:-?} ms, ping gap ${ping_gap}s ($lost unanswered), report gap ${report_gap}s, stream gap ${stream_gap}s, anchor $anchor")
   log "${summary[-1]}"
 done
 
@@ -184,5 +205,6 @@ boot_after=$(grep "from=$vm&boot=" "$work/reports.log" | tail -1 | sed 's/.*boot
 resets=$(kubectl -n default logs "$vm-ssh" | grep -c ' fail ' || true)
 log "SSH probe transitions:"; kubectl -n default logs "$vm-ssh" | sed 's/^/  /'
 log "summary:"; printf '  %s\n' "${summary[@]}"
-log "same boot, TPM and UEFI state across ${step} moves; SSH probe failures: $resets"
+grep -q ' 1 closed$' "$work/stream.log" && fail "the guest's TCP stream was reset"
+log "same boot, TPM and UEFI state and one TCP stream across ${step} moves; SSH probe failures: $resets"
 log "PASS: tap NIC live migration"
