@@ -3,6 +3,31 @@ use qapi_codegen::read_schema_with_version;
 use std::path::Path;
 
 #[test]
+fn malformed_schema_diagnostics_locate_later_definitions() {
+    qapi_codegen::set_parser_version((11, 1, 3));
+    let prefix = "# Unicode comment: ☃\n{'struct':'Good','data':{}}\n\n    ";
+    for invalid in [
+        "{'struct':'Bad','data':{'value':}}",
+        "{'struct':'Bad','data':{'value':'str',}}",
+        "{'unknown':'Bad'}",
+        "unexpected",
+    ] {
+        let error = qapi_codegen::parse_schema(&format!("{prefix}{invalid}"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("line 4, column 5"), "{error}");
+        assert!(error.contains(invalid), "{error}");
+    }
+    let error = qapi_codegen::parse_schema(&format!(
+        "{prefix}{{'struct':'Bad','data':{{'value':'str','value':'int'}}}}"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("line 4, column 43"), "{error}");
+    assert!(error.contains("Verify"), "{error}");
+}
+
+#[test]
 fn upstream_positive_schema_fixtures_parse() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
     let mut fixtures = Vec::new();
