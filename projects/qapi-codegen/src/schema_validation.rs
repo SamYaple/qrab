@@ -289,6 +289,31 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         alternate_branches(&value.data, &declarations)?;
                     }
                     QapiSchemaToken::Command(value) => {
+                        for (name, flag) in [
+                            ("allow-oob", value.allow_oob),
+                            ("allow-preconfig", value.allow_preconfig),
+                            ("coroutine", value.coroutine),
+                        ] {
+                            ensure!(
+                                flag.is_none_or(|flag| flag == "true"),
+                                "Flag '{name}' may only use true value"
+                            );
+                        }
+                        if crate::parser_version() >= (2, 4, 0) {
+                            for (name, flag) in [
+                                ("gen", value.r#gen),
+                                ("success-response", value.success_response),
+                            ] {
+                                ensure!(
+                                    flag.is_none_or(|flag| flag == "false"),
+                                    "Flag '{name}' may only use false value"
+                                );
+                            }
+                        }
+                        ensure!(
+                            value.allow_oob.is_none() || value.coroutine.is_none(),
+                            "Flags 'allow-oob' and 'coroutine' are incompatible"
+                        );
                         boxed_arguments(&value.data, value.boxed, &declarations)?;
                         if let Some(data) = &value.data {
                             members_or_ref(data, &types).context("Invalid arguments")?;

@@ -93,6 +93,9 @@ also apply QEMU's string and enum scalar-conversion conflict rules.
 Boxed command and event data must name an object type. Missing, anonymous,
 scalar and false-boxing forms fail before lowering; valid named objects keep
 their fields flat on the wire.
+Command flags enforce QEMU's true-only execution flags, false-only modern
+generation/reply flags and incompatible OOB/coroutine modes. Legacy string
+generation flags retain their historical handling.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.

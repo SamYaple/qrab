@@ -2246,6 +2246,35 @@ mod schema_resolution_tests {
     use super::*;
 
     #[test]
+    fn command_flags_reject_invalid_values_and_incompatible_execution_modes() {
+        for input in [
+            "{'command':'bad','allow-oob':false}",
+            "{'command':'bad','allow-preconfig':false}",
+            "{'command':'bad','coroutine':false}",
+            "{'command':'bad','gen':true}",
+            "{'command':'bad','success-response':true}",
+            "{'command':'bad','allow-oob':true,'coroutine':true}",
+        ] {
+            let error = format!("{:#}", process(input).unwrap_err());
+            assert!(error.contains("fixture.json"), "{error}");
+            assert!(
+                error.contains("Flag") || error.contains("incompatible"),
+                "{error}"
+            );
+        }
+        process(concat!(
+            "{'command':'oob','allow-oob':true}\n",
+            "{'command':'preconfig','allow-preconfig':true}\n",
+            "{'command':'coroutine','coroutine':true}\n",
+            "{'command':'manual','gen':false,'success-response':false}",
+        ))
+        .unwrap();
+        crate::set_parser_version((1, 0, 0));
+        process_version_schema(&[("old.json".into(), "{'command':'manual','gen':'no'}".into())])
+            .unwrap();
+    }
+
+    #[test]
     fn upstream_invalid_boxed_arguments_are_rejected() {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
