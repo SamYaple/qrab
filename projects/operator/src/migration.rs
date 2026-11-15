@@ -246,17 +246,70 @@ pub fn handed_over(pod: &Pod) -> bool {
 
 /// Why a stopped target failed the migration: the reason (empty when not
 /// classified) and the message.
+const POWERED_OFF_MESSAGE: &str = "the VM is powered off, so there is no running guest to live-migrate; power it on and create a new migration";
+
+/// Reason of a migration refused because the target could not mount one of
+/// the VM's claims while the source still holds it.
+pub const UNSHARED_CLAIM: &str = "UnsharedClaim";
+
+/// The claims a VM Pod mounts besides its state claim, by role: the Redfish
+/// state claim and the media and firmware catalogs. The target Pod mounts the
+/// same claims, on another node, while the source still runs.
+///
+/// ```
+/// let vm: qrab_operator::api::VirtualMachine = serde_json::from_value(serde_json::json!({
+///     "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+///     "metadata": {"name": "vm"},
+///     "spec": {"stateVolumeClaim": "state", "mediaVolumeClaim": "media"}})).unwrap();
+/// assert_eq!(qrab_operator::migration::shared_claims(&vm), [("media catalog", "media")]);
+/// ```
+pub fn shared_claims(vm: &VirtualMachine) -> Vec<(&'static str, &str)> {
+    let redfish = &vm.spec.components.redfish;
+    [
+        (
+            "Redfish state",
+            redfish
+                .state_volume_claim
+                .as_deref()
+                .filter(|_| vm.spec.components.redfish_enabled()),
+        ),
+        ("media catalog", vm.spec.media_volume_claim.as_deref()),
+        (
+            "firmware catalog",
+            vm.spec.firmware_catalog_volume_claim.as_deref(),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(role, claim)| Some((role, claim?)))
+    .collect()
+}
+
+/// Whether two Pods on different nodes can mount `claim` at once.
+pub fn shareable(claim: &PersistentVolumeClaim) -> bool {
+    claim
+        .spec
+        .as_ref()
+        .and_then(|s| s.access_modes.as_ref())
+        .is_some_and(|modes| {
+            modes
+                .iter()
+                .any(|m| m == "ReadWriteMany" || m == "ReadOnlyMany")
+        })
+}
+
 fn target_failure(target: &str, pod: &Pod) -> (&'static str, String) {
     match manager_exit(pod) {
-        Some((_, message)) if message.trim() == SOURCE_POWERED_OFF => (
-            POWERED_OFF,
-            "the VM is powered off, so there is no running guest to live-migrate; power it on and create a new migration".into(),
-        ),
+        Some((_, message)) if message.trim() == SOURCE_POWERED_OFF => {
+            (POWERED_OFF, POWERED_OFF_MESSAGE.into())
+        }
         exit => {
             let detail = exit
                 .map(|(code, message)| format!(" (exit {code}: {})", message.trim()))
                 .unwrap_or_default();
-            ("", format!("the target {target} stopped before taking over{detail}"))
+            (
+                "",
+                format!("the target {target} stopped before taking over{detail}"),
+            )
         }
     }
 }
@@ -680,6 +733,19 @@ async fn step(
         }
         if GuestSize::of(vm) != inputs.boot {
             return fail(api, migration, "the VM has hot-plugged vCPUs or memory beyond its boot size; restart it at the new size first").await;
+        }
+        // The Pod stays Ready while its guest is off; Redfish reports it.
+        if vm.status.as_ref().and_then(|s| s.power_state.as_deref()) == Some("Off") {
+            return fail_because(api, migration, POWERED_OFF, POWERED_OFF_MESSAGE).await;
+        }
+        let claims: Api<PersistentVolumeClaim> =
+            Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+        for (role, claim) in shared_claims(vm) {
+            if !claims.get_opt(claim).await?.is_some_and(|c| shareable(&c)) {
+                return fail_because(api, migration, UNSHARED_CLAIM, &format!(
+                    "the VM's {role} claim {claim} is not ReadWriteMany or ReadOnlyMany, so a target on another node cannot mount it while the source runs; live migration needs shareable {role} claims"
+                )).await;
+            }
         }
         let source_node = source
             .spec

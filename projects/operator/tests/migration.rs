@@ -233,7 +233,16 @@ fn migration(name: &str, uid: &str, created: &str) -> Value {
 
 /// A running VM on node-a whose Pod is Ready, and two other Ready nodes.
 async fn running() -> (Store, Arc<Context>) {
+    running_with(json!({}), []).await
+}
+
+/// `running` for a VM whose spec also carries `spec`, with extra objects.
+async fn running_with<const N: usize>(
+    spec: Value,
+    objects: [(String, Value); N],
+) -> (Store, Arc<Context>) {
     let store = Store::default();
+    store.0.lock().unwrap().extend(objects);
     store.0.lock().unwrap().extend([
         (VM.to_owned(), json!({"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine",
             "metadata":{"name":"test-vm","namespace":"qrab","uid":"vm-uid","generation":1,"resourceVersion":"1"},
@@ -246,6 +255,7 @@ async fn running() -> (Store, Arc<Context>) {
         (format!("{NODES}/node-b"), node("node-b")),
         (format!("{NODES}/node-c"), node("node-c")),
     ]);
+    store.edit(VM, |vm| merge(&mut vm["spec"], &spec));
     let ctx = server(&store).await;
     store.step(&ctx).await;
     assert!(store.get(SOURCE).is_some(), "the VM Pod is created");
@@ -526,6 +536,87 @@ async fn a_powered_off_vm_fails_its_migration_as_powered_off_and_cleans_up() {
     assert_eq!(moving(&store)["reason"], "PoweredOff");
     assert_eq!(store.status()["podName"], "test-vm");
     assert_eq!(store.status()["phase"], "Running");
+}
+
+#[tokio::test]
+async fn a_vm_reported_powered_off_fails_its_migration_before_any_target() {
+    let (store, ctx) = running().await;
+    store.edit(VM, |vm| vm["status"]["powerState"] = json!("Off"));
+    store.0.lock().unwrap().insert(
+        format!("{MIGRATIONS}/move"),
+        migration(
+            "move",
+            "aaaa1111-2222-3333-4444-555566667777",
+            "2026-11-14T17:00:00Z",
+        ),
+    );
+    store.step(&ctx).await;
+    assert_eq!(moving(&store)["phase"], "Failed");
+    assert_eq!(moving(&store)["reason"], "PoweredOff");
+    assert!(store.get(TARGET).is_none());
+    assert!(store.get(TARGET_CLAIM).is_none());
+    assert!(store.get(POLICY).is_none());
+}
+
+fn media_claim(modes: Value) -> (String, Value) {
+    (
+        format!("{CLAIMS}/media"),
+        json!({"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"name":"media","namespace":"qrab","uid":"media-uid"},
+            "spec":{"accessModes":modes,"volumeMode":"Filesystem","storageClassName":"zfs-block","resources":{"requests":{"storage":"1Gi"}}},"status":{"phase":"Bound"}}),
+    )
+}
+
+#[tokio::test]
+async fn a_claim_the_target_node_cannot_mount_refuses_the_migration_before_any_target() {
+    let (store, ctx) = running_with(
+        json!({"mediaVolumeClaim":"media"}),
+        [media_claim(json!(["ReadWriteOncePod"]))],
+    )
+    .await;
+    store.0.lock().unwrap().insert(
+        format!("{MIGRATIONS}/move"),
+        migration(
+            "move",
+            "aaaa1111-2222-3333-4444-555566667777",
+            "2026-11-14T17:00:00Z",
+        ),
+    );
+    store.step(&ctx).await;
+    let status = moving(&store);
+    assert_eq!(status["phase"], "Failed");
+    assert_eq!(status["reason"], "UnsharedClaim");
+    let message = status["message"].as_str().unwrap();
+    assert!(message.contains("media catalog claim media"), "{message}");
+    assert!(store.get(TARGET).is_none());
+    assert!(store.get(TARGET_CLAIM).is_none());
+    assert_eq!(store.status()["podName"], "test-vm");
+}
+
+#[tokio::test]
+async fn a_read_only_many_media_claim_goes_along_to_the_target() {
+    let (store, ctx) = running_with(
+        json!({"mediaVolumeClaim":"media"}),
+        [media_claim(json!(["ReadOnlyMany"]))],
+    )
+    .await;
+    store.0.lock().unwrap().insert(
+        format!("{MIGRATIONS}/move"),
+        migration(
+            "move",
+            "aaaa1111-2222-3333-4444-555566667777",
+            "2026-11-14T17:00:00Z",
+        ),
+    );
+    until(&store, &ctx, 8, |s| s.get(TARGET).is_some()).await;
+    let target = store.get(TARGET).unwrap();
+    let claims: Vec<_> = target["spec"]["volumes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v["persistentVolumeClaim"]["claimName"].as_str())
+        .collect();
+    assert!(claims.contains(&"media"), "{claims:?}");
+    assert!(!claims.contains(&"state"), "{claims:?}");
 }
 
 #[tokio::test]
