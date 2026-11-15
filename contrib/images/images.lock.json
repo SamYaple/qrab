@@ -36,9 +36,9 @@
     "tpm2-tools\t5.7-1"
   ],
   "operator": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:ba5c75069dbf443b17c8dd1df37171e98fb21d71484832ff28ab0d5ab0bc412c",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:b8abf736beefdadb43607736cf73959fcfdb72aeb37e5cf1ae43fc5ab029784b",
     "version": "0.1.0",
-    "source_revision": "fa3c1196506ffcec674e08d6528485da82eab367"
+    "source_revision": "4a4adfc547c5e33f4f3fa1adf6f09fc1893d2a68"
   },
   "dashboard": {
     "image": "zot.yapplesauce.com/qrab/dashboard@sha256:7b473f87d759821bd66f99760f3ec1fbd614c0a0644a0a112d96ab82d5b7d352",
