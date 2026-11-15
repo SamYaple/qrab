@@ -94,3 +94,15 @@ Source: [adapter](../projects/qrab-observability/src/lib.rs),
 [power reader](../projects/operator/src/power.rs),
 [history client](../projects/redfish/src/history.rs),
 [PodMonitor](../contrib/kubernetes/monitoring/podmonitor.yaml).
+
+The read-only [workload probe](../projects/qrab-observability/examples/workload_probe.rs)
+can verify the deployed network paths without a human login or exporting SVID
+keys. Build with `cargo build --locked -p qrab-observability --example workload_probe`.
+Run `workload_probe metrics qrab VM-UID POD-IP` inside an attested telemetry
+container, and `workload_probe history qrab VM-UID POD-NAME` inside that VM's
+Redfish container. It prints only identity, HTTP status, body size and series
+count. Using another VM's Pod name tests the gateway's scope rejection.
+For a disposable VM, an administrator can stage the executable through the
+manager's shared control directory and remove it after checking; it does not
+need a persistent mount or any exported key/token. This tests workload
+transport and history scope; it does not substitute for browser OIDC testing.
