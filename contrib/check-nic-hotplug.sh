@@ -140,7 +140,7 @@ log "${summary[-1]}"
 start=$(date +%s.%N)
 kubectl -n "$ns" patch virtualmachine "$vm" --type json -p '[{"op":"remove","path":"/spec/nics/1"}]' >/dev/null
 pod=$(field virtualmachine "$vm" '{.status.podName}')
-wait_for "$limit" "the manager unplugging wan" sh -c "kubectl -n $ns logs $pod -c manager | grep -q '\"event\":\"nic_detached\",\"nic\":\"wan\"'"
+wait_for "$limit" "the manager unplugging wan" sh -c "kubectl -n $ns logs $pod -c manager | grep '\"event\":\"nic_detached\"' | grep -q '\"nic\":\"wan\"'"
 detach_s=$(since "$start")
 wait_for 120 "wan's anchor and address to go" sh -c "! kubectl -n $ns get pods -l qrab.yapplesauce.com/nic=wan -o name | grep -q . && ! kubectl get ciliumpodippool qrab-nic-${wan//./-} >/dev/null 2>&1"
 same_pod "detach"
@@ -156,7 +156,7 @@ wait_for 120 "a replacement anchor" sh -c "u=\$(kubectl -n $ns get pod $anchor -
 replaced=$(date +%s)
 wait_for "$limit" "the guest reaching the host through eth0 again" reported_since eth0 "$replaced"
 reattach_s=$(since "$start")
-kubectl -n "$ns" logs "$pod" -c manager | grep -q '"event":"nic_anchor_replaced","nic":"lan"' || fail "the manager did not report lan's new anchor"
+kubectl -n "$ns" logs "$pod" -c manager | grep '"event":"nic_anchor_replaced"' | grep -q '"nic":"lan"' || fail "the manager did not report lan's new anchor"
 same_pod "anchor replacement"
 summary+=("anchor replacement: eth0 reachable again after ${reattach_s}s, same Pod and boot")
 log "${summary[-1]}"

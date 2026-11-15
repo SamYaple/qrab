@@ -496,7 +496,9 @@ pub(super) async fn sweep_orphans(ctx: Arc<Context>) -> Result<()> {
         }
         if pod.metadata.deletion_timestamp.is_none() {
             delete(&pods, &pod).await?;
-        } else if exit(&pod) == Exit::Clean {
+        } else if exit(&pod) == Exit::Clean || crate::migration::abandoned_target(&pod) {
+            // A migration target that never took over held the disks only
+            // inactive, so its exit code does not matter once it has exited.
             pod_finalizer(&pods, &pod, false).await?;
         } else {
             tracing::warn!(pod=%pod.name_any(),uid=?pod.uid(),"Orphan storage Pod remains fenced by its finalizer; administrator target fence/CHAP rotation and explicit finalizer removal are required");
@@ -828,7 +830,7 @@ mod tests {
             .route("/api/v1/namespaces/qrab/persistentvolumeclaims/state",get(get_claim))
             .route("/api/v1/namespaces/qrab/configmaps/test-vm-config",get(get_config))
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-events",get(get_redfish_policy).patch(patch_redfish_policy).delete(delete_redfish_policy))
-            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies",axum::routing::post(create_redfish_policy))
+            .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies",get(|| async { Json(json!({"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicyList","metadata":{"resourceVersion":"1"},"items":[]})) }).post(create_redfish_policy))
             // Not found: the BMC's Redfish gets its metrics and Prometheus policies created.
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-metrics",get(not_found_handler))
             .route("/apis/cilium.io/v2/namespaces/qrab/ciliumnetworkpolicies/test-vm-redfish-prometheus",get(not_found_handler))
@@ -1111,6 +1113,31 @@ mod tests {
             pod.metadata.deletion_timestamp = None;
             pod.metadata.owner_references.as_mut().unwrap()[0].kind = "Deployment".into();
         }
+        sweep_orphans(ctx).await.unwrap();
+        assert!(store.0.lock().unwrap().calls.is_empty());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn orphan_sweep_releases_a_failed_migration_target_that_never_took_over() {
+        // The target's manager failed (exit 1) before receiving the guest, its
+        // VM is gone, and it is Terminating behind the drain finalizer.
+        let mut target = pod(Some(1));
+        target
+            .annotations_mut()
+            .insert(crate::migration::TARGET_ANNOTATION.into(), "move".into());
+        mark_deleting(&mut target);
+        let (store, ctx, first) = server(vm(), Some(target)).await;
+        store.0.lock().unwrap().vm = None;
+        sweep_orphans(ctx.clone()).await.unwrap();
+        assert_eq!(store.0.lock().unwrap().calls, vec!["remove-pod-finalizer"]);
+        first.abort();
+        // Without the mark (an adopted target or an ordinary VM Pod) a failed
+        // exit stays fenced, as before.
+        let mut adopted = pod(Some(1));
+        mark_deleting(&mut adopted);
+        let (store, ctx, server) = server(vm(), Some(adopted)).await;
+        store.0.lock().unwrap().vm = None;
         sweep_orphans(ctx).await.unwrap();
         assert!(store.0.lock().unwrap().calls.is_empty());
         server.abort();

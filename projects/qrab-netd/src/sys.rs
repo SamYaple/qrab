@@ -166,11 +166,22 @@ pub fn pod_uid_of(proc_root: &Path, pid: i32) -> Option<String> {
 
 /// A process of the Pod (any of its containers shares the namespace).
 pub fn pid_of_pod(proc_root: &Path, uid: &str) -> Option<i32> {
-    fs::read_dir(proc_root)
-        .ok()?
+    pids_of_pod(proc_root, uid).into_iter().next()
+}
+
+/// Every process of the Pod: its sandbox (pause) and its containers'. They
+/// share the network namespace but not the mount namespace.
+pub fn pids_of_pod(proc_root: &Path, uid: &str) -> Vec<i32> {
+    let Ok(entries) = fs::read_dir(proc_root) else {
+        return Vec::new();
+    };
+    let mut pids: Vec<i32> = entries
         .filter_map(Result::ok)
         .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
-        .find(|pid| pod_uid_of(proc_root, *pid).as_deref() == Some(uid))
+        .filter(|pid| pod_uid_of(proc_root, *pid).as_deref() == Some(uid))
+        .collect();
+    pids.sort_unstable();
+    pids
 }
 
 pub fn netns_of(proc_root: &Path, pid: i32) -> PathBuf {
@@ -327,16 +338,26 @@ fn wg_syncconf(config: &str) -> io::Result<()> {
     )))
 }
 
-/// The wg-quick config a VPN anchor mounts, read through its process's root.
-pub fn read_tunnel(proc_root: &Path, pid: i32) -> Result<crate::vpn::Tunnel, String> {
-    let path = proc_root
-        .join(pid.to_string())
-        .join("root")
-        .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
-        .join(crate::vpn::VPN_FILE);
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read the anchor's VPN config: {e}"))?;
-    crate::vpn::Tunnel::parse(&text)
+/// The wg-quick config a VPN anchor mounts, read through the root of the
+/// Pod's process that has the mount: the anchor container's, not the
+/// sandbox's (whose mount namespace has no volumes).
+pub fn read_tunnel(proc_root: &Path, pod_uid: &str) -> Result<crate::vpn::Tunnel, String> {
+    let mut last = None;
+    for pid in pids_of_pod(proc_root, pod_uid) {
+        let path = proc_root
+            .join(pid.to_string())
+            .join("root")
+            .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
+            .join(crate::vpn::VPN_FILE);
+        match std::fs::read_to_string(&path) {
+            Ok(text) => return crate::vpn::Tunnel::parse(&text),
+            Err(error) => last = Some(error),
+        }
+    }
+    Err(match last {
+        Some(error) => format!("cannot read the anchor's VPN config: {error}"),
+        None => "no running process of the anchor yet".into(),
+    })
 }
 
 /// Route protocol marking the transient forward routes this agent owns in
@@ -467,6 +488,46 @@ fn socket2_udp(tap: &str) -> io::Result<std::net::UdpSocket> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_vpn_config_is_read_through_the_process_that_mounts_it() {
+        let uid = "6b9f0c44-0000-4000-8000-0000000000cc";
+        let proc_root = tempfile::tempdir().unwrap();
+        let cgroup = format!(
+            "0::/kubepods.slice/kubepods-pod{}.slice/cri-containerd-x.scope\n",
+            uid.replace('-', "_")
+        );
+        // pid 7: the sandbox, no volumes; pid 9: the anchor container.
+        for pid in ["7", "9", "11"] {
+            let dir = proc_root.path().join(pid);
+            std::fs::create_dir_all(dir.join("root")).unwrap();
+            let owner = if pid == "11" {
+                "0::/system.slice/other.scope\n".to_owned()
+            } else {
+                cgroup.clone()
+            };
+            std::fs::write(dir.join("cgroup"), owner).unwrap();
+        }
+        assert_eq!(pids_of_pod(proc_root.path(), uid), [7, 9]);
+        assert!(read_tunnel(proc_root.path(), uid)
+            .unwrap_err()
+            .contains("No such file"));
+        let mount = proc_root.path().join("9/root/run/qrab-vpn");
+        std::fs::create_dir_all(&mount).unwrap();
+        std::fs::write(mount.join("wg.conf"), "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 10.2.0.2/32\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nEndpoint = 203.0.113.9:51820\n").unwrap();
+        // The sandbox comes first but lacks the mount; the container has it.
+        assert_eq!(
+            read_tunnel(proc_root.path(), uid)
+                .unwrap()
+                .address
+                .to_string(),
+            "10.2.0.2"
+        );
+        assert_eq!(
+            read_tunnel(proc_root.path(), "00000000-0000-4000-8000-000000000000").unwrap_err(),
+            "no running process of the anchor yet"
+        );
+    }
     use super::*;
     use std::io::{BufRead, BufReader, Read};
 

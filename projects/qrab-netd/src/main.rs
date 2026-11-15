@@ -52,7 +52,10 @@ impl Agent {
         let mut plan = NicPlan::for_anchor(pod)?;
         let (pid, ns) = self.netns(pod)?;
         if NicPlan::is_vpn(pod) {
-            plan = plan.with_tunnel(sys::read_tunnel(&self.proc_root, pid)?);
+            plan = plan.with_tunnel(sys::read_tunnel(
+                &self.proc_root,
+                &pod.uid().unwrap_or_default(),
+            )?);
         }
         let resolver = sys::pod_resolver(&self.proc_root, pid);
         let summary = match &plan.vpn {
@@ -314,6 +317,9 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         .retain(|uid, _| live.contains(uid));
 }
 
+/// Control connections served at once; see [`serve`].
+const CONTROL_CONCURRENCY: usize = 16;
+
 async fn serve(agent: Arc<Agent>, socket: PathBuf) -> Result<()> {
     std::fs::create_dir_all(socket.parent().context("socket path has no directory")?)?;
     let _ = std::fs::remove_file(&socket);
@@ -321,10 +327,24 @@ async fn serve(agent: Arc<Agent>, socket: PathBuf) -> Result<()> {
     // VM managers run unprivileged; access control is the peer check.
     std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o666))?;
     log("listening", serde_json::json!(socket));
+    let slots = Arc::new(tokio::sync::Semaphore::new(CONTROL_CONCURRENCY));
+    let mut turned_away: u64 = 0;
     loop {
         let (stream, _) = listener.accept().await?;
+        // Each connection holds a blocking thread for up to its request
+        // deadline; past the bound, refuse at once instead of queueing behind
+        // slow peers (managers retry). Plumbing shares the blocking pool.
+        let Ok(permit) = slots.clone().try_acquire_owned() else {
+            turned_away += 1;
+            if turned_away.is_power_of_two() {
+                log("busy", serde_json::json!({"turned_away": turned_away}));
+            }
+            drop(stream);
+            continue;
+        };
         let agent = agent.clone();
         tokio::task::spawn_blocking(move || {
+            let _permit = permit;
             let stream = match stream
                 .into_std()
                 .and_then(|s| s.set_nonblocking(false).map(|()| s))
