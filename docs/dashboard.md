@@ -716,7 +716,7 @@ A dated record; the qrab-demo VM it mentions has since been retired.
 - Not yet exercised: a browser login, the BMC panel and console through the
   proxy, and a real launch.
 
-### Interface checks without a cluster
+## Interface checks without a cluster
 
 Dashboard data tables become labelled cards below 1000px. Capacity maxima are
 labelled explicitly; exact whole memory capacities use GiB/TiB where applicable.
@@ -752,6 +752,8 @@ removed, focus returns to the Guest agent panel. SSR multiline diagnostic output
 also has a labelled keyboard focus target.
 Long VM names wrap in the BMC header, which scrolls normally in short windows so
 it does not cover the useful panel area.
+The signed-in account remains visible beside its role and Sign out on narrow
+screens; long account names truncate without increasing the header height.
 Names and status chips can wrap onto separate header rows at larger text sizes.
 Dashboard cards wrap long event names, identifiers and other unbroken text.
 
@@ -759,7 +761,8 @@ The dashboard and BMC follow the system light/dark preference. Dashboard pages
 remain server-rendered; the BMC uses the shared interface assets. Keyboard users
 can skip the header, and the navigation identifies the current dashboard page.
 Coarse-pointer devices get larger controls, navigation links and disclosure
-targets, including tablets with wide viewports.
+targets, including tablets with wide viewports. VM directory name links have a
+44px minimum touch target; precise-pointer layouts keep their compact links.
 
 For a visual check, generate representative pages and run the isolated browser
 checks. The Python environment needs `playwright`; use an existing Chromium
@@ -820,8 +823,10 @@ current-navigation, selected-tab and pressed-range indicators. The browser
 checks compare plot/key styles and include an optional forced-colors run;
 this emulation does not substitute for testing an actual OS accessibility setup.
 It writes screenshots to the output directory. BMC requests use
-in-memory browser fixtures; the dedicated console's socket is a temporary
-loopback WebSocket held during RFB negotiation. It needs no credentials,
+in-memory browser fixtures. Lifecycle checks use a temporary loopback WebSocket
+held during RFB negotiation; keyboard checks complete a minimal RFB 3.8 handshake
+and capture key-down/key-up pairs. These fixtures send no guest framebuffer data.
+The checks need no credentials,
 cluster, VM or guest, and sends no action to a live VM.
 The separate `bmc-browser.py` test covers real
 OIDC and guest-console delivery.
@@ -835,6 +840,9 @@ application. It uses the real response headers, CSP, HTTP proxies and WebSocket
 proxy rather than browser HTTP interception. It checks admin/viewer pages,
 keyboard chart focus across redraws, rejected launch-form feedback, peer logout
 and real server-time expiry.
+Its fake console upstream holds RFB negotiation open, so this check proves
+authenticated admission and browser lifecycle behavior rather than guest input
+or framebuffer delivery.
 
 ```sh
 QRAB_UI_PYTHON=/path/to/python-with-playwright QRAB_UI_ENGINE=firefox \
