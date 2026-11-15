@@ -42,6 +42,45 @@ pub fn pod_name(vm: &VirtualMachine, nic: &str) -> String {
     format!("{}-nic-{nic}", vm.name_any())
 }
 
+/// The anchor of `nic` on `node`. The node is part of the name, so a live
+/// migration's target anchor already has the name the VM's own reconcile
+/// renders once the VM Pod lives on that node.
+pub fn anchor_name(vm: &VirtualMachine, nic: &str, node: &str) -> String {
+    format!("{}-{node}", pod_name(vm, nic))
+}
+
+/// On a migration's target anchor: the migration that owns it while it is
+/// active (the VM's reconcile leaves it alone until then).
+pub const MIGRATION_ANNOTATION: &str = "qrab.yapplesauce.com/migration";
+/// On an anchor no longer on the VM Pod's node: when it may be deleted (Unix
+/// seconds). The delay lets the route announcement converge on the new node
+/// while the old one still forwards stragglers.
+pub const RETIRE_ANNOTATION: &str = "qrab.yapplesauce.com/retire-after";
+/// Seconds between retiring an anchor and deleting it.
+pub const RETIRE_DELAY_SECS: i64 = 20;
+/// forks/cilium P1: the anchor takes `<namespace>/<pod>`'s IP as a standby
+/// endpoint, without IPAM.
+pub const HANDOFF_FROM: &str = "ipam.cilium.io/handoff-from";
+
+/// A live migration's target anchor: the normal anchor for the target node,
+/// plus (outside the template hash, so it matches the normal template after
+/// the move) the handoff source and the owning migration.
+pub fn handoff_target(
+    mut anchor: DesiredAnchor,
+    namespace: &str,
+    source: &str,
+    migration: &str,
+) -> DesiredAnchor {
+    let annotations = anchor
+        .pod
+        .metadata
+        .annotations
+        .get_or_insert_with(Default::default);
+    annotations.insert(HANDOFF_FROM.into(), format!("{namespace}/{source}"));
+    annotations.insert(MIGRATION_ANNOTATION.into(), migration.into());
+    anchor
+}
+
 /// The relay CiliumNetworkPolicy the removed stream datapath created per
 /// NIC; the operator deletes it from VMs created before the change.
 pub fn legacy_relay_policy_name(vm: &VirtualMachine, nic: &str) -> String {
@@ -178,7 +217,7 @@ pub fn render_anchor(
             json!(qrab_netd::DATAPATH_TAP),
         ),
     ]);
-    let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":pod_name(vm,&nic.name),"namespace":settings.namespace,"labels":labels,"annotations":annotations,"ownerReferences":[owner]},"spec":{
+    let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":anchor_name(vm,&nic.name,node),"namespace":settings.namespace,"labels":labels,"annotations":annotations,"ownerReferences":[owner]},"spec":{
         "serviceAccountName":"qrab-manager","automountServiceAccountToken":false,"enableServiceLinks":false,
         "hostNetwork":false,"hostPID":false,"hostIPC":false,
         "restartPolicy":"Always","terminationGracePeriodSeconds":2,

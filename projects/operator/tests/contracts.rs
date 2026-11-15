@@ -1070,7 +1070,9 @@ fn nics_are_restricted_anchors_pinned_to_the_vm_node_and_gated_on_qrab_netd() {
     let anchor = nic::render_anchor(&vm, &settings(), &vm.spec.nics[0], pool, "kube02").unwrap();
     assert!(resources::owned(&anchor.pod, &vm));
     let pod = serde_json::to_value(&anchor.pod).unwrap();
-    assert_eq!(pod["metadata"]["name"], "test-vm-nic-lan");
+    // The node is in the name: a migration's target anchor already has the
+    // name the VM's reconcile renders once the VM lives there.
+    assert_eq!(pod["metadata"]["name"], "test-vm-nic-lan-kube02");
     // Nothing per Pod, so a second anchor of this NIC gets the same Cilium
     // identity. Not part of the BMC Service, the dashboard's or the VM's own
     // policies.
@@ -1141,6 +1143,22 @@ fn nics_are_restricted_anchors_pinned_to_the_vm_node_and_gated_on_qrab_netd() {
     assert_ne!(elsewhere.hash, anchor.hash);
     assert!(
         nic::anchor_matches(&anchor.pod, &anchor) && !nic::anchor_matches(&anchor.pod, &elsewhere)
+    );
+    // A live migration's target anchor is the target node's normal anchor plus
+    // the handoff source and owning migration, outside the template hash: once
+    // the VM lives there, its reconcile keeps it instead of replacing it.
+    let target = nic::handoff_target(elsewhere, "qrab", "test-vm-nic-lan-kube02", "move-1");
+    let annotations = target.pod.metadata.annotations.clone().unwrap();
+    assert_eq!(
+        annotations["ipam.cilium.io/handoff-from"],
+        "qrab/test-vm-nic-lan-kube02"
+    );
+    assert_eq!(annotations[nic::MIGRATION_ANNOTATION], "move-1");
+    let normal = nic::render_anchor(&vm, &settings(), &vm.spec.nics[0], pool, "kube03").unwrap();
+    assert!(nic::anchor_matches(&target.pod, &normal));
+    assert_eq!(
+        target.pod.metadata.name.as_deref(),
+        Some("test-vm-nic-lan-kube03")
     );
     // Security groups are reconciled in place; the template is unchanged.
     let mut changed = vm.clone();

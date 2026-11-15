@@ -590,3 +590,128 @@ async fn a_handed_over_pod_without_its_migration_blocks_instead_of_booting_again
         "not replaced"
     );
 }
+
+fn labelled(mut node: Value) -> Value {
+    let name = node["metadata"]["name"].clone();
+    node["metadata"]["labels"] = json!({"kubernetes.io/hostname": name});
+    node
+}
+
+/// A node's base BGP configuration, which NIC routes are derived from.
+fn base_route(node: &str, id: &str) -> Value {
+    json!({"apiVersion":"frrk8s.metallb.io/v1beta1","kind":"FRRConfiguration",
+        "metadata":{"name":node,"namespace":"frr-k8s-system","uid":format!("uid-{node}"),
+            "labels":{"qrab.yapplesauce.com/nic-route-base":"true"}},
+        "spec":{"nodeSelector":{"matchLabels":{"kubernetes.io/hostname":node}},
+            "bgp":{"routers":[{"asn":64512,"id":id,"prefixes":["10.244.0.0/24"],"neighbors":[
+                {"address":"10.203.0.1","asn":64513,"toAdvertise":{"allowed":{"mode":"all"}}}]}]}}})
+}
+
+/// The tap NIC's anchor on `node` reports Ready (qrab-netd plumbed it) with
+/// the NIC's pool address.
+fn plumb(store: &Store, anchor: &str, node: &str, ip: &str) {
+    store.edit(&format!("{PODS}/{anchor}"), |pod| {
+        pod["spec"]["nodeName"] = json!(node);
+        pod["status"] = json!({"phase":"Running","podIP":ip,"conditions":[
+            {"type":"Ready","status":"True"},{"type":"qrab.yapplesauce.com/nic-plumbed","status":"True"}]});
+    });
+}
+
+#[tokio::test]
+async fn a_nic_vm_gets_standby_target_anchors_before_its_target_and_loses_them_on_failure() {
+    let store = Store::default();
+    let mut settings = settings();
+    settings.nic_addresses = Some(qrab_operator::address::Addressing {
+        range: "10.244.128.0/17".parse().unwrap(),
+        frr_namespace: "frr-k8s-system".into(),
+    });
+    store.0.lock().unwrap().extend([
+        (VM.to_owned(), json!({"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine",
+            "metadata":{"name":"test-vm","namespace":"qrab","uid":"vm-uid","generation":1,"resourceVersion":"1"},
+            "spec":{"stateVolumeClaim":"state","accelerator":"kvm","components":{"bmc":{"enabled":false}},"nics":[{"name":"lan"}]},
+            "status":{"observedGeneration":1,"phase":"Pending","ready":false,"reason":"","message":"","stateVolumeUid":"pvc-uid"}})),
+        (format!("{CLAIMS}/state"),
+            json!({"apiVersion":"v1","kind":"PersistentVolumeClaim","metadata":{"name":"state","namespace":"qrab","uid":"pvc-uid"},
+                "spec":{"accessModes":["ReadWriteOncePod"],"volumeMode":"Filesystem","storageClassName":"zfs-block","resources":{"requests":{"storage":"1Gi"}}},"status":{"phase":"Bound"}})),
+        (format!("{ROUTES}/node-a"), base_route("node-a", "10.203.0.11")),
+        (format!("{ROUTES}/node-b"), base_route("node-b", "10.203.0.12")),
+        (format!("{NODES}/node-a"), labelled(node("node-a"))),
+        (format!("{NODES}/node-b"), {
+            let mut node = labelled(node("node-b"));
+            node["status"]["addresses"] = json!([{"type":"InternalIP","address":"10.203.0.12"}]);
+            node["status"]["allocatable"] = json!({"qrab.yapplesauce.com/kvm":"32"});
+            node
+        }),
+    ]);
+    let ctx = server_with(&store, settings).await;
+    until(&store, &ctx, 10, |s| s.get(SOURCE).is_some()).await;
+    store.edit(SOURCE, |pod| {
+        pod["spec"]["nodeName"] = json!("node-a");
+        pod["status"] = json!({"phase":"Running","podIP":"10.244.1.5","conditions":[{"type":"Ready","status":"True"}],
+            "containerStatuses":[{"name":"manager","image":"x","imageID":"x","ready":true,"restartCount":0,"state":{"running":{}}}]});
+    });
+    let source_anchor = format!("{PODS}/test-vm-nic-lan-node-a");
+    until(&store, &ctx, 6, |s| s.get(&source_anchor).is_some()).await;
+    let ip = store.status()["nics"][0]["address"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    plumb(&store, "test-vm-nic-lan-node-a", "node-a", &ip);
+    until(&store, &ctx, 6, |s| s.status()["phase"] == "Running").await;
+
+    store.0.lock().unwrap().insert(
+        format!("{MIGRATIONS}/move"),
+        migration(
+            "move",
+            "aaaa1111-2222-3333-4444-555566667777",
+            "2026-11-14T17:00:00Z",
+        ),
+    );
+    let target_anchor = format!("{PODS}/test-vm-nic-lan-node-b");
+    until(&store, &ctx, 8, |s| s.get(&target_anchor).is_some()).await;
+    let anchor = store.get(&target_anchor).unwrap();
+    assert_eq!(
+        anchor["metadata"]["annotations"]["ipam.cilium.io/handoff-from"],
+        "qrab/test-vm-nic-lan-node-a"
+    );
+    assert_eq!(
+        anchor["metadata"]["annotations"]["qrab.yapplesauce.com/migration"],
+        "move"
+    );
+    assert_eq!(
+        anchor["spec"]["affinity"]["nodeAffinity"]
+            ["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"][0]
+            ["matchFields"][0]["values"],
+        json!(["node-b"])
+    );
+    // No target VM Pod until its anchor is plumbed.
+    for _ in 0..3 {
+        store.step(&ctx).await;
+    }
+    assert!(store.get(TARGET).is_none());
+    assert_eq!(
+        moving(&store)["message"],
+        "Waiting for the target NIC anchors"
+    );
+    // The VM's own reconcile leaves the migration's anchor alone meanwhile.
+    assert!(
+        store.get(&target_anchor).unwrap()["metadata"]["annotations"]
+            .get("qrab.yapplesauce.com/retire-after")
+            .is_none()
+    );
+    plumb(&store, "test-vm-nic-lan-node-b", "node-b", &ip);
+    until(&store, &ctx, 6, |s| s.get(TARGET).is_some()).await;
+    assert_eq!(
+        config(&store, "test-vm-maaaa11-config")["incoming"]["node_ip"],
+        "10.203.0.12",
+        "the source node forwards to the target node during the switch"
+    );
+    // A failed migration removes its standby anchor and keeps the source's.
+    store.edit(TARGET, |pod| {
+        pod["spec"]["nodeName"] = json!("node-b");
+        terminated(pod, 1, "migration: the source refused");
+    });
+    until(&store, &ctx, 8, |s| moving(s)["cleaned"] == true).await;
+    assert!(store.get(&target_anchor).is_none());
+    assert!(store.get(&source_anchor).is_some());
+}

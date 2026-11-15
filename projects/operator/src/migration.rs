@@ -67,7 +67,7 @@ fn now() -> i64 {
         .as_secs() as i64
 }
 
-fn terminal(phase: &str) -> bool {
+pub(crate) fn terminal(phase: &str) -> bool {
     matches!(phase, "Succeeded" | "Failed")
 }
 
@@ -183,7 +183,12 @@ pub fn window(
 /// The target's ConfigMap: the VM's config for the target incarnation plus
 /// `incoming`. The template hash excludes `incoming`, so once the target takes
 /// over, the VM's normal render matches its Pod.
-pub fn incoming_config(desired: &Desired, migration: &str, source: &str) -> Result<ConfigMap> {
+pub fn incoming_config(
+    desired: &Desired,
+    migration: &str,
+    source: &str,
+    node_ip: Option<&str>,
+) -> Result<ConfigMap> {
     let mut config = desired.config.clone();
     let data = config.data.get_or_insert_with(Default::default);
     let mut vm: Value = serde_json::from_str(
@@ -191,6 +196,10 @@ pub fn incoming_config(desired: &Desired, migration: &str, source: &str) -> Resu
             .ok_or_else(|| Error::Invalid("rendered config has no vm.json".into()))?,
     )?;
     vm["incoming"] = json!({"migration":migration,"source":format!("{source}:{MIGRATION_PORT}")});
+    // Where the source node forwards the guest's NIC traffic during the switch.
+    if let Some(node_ip) = node_ip {
+        vm["incoming"]["node_ip"] = json!(node_ip);
+    }
     data.insert("vm.json".into(), serde_json::to_string_pretty(&vm)?);
     Ok(config)
 }
@@ -426,6 +435,23 @@ async fn clean(
             }
             _ => true,
         };
+        // The target's standby anchors; the source's stay active.
+        let selector = format!(
+            "app.kubernetes.io/component={},{}={uid}",
+            crate::nic::COMPONENT,
+            OWNER_UID
+        );
+        for anchor in pods
+            .list(&ListParams::default().labels(&selector))
+            .await?
+            .items
+        {
+            if anchor.annotations().get(crate::nic::MIGRATION_ANNOTATION)
+                == Some(&migration.name_any())
+            {
+                delete_pod(pods, &anchor.name_any()).await?;
+            }
+        }
         if target_gone {
             if let Some(claim) = &status.target_state_volume_claim {
                 delete_state_claim(&claims, claim, &uid).await?;
@@ -691,8 +717,83 @@ async fn step(
             .create(&PostParams::default(), &serde_json::from_value(claim)?)
             .await?;
     }
+    // Each NIC's anchor on the target node, as a standby holding the
+    // source anchor's address (forks/cilium P1/P2), plumbed by the target
+    // node's qrab-netd before the target VM Pod starts.
+    if live_target.is_none() && !vm.spec.nics.is_empty() {
+        let source_node = status.source_node.clone().unwrap_or_default();
+        let mut pending = Vec::new();
+        for nic in &vm.spec.nics {
+            let ip = inputs
+                .nics
+                .iter()
+                .find(|e| e.name == nic.name)
+                .and_then(|e| match e.ip {
+                    std::net::IpAddr::V4(ip) => Some(ip),
+                    std::net::IpAddr::V6(_) => None,
+                })
+                .ok_or_else(|| Error::Invalid(format!("NIC {} has no address", nic.name)))?;
+            let anchor = crate::nic::handoff_target(
+                crate::nic::render_anchor(
+                    vm,
+                    &ctx.settings,
+                    nic,
+                    &crate::address::pool_name(ip),
+                    &target_node,
+                )?,
+                &ctx.settings.namespace,
+                &crate::nic::anchor_name(vm, &nic.name, &source_node),
+                &name,
+            );
+            match pods.get_opt(&anchor.pod.name_any()).await? {
+                None => {
+                    pods.create(&PostParams::default(), &anchor.pod).await?;
+                    pending.push(nic.name.clone());
+                }
+                Some(actual) if !resources::owned(&actual, vm) => {
+                    return fail(
+                        api,
+                        migration,
+                        &format!("Pod {} does not belong to this VM", actual.name_any()),
+                    )
+                    .await;
+                }
+                Some(actual) if crate::nic::endpoint(&actual, &nic.name).is_none() => {
+                    pending.push(nic.name.clone())
+                }
+                Some(_) => {}
+            }
+        }
+        if !pending.is_empty() {
+            if status.message != "Waiting for the target NIC anchors" {
+                status.message = "Waiting for the target NIC anchors".into();
+                set_status(api, migration, &status).await?;
+            }
+            return Ok(Some(Action::requeue(Duration::from_secs(2))));
+        }
+    }
+    let node_ip = if vm.spec.nics.is_empty() {
+        None
+    } else {
+        let nodes: Api<Node> = Api::all(ctx.client.clone());
+        nodes
+            .get_opt(&target_node)
+            .await?
+            .and_then(|n| {
+                n.status?
+                    .addresses?
+                    .into_iter()
+                    .find(|a| a.type_ == "InternalIP")
+            })
+            .map(|a| a.address)
+    };
     let configs: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
-    let config = incoming_config(&desired, &migration.uid().unwrap_or_default(), &source_ip)?;
+    let config = incoming_config(
+        &desired,
+        &migration.uid().unwrap_or_default(),
+        &source_ip,
+        node_ip.as_deref(),
+    )?;
     if configs.get_opt(&config.name_any()).await?.is_none() {
         configs.create(&PostParams::default(), &config).await?;
     }

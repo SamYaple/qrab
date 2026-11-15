@@ -283,8 +283,8 @@ fn schedule_vm_pod(store: &Store, node: &str) {
     });
 }
 
-fn anchor_node(store: &Store) -> Value {
-    store.get(&format!("{PODS}/test-vm-nic-lan")).unwrap()["spec"]["affinity"]["nodeAffinity"]
+fn anchor_node(store: &Store, anchor: &str) -> Value {
+    store.get(anchor).unwrap()["spec"]["affinity"]["nodeAffinity"]
         ["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"][0]["matchFields"][0]
         ["values"][0]
         .clone()
@@ -329,7 +329,8 @@ async fn vm_boots_with_its_nic_addresses_and_anchors_follow_its_node() {
         (format!("{NODES}/kube02"), node("kube02", true)),
     ]);
     let ctx = server_with(&store, addressed()).await;
-    let nic_pod = format!("{PODS}/test-vm-nic-lan");
+    // Anchors are named for their node.
+    let nic_pod = format!("{PODS}/test-vm-nic-lan-kube01");
     let mac = qrab_operator::nic::mac("vm-uid", "lan");
 
     // Finalizer, then the address claim; the former relay policy is deleted.
@@ -338,7 +339,7 @@ async fn vm_boots_with_its_nic_addresses_and_anchors_follow_its_node() {
     assert!(store.get(&policy).is_none());
     assert_eq!(
         store.status()["nics"],
-        json!([{"name":"lan","mac":mac,"podName":"test-vm-nic-lan","ip":"10.244.128.1","ready":false,"address":"10.244.128.1"}])
+        json!([{"name":"lan","mac":mac,"podName":"","ip":"10.244.128.1","ready":false,"address":"10.244.128.1"}])
     );
     // The VM Pod does not wait for the anchor, which waits for its node.
     store.step(&ctx).await;
@@ -361,7 +362,11 @@ async fn vm_boots_with_its_nic_addresses_and_anchors_follow_its_node() {
         pod["metadata"]["annotations"]["qrab.yapplesauce.com/nic-datapath"],
         "tap"
     );
-    assert_eq!(anchor_node(&store), "kube01");
+    assert_eq!(anchor_node(&store, &nic_pod), "kube01");
+    assert_eq!(
+        store.status()["nics"][0]["podName"],
+        "test-vm-nic-lan-kube01"
+    );
     assert_eq!(store.status()["nics"][0]["ready"], false);
     // Plumbed (Ready) with the NIC's address.
     store.edit(&nic_pod, running_on("kube01", "10.244.128.1"));
@@ -378,15 +383,28 @@ async fn vm_boots_with_its_nic_addresses_and_anchors_follow_its_node() {
     assert!(labels.get("sg.qrab.yapplesauce.com/web").is_none());
     assert_eq!(
         store.get(&nic_pod).unwrap()["metadata"]["uid"],
-        "uid-test-vm-nic-lan"
+        "uid-test-vm-nic-lan-kube01"
     );
 
-    // A VM Pod on another node replaces the anchor there.
+    // A VM Pod on another node gets an anchor there; the old one is retired
+    // (deleted once its retire time passes, after the route has moved).
     schedule_vm_pod(&store, "kube02");
     store.step(&ctx).await;
-    assert!(store.get(&nic_pod).is_none());
+    let moved = format!("{PODS}/test-vm-nic-lan-kube02");
+    assert_eq!(anchor_node(&store, &moved), "kube02");
+    let retire = store.get(&nic_pod).unwrap()["metadata"]["annotations"]
+        ["qrab.yapplesauce.com/retire-after"]
+        .clone();
+    assert!(
+        retire.as_str().is_some_and(|at| at.parse::<i64>().is_ok()),
+        "{retire}"
+    );
+    store.edit(&nic_pod, |pod| {
+        pod["metadata"]["annotations"]["qrab.yapplesauce.com/retire-after"] = json!("0");
+    });
     store.step(&ctx).await;
-    assert_eq!(anchor_node(&store), "kube02");
+    assert!(store.get(&nic_pod).is_none());
+    assert!(store.get(&moved).is_some());
 }
 
 #[tokio::test]
@@ -420,7 +438,8 @@ async fn a_nic_keeps_its_claimed_address_and_its_route_follows_the_pod() {
         ),
     ]);
     let ctx = server_with(&store, addressed()).await;
-    let nic_pod = format!("{PODS}/test-vm-nic-lan");
+    let nic_pod = format!("{PODS}/test-vm-nic-lan-kube01");
+    let moved = format!("{PODS}/test-vm-nic-lan-kube02");
     let pool = format!("{POOLS}/qrab-nic-10-244-128-2");
     let route = format!("{ROUTES}/qrab-nic-10-244-128-2");
 
@@ -484,17 +503,22 @@ async fn a_nic_keeps_its_claimed_address_and_its_route_follows_the_pod() {
             {"address":"10.203.0.1","asn":64513,"toAdvertise":{"allowed":{"mode":"filtered","prefixes":["10.244.128.2/32"]}}}]}]}})
     );
 
-    // The VM Pod moves to kube02: the anchor is replaced there. Stuck while
-    // kube01 still holds the pool: a Ready kube01 is left alone; once it is
-    // not Ready, the pool is fenced off it.
+    // The VM Pod moves to kube02 (a cold restart there): it gets its own
+    // anchor, and kube01's is retired, then deleted once its time passes.
+    // Stuck while kube01 still holds the pool: a Ready kube01 is left alone;
+    // once it is not Ready, the pool is fenced off it.
     schedule_vm_pod(&store, "kube02");
     store.step(&ctx).await;
-    assert!(store.get(&nic_pod).is_none());
+    assert!(store.get(&moved).is_some());
+    store.edit(&nic_pod, |pod| {
+        pod["metadata"]["annotations"]["qrab.yapplesauce.com/retire-after"] = json!("0");
+    });
     store.step(&ctx).await;
+    assert!(store.get(&nic_pod).is_none());
     store.edit(&format!("{CILIUM_NODES}/kube01"), |cn| {
         *cn = cilium_node("kube01", &["default", "qrab-nic-10-244-128-2"]);
     });
-    store.edit(&nic_pod, |pod| {
+    store.edit(&moved, |pod| {
         pod["spec"]["nodeName"] = json!("kube02");
         pod["status"] = json!({"phase":"Pending"});
     });
@@ -524,7 +548,7 @@ async fn a_nic_keeps_its_claimed_address_and_its_route_follows_the_pod() {
     assert_eq!(pools_of(&store, "kube02"), ["default", "default"]);
 
     // The anchor holds the same address on kube02: the route follows.
-    store.edit(&nic_pod, running_on("kube02", "10.244.128.2"));
+    store.edit(&moved, running_on("kube02", "10.244.128.2"));
     store.step(&ctx).await;
     assert_eq!(
         store.get(&route).unwrap()["spec"]["nodeSelector"]["matchLabels"]["kubernetes.io/hostname"],
@@ -536,7 +560,7 @@ async fn a_nic_keeps_its_claimed_address_and_its_route_follows_the_pod() {
         vm["spec"].as_object_mut().unwrap().remove("nics");
     });
     store.step(&ctx).await;
-    assert!(store.get(&nic_pod).is_none());
+    assert!(store.get(&moved).is_none());
     assert!(store.get(&pool).is_some(), "kept until the Pod is gone");
     store.step(&ctx).await;
     assert!(store.get(&pool).is_none());
@@ -563,7 +587,7 @@ async fn deleting_a_vm_stops_its_anchors_then_releases_their_addresses() {
         (format!("{NODES}/kube01"), node("kube01", true)),
     ]);
     let ctx = server_with(&store, addressed()).await;
-    let nic_pod = format!("{PODS}/test-vm-nic-lan");
+    let nic_pod = format!("{PODS}/test-vm-nic-lan-kube01");
     let pool = format!("{POOLS}/qrab-nic-10-244-128-1");
     let route = format!("{ROUTES}/qrab-nic-10-244-128-1");
     store.step(&ctx).await;

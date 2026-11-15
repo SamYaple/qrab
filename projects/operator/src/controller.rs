@@ -302,9 +302,14 @@ async fn reconcile_nics(
             }
             None => {}
         }
-        let name = nic::pod_name(vm, &spec.name);
+        // The anchor on the VM Pod's node; others are retired below.
+        let name = vm_node.map(|node| nic::anchor_name(vm, &spec.name, node));
         let mut endpoint = None;
-        let live = pods.get_opt(&name).await?;
+        let live = match &name {
+            Some(name) => pods.get_opt(name).await?,
+            None => None,
+        };
+        let name = name.unwrap_or_default();
         match &live {
             Some(actual) if !resources::owned(actual, vm) => {
                 return Err(Error::Ownership(format!(
@@ -337,6 +342,9 @@ async fn reconcile_nics(
                     pods.create(&PostParams::default(), pod).await?;
                 }
             }
+        }
+        if vm_node.is_some() {
+            retire_other_anchors(ctx, pods, vm, pods_of(&nic_pods, &spec.name), &name).await?;
         }
         let anchor_ready = endpoint.is_some();
         let endpoint = address.map(|a| NicEndpoint {
@@ -428,6 +436,58 @@ async fn reconcile_nics(
     Ok(Ok(
         (endpoints.len() == vm.spec.nics.len()).then_some(endpoints)
     ))
+}
+
+/// Anchors of one NIC other than `current` (the VM Pod's node's): one an
+/// active migration owns is left to it; any other is annotated with a
+/// retire time on first sight and deleted once that passes, so the new
+/// node's announcement converges while the old node still forwards.
+async fn retire_other_anchors<'a>(
+    ctx: &Context,
+    pods: &Api<Pod>,
+    vm: &VirtualMachine,
+    anchors: impl Iterator<Item = &'a Pod>,
+    current: &str,
+) -> Result<()> {
+    let migrations: Api<crate::api::VirtualMachineMigration> =
+        Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    for anchor in anchors {
+        if anchor.name_any() == current
+            || anchor.metadata.deletion_timestamp.is_some()
+            || !resources::owned(anchor, vm)
+        {
+            continue;
+        }
+        if let Some(migration) = anchor.annotations().get(nic::MIGRATION_ANNOTATION) {
+            let active = migrations.get_opt(migration).await?.is_some_and(|m| {
+                !crate::migration::terminal(m.status.as_ref().map_or("", |s| s.phase.as_str()))
+            });
+            if active {
+                continue;
+            }
+        }
+        match anchor
+            .annotations()
+            .get(nic::RETIRE_ANNOTATION)
+            .and_then(|at| at.parse::<i64>().ok())
+        {
+            Some(at) if now >= at => delete(pods, anchor).await?,
+            Some(_) => {}
+            None => {
+                let at = (now + nic::RETIRE_DELAY_SECS).to_string();
+                pods.patch(
+                    &anchor.name_any(),
+                    &PatchParams::default(),
+                    &Patch::Merge(json!({"metadata":{"annotations":{nic::RETIRE_ANNOTATION: at}}})),
+                )
+                .await?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn pods_of<'a>(pods: &'a [Pod], nic: &'a str) -> impl Iterator<Item = &'a Pod> + 'a {
