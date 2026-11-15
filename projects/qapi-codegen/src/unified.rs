@@ -179,6 +179,27 @@ fn attrs_equivalent(a: &Attribute, b: &Attribute) -> bool {
     }
 }
 
+fn condition(meta: &Metadata) -> Option<&str> {
+    meta.attributes.iter().find_map(|attr| match attr {
+        Attribute::Item { name, value } if name == "condition" => Some(value.as_str()),
+        _ => None,
+    })
+}
+
+fn refresh_condition(existing: &mut Metadata, latest: &Metadata) {
+    if condition(existing) == condition(latest) {
+        return;
+    }
+    existing
+        .attributes
+        .retain(|attr| !matches!(attr, Attribute::Item { name, .. } if name == "condition"));
+    if let Some(value) = condition(latest) {
+        existing
+            .attributes
+            .push(Attribute::with_value("condition", value));
+    }
+}
+
 /// Merge command-specific attributes (command, returns, allow_oob, etc.) from
 /// a processed command struct onto an existing data struct.
 fn merge_command_attrs_onto(source: &Struct, target: &mut Struct) {
@@ -1163,6 +1184,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         }
         // Update doc from latest version (latest has best docs)
         merge_doc_from(&mut existing.ir.meta.doc, e.meta.doc.as_deref());
+        refresh_condition(&mut existing.ir.meta, &e.meta);
         // Union enum-level attributes across versions.
         for new_attr in &e.meta.attributes {
             if !existing
@@ -1215,6 +1237,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     existing_variant.kind = variant.kind.clone();
                     existing_variant.array = variant.array;
                     merge_doc_from(&mut existing_variant.meta.doc, variant.meta.doc.as_deref());
+                    refresh_condition(&mut existing_variant.meta, &variant.meta);
                     for new_attr in &variant.meta.attributes {
                         if !existing_variant
                             .meta
@@ -1304,6 +1327,7 @@ fn same_field_shape(left: &StructField, right: &StructField) -> bool {
     rustify_type(&left.r#type) == rustify_type(&right.r#type)
         && left.array == right.array
         && left.optional == right.optional
+        && (left.optional || condition(&left.meta).is_some() == condition(&right.meta).is_some())
 }
 
 fn materialize_field_history(registry: &mut UnifiedRegistry) {
@@ -1361,6 +1385,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         }
         // Update doc from latest version (latest has best docs)
         merge_doc_from(&mut existing.ir.meta.doc, s.meta.doc.as_deref());
+        refresh_condition(&mut existing.ir.meta, &s.meta);
         // Merge version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
         merge_bool_attrs(existing, &s.meta, version);
         merge_returns(existing, &s.meta, version);
@@ -1421,6 +1446,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                     existing_field.optional = field.optional;
                     existing_field.array = field.array;
                     merge_doc_from(&mut existing_field.meta.doc, field.meta.doc.as_deref());
+                    refresh_condition(&mut existing_field.meta, &field.meta);
                     for new_attr in &field.meta.attributes {
                         if !existing_field
                             .meta
@@ -2905,6 +2931,48 @@ mod enum_history_tests {
     }
 
     #[test]
+    fn latest_type_and_variant_conditions_replace_or_clear_old_conditions() {
+        let mut registry = UnifiedRegistry::default();
+        let mut value = enumeration("value", EnumVariantKind::Unit, false);
+        value
+            .meta
+            .attributes
+            .push(Attribute::with_value("condition", "CONFIG_A"));
+        value.variants[0]
+            .meta
+            .attributes
+            .push(Attribute::with_value("condition", "CONFIG_A"));
+        merge_enum(&mut registry, "Example", &value, (1, 0, 0));
+        value.meta.attributes = vec![Attribute::with_value("condition", "CONFIG_B")];
+        value.variants[0]
+            .meta
+            .attributes
+            .retain(|attr| !matches!(attr, Attribute::Item {name,..} if name == "condition"));
+        merge_enum(&mut registry, "Example", &value, (2, 0, 0));
+        let UnifiedType::Enum(value) = &registry.types["Example"] else {
+            panic!()
+        };
+        assert_eq!(condition(&value.ir.meta), Some("CONFIG_B"));
+        assert_eq!(condition(&value.ir.variants[0].meta), None);
+        let mut value = Struct {
+            name: "Record".into(),
+            fields: vec![],
+            meta: Metadata::default(),
+        };
+        value
+            .meta
+            .attributes
+            .push(Attribute::with_value("condition", "CONFIG_A"));
+        merge_struct(&mut registry, "Record", &value, (1, 0, 0));
+        value.meta.attributes.clear();
+        merge_struct(&mut registry, "Record", &value, (2, 0, 0));
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert_eq!(condition(&value.ir.meta), None);
+    }
+
+    #[test]
     fn reintroduced_variants_keep_the_gap_between_lifetimes() {
         let mut registry = UnifiedRegistry::default();
         let present = enumeration("returning", EnumVariantKind::Unit, false);
@@ -3035,6 +3103,65 @@ mod field_history_tests {
             fields,
             meta: Metadata::default(),
         }
+    }
+
+    #[test]
+    fn optional_fields_keep_one_lifetime_when_conditions_change() {
+        let mut registry = UnifiedRegistry::default();
+        let mut value = field("value", "str", false);
+        value.optional = true;
+        value
+            .meta
+            .attributes
+            .push(Attribute::with_value("condition", "CONFIG_A"));
+        merge_struct(
+            &mut registry,
+            "Record",
+            &record(vec![value.clone()]),
+            (1, 0, 0),
+        );
+        value.meta.attributes.clear();
+        merge_struct(&mut registry, "Record", &record(vec![value]), (2, 0, 0));
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert!(value.field_history.is_empty());
+        assert_eq!(value.field_versions["value"].since, (1, 0, 0));
+        assert_eq!(condition(&value.ir.fields[0].meta), None);
+    }
+
+    #[test]
+    fn conditional_field_presence_preserves_requiredness_and_latest_conditions() {
+        let mut registry = UnifiedRegistry::default();
+        for (major, condition) in [(1, Some("CONFIG_A")), (2, None), (3, Some("CONFIG_B"))] {
+            let mut value = field("value", "str", false);
+            if let Some(condition) = condition {
+                value
+                    .meta
+                    .attributes
+                    .push(Attribute::with_value("condition", condition));
+            }
+            merge_struct(&mut registry, "Record", &record(vec![value]), (major, 0, 0));
+        }
+        materialize_field_history(&mut registry);
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert_eq!(value.field_history.len(), 2);
+        assert!(
+            value.ir.fields[0]
+                .meta
+                .attributes
+                .contains(&Attribute::with_value("condition", "CONFIG_B"))
+        );
+        assert!(
+            !value.field_history[1]
+                .0
+                .meta
+                .attributes
+                .iter()
+                .any(|attr| matches!(attr, Attribute::Item {name,..} if name == "condition"))
+        );
     }
 
     #[test]

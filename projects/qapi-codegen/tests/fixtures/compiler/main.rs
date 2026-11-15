@@ -5,6 +5,16 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    with_version((6, 1, 0), || {
+        let value: ChangingConditionality = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!({}));
+    });
+    with_version((11, 1, 3), || {
+        assert!(serde_json::from_value::<ChangingConditionality>(serde_json::json!({})).is_err());
+        let wire = serde_json::json!({"value":"required now"});
+        let value: ChangingConditionality = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    });
     for version in [(2, 3, 0), (6, 1, 0), (11, 1, 3)] {
         with_version(version, || {
             let tag: PresenceKind = serde_json::from_value(serde_json::json!("returning")).unwrap();

@@ -28,7 +28,6 @@ pub struct GuestAgentInfo {
     pub version: String,
 }
 
-#[qapi(condition = "defined(CONFIG_POSIX)")]
 #[qapi(added = "5.2.0")]
 pub struct GuestAuthorizedKeys {
     /// public keys (in OpenSSH/sshd(8) authorized_keys format)
@@ -654,7 +653,7 @@ pub struct GuestLinuxCpuStats {
 }
 
 /// Statistics about process load information
-#[qapi(condition = "CONFIG_GETLOADAVG")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_GETLOADAVG)")]
 #[qapi(added = "10.0.0")]
 pub struct GuestLoadAverage {
     /// 15-minute load avage
@@ -793,7 +792,7 @@ pub struct GuestNetworkInterfaceStat {
 
 /// Route information.  Supported on Linux (since 9.1) and Windows
 /// (since 11.0).
-#[qapi(condition = "CONFIG_LINUX")]
+#[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "9.1.0")]
 pub struct GuestNetworkRoute {
     /// Destination prefix length (for IPv6)

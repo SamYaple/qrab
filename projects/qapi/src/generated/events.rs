@@ -438,7 +438,6 @@ pub struct CommandDroppedEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "CPU_POLARIZATION_CHANGE")]
-#[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
 #[qapi(feature = "unstable")]
 #[qapi(added = "8.2.0")]
 #[qapi(unstable(added = "8.2.0"))]
@@ -1113,9 +1112,6 @@ pub struct ResumeEvent {}
 /// ```
 #[qapi(event)]
 #[qapi(name = "RTC_CHANGE")]
-#[qapi(
-    condition = "defined(TARGET_ALPHA) || defined(TARGET_ARM) || defined(TARGET_HPPA) || defined(TARGET_I386) || defined(TARGET_MIPS) || defined(TARGET_MIPS64) || defined(TARGET_MOXIE) || defined(TARGET_PPC) || defined(TARGET_PPC64) || defined(TARGET_S390X) || defined(TARGET_SH4) || defined(TARGET_SPARC)"
-)]
 #[qapi(added = "2.1.0")]
 pub struct RtcChangeEvent {
     /// offset in seconds between base RTC clock (as specified by
@@ -1199,7 +1195,7 @@ pub struct ShutdownEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "SPICE_CONNECTED")]
-#[qapi(condition = "defined(CONFIG_SPICE)")]
+#[qapi(condition = "CONFIG_SPICE")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceConnectedEvent {
     /// client information
@@ -1223,7 +1219,7 @@ pub struct SpiceConnectedEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "SPICE_DISCONNECTED")]
-#[qapi(condition = "defined(CONFIG_SPICE)")]
+#[qapi(condition = "CONFIG_SPICE")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceDisconnectedEvent {
     /// client information
@@ -1250,7 +1246,7 @@ pub struct SpiceDisconnectedEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "SPICE_INITIALIZED")]
-#[qapi(condition = "defined(CONFIG_SPICE)")]
+#[qapi(condition = "CONFIG_SPICE")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceInitializedEvent {
     /// client information
@@ -1270,7 +1266,7 @@ pub struct SpiceInitializedEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "SPICE_MIGRATE_COMPLETED")]
-#[qapi(condition = "defined(CONFIG_SPICE)")]
+#[qapi(condition = "CONFIG_SPICE")]
 #[qapi(added = "2.1.0")]
 pub struct SpiceMigrateCompletedEvent {}
 
@@ -1436,7 +1432,7 @@ pub struct VfuClientHangupEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "VNC_CONNECTED")]
-#[qapi(condition = "defined(CONFIG_VNC)")]
+#[qapi(condition = "CONFIG_VNC")]
 #[qapi(added = "2.1.0")]
 pub struct VncConnectedEvent {
     /// client information
@@ -1461,7 +1457,7 @@ pub struct VncConnectedEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "VNC_DISCONNECTED")]
-#[qapi(condition = "defined(CONFIG_VNC)")]
+#[qapi(condition = "CONFIG_VNC")]
 #[qapi(added = "2.1.0")]
 pub struct VncDisconnectedEvent {
     /// client information
@@ -1487,7 +1483,7 @@ pub struct VncDisconnectedEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "VNC_INITIALIZED")]
-#[qapi(condition = "defined(CONFIG_VNC)")]
+#[qapi(condition = "CONFIG_VNC")]
 #[qapi(added = "2.1.0")]
 pub struct VncInitializedEvent {
     /// client information

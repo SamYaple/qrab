@@ -136,6 +136,8 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     let optionality =
         "{'struct':'ChangingOptionality','data':{'required-now':'str','*optional-now':'str'}}\n";
     schema.push_str(optionality);
+    let conditionality = "{'struct':'ChangingConditionality','data':{'value':'str','other':{'type':'str','if':'CONFIG_B'}}}\n";
+    schema.push_str(conditionality);
     let late_flags = "{'command':'late-flags','allow-oob':true,'allow-preconfig':true,'success-response':false}\n";
     schema.push_str(late_flags);
     let entry = repo.join("qapi/qapi-schema.json");
@@ -148,6 +150,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         String::from_utf8_lossy(&oracle.stderr)
     );
     let modern_schema = schema.clone();
+    schema = schema.replace(conditionality, "{'struct':'ChangingConditionality','data':{'value':{'type':'str','if':'CONFIG_A'},'other':{'type':'str','if':'CONFIG_A'}}}\n");
     schema = schema.replace(
         optionality,
         "{'struct':'ChangingOptionality','data':{'*required-now':'str','optional-now':'str'}}\n",

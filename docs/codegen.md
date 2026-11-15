@@ -215,6 +215,9 @@ retained in generated documentation, never translated into Rust host OS gates.
 Conditional fields use `Option` because a peer can omit them even when their
 schema declaration is required when enabled. Metadata retains that declaration's
 wire optionality; version checks cannot determine the peer's build configuration.
+Condition presence changes retain field history so later unconditional fields
+become required. Generated conditions describe the newest declaration rather
+than an obsolete condition inherited from an earlier release.
 
 `QEMU_MIN_VERSION`/`QEMU_MAX_VERSION` builds prune representations outside the
 requested range. Command associated return types use the newest shape within

@@ -303,8 +303,8 @@ pub struct GuestGetHostName {}
 /// Returns: load information
 #[qapi(command)]
 #[qapi(name = "guest-get-load")]
-#[qapi(condition = "CONFIG_GETLOADAVG")]
 #[qapi(returns = "GuestLoadAverage")]
+#[qapi(condition = "(CONFIG_WIN32 || CONFIG_GETLOADAVG)")]
 #[qapi(added = "10.0.0")]
 pub struct GuestGetLoad {}
 
@@ -401,8 +401,8 @@ pub struct GuestNetworkGetInterfaces {}
 /// Returns: List of route info of guest.
 #[qapi(command)]
 #[qapi(name = "guest-network-get-route")]
-#[qapi(condition = "CONFIG_LINUX")]
 #[qapi(returns = "Vec<GuestNetworkRoute>")]
+#[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "9.1.0")]
 pub struct GuestNetworkGetRoute {}
 
@@ -571,7 +571,6 @@ pub struct GuestShutdown {
 /// implemented for other systems).
 #[qapi(command)]
 #[qapi(name = "guest-ssh-add-authorized-keys")]
-#[qapi(condition = "defined(CONFIG_POSIX)")]
 #[qapi(returns = "()")]
 #[qapi(added = "5.2.0")]
 pub struct GuestSshAddAuthorizedKeys {
@@ -588,7 +587,6 @@ pub struct GuestSshAddAuthorizedKeys {
 /// systems (not implemented for other systems).
 #[qapi(command)]
 #[qapi(name = "guest-ssh-get-authorized-keys")]
-#[qapi(condition = "defined(CONFIG_POSIX)")]
 #[qapi(returns = "GuestAuthorizedKeys")]
 #[qapi(added = "5.2.0")]
 pub struct GuestSshGetAuthorizedKeys {
@@ -601,7 +599,6 @@ pub struct GuestSshGetAuthorizedKeys {
 /// the key is already missing.
 #[qapi(command)]
 #[qapi(name = "guest-ssh-remove-authorized-keys")]
-#[qapi(condition = "defined(CONFIG_POSIX)")]
 #[qapi(returns = "()")]
 #[qapi(added = "5.2.0")]
 pub struct GuestSshRemoveAuthorizedKeys {

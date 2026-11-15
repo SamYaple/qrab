@@ -2233,7 +2233,7 @@ pub struct ChangeBackingFile {
 #[qapi(command)]
 #[qapi(name = "change-vnc-password")]
 #[qapi(returns = "()")]
-#[qapi(condition = "defined(CONFIG_VNC)")]
+#[qapi(condition = "CONFIG_VNC")]
 #[qapi(added = "1.1.0")]
 pub struct ChangeVncPassword {
     /// the new password to use with VNC authentication
@@ -3345,7 +3345,6 @@ pub struct DumpGuestMemory {
 #[qapi(command)]
 #[qapi(name = "dump-skeys")]
 #[qapi(returns = "()")]
-#[qapi(condition = "defined(TARGET_S390X)")]
 #[qapi(added = "2.5.0")]
 pub struct DumpSkeys {
     /// the path to the file to dump to
@@ -5716,9 +5715,6 @@ pub struct QueryCommands {}
 #[qapi(command)]
 #[qapi(name = "query-cpu-definitions")]
 #[qapi(returns = "Vec<CpuDefinitionInfo>")]
-#[qapi(
-    condition = "defined(TARGET_PPC) || defined(TARGET_ARM) || defined(TARGET_I386) || defined(TARGET_S390X) || defined(TARGET_MIPS)"
-)]
 #[qapi(added = "1.2.0")]
 pub struct QueryCpuDefinitions {}
 
@@ -5765,7 +5761,6 @@ pub struct QueryCpuDefinitions {}
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-baseline")]
 #[qapi(returns = "CpuModelBaselineInfo")]
-#[qapi(condition = "defined(TARGET_S390X)")]
 #[qapi(added = "2.8.0")]
 pub struct QueryCpuModelBaseline {
     /// description of the first CPU model to baseline
@@ -5821,7 +5816,6 @@ pub struct QueryCpuModelBaseline {
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-comparison")]
 #[qapi(returns = "CpuModelCompareInfo")]
-#[qapi(condition = "defined(TARGET_S390X)")]
 #[qapi(added = "2.8.0")]
 pub struct QueryCpuModelComparison {
     /// description of the first CPU model to compare, referred to
@@ -5872,7 +5866,6 @@ pub struct QueryCpuModelComparison {
 #[qapi(command)]
 #[qapi(name = "query-cpu-model-expansion")]
 #[qapi(returns = "CpuModelExpansionInfo")]
-#[qapi(condition = "defined(TARGET_S390X) || defined(TARGET_I386)")]
 #[qapi(added = "2.8.0")]
 pub struct QueryCpuModelExpansion {
     /// description of the CPU model to expand
@@ -6175,7 +6168,6 @@ pub struct QueryFirmwareLog {
 #[qapi(command)]
 #[qapi(name = "query-gic-capabilities")]
 #[qapi(returns = "Vec<GicCapability>")]
-#[qapi(condition = "defined(TARGET_ARM)")]
 #[qapi(added = "2.6.0")]
 pub struct QueryGicCapabilities {}
 
@@ -7187,7 +7179,6 @@ pub struct QueryRxFilter {
 /// Returns: the machine's CPU polarization
 #[qapi(command)]
 #[qapi(name = "query-s390x-cpu-polarization")]
-#[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "CpuPolarizationInfo")]
 #[qapi(added = "8.2.0")]
@@ -7212,7 +7203,6 @@ pub struct QueryS390xCpuPolarization {}
 #[qapi(command)]
 #[qapi(name = "query-sev")]
 #[qapi(returns = "SevInfo")]
-#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySev {}
 
@@ -7239,7 +7229,6 @@ pub struct QuerySev {}
 /// ```
 #[qapi(command)]
 #[qapi(name = "query-sev-attestation-report")]
-#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(returns = "SevAttestationReport")]
 #[qapi(added = "6.1.0")]
 pub struct QuerySevAttestationReport {
@@ -7269,7 +7258,6 @@ pub struct QuerySevAttestationReport {
 #[qapi(command)]
 #[qapi(name = "query-sev-capabilities")]
 #[qapi(returns = "SevCapability")]
-#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySevCapabilities {}
 
@@ -7298,7 +7286,6 @@ pub struct QuerySevCapabilities {}
 #[qapi(command)]
 #[qapi(name = "query-sev-launch-measure")]
 #[qapi(returns = "SevLaunchMeasureInfo")]
-#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.12.0")]
 pub struct QuerySevLaunchMeasure {}
 
@@ -7316,7 +7303,6 @@ pub struct QuerySevLaunchMeasure {}
 /// ```
 #[qapi(command)]
 #[qapi(name = "query-sgx")]
-#[qapi(condition = "TARGET_I386")]
 #[qapi(returns = "SgxInfo")]
 #[qapi(added = "6.2.0")]
 pub struct QuerySgx {}
@@ -7335,7 +7321,6 @@ pub struct QuerySgx {}
 /// ```
 #[qapi(command)]
 #[qapi(name = "query-sgx-capabilities")]
-#[qapi(condition = "TARGET_I386")]
 #[qapi(returns = "SgxInfo")]
 #[qapi(added = "6.2.0")]
 pub struct QuerySgxCapabilities {}
@@ -7382,7 +7367,7 @@ pub struct QuerySgxCapabilities {}
 #[qapi(command)]
 #[qapi(name = "query-spice")]
 #[qapi(returns = "SpiceInfo")]
-#[qapi(condition = "defined(CONFIG_SPICE)")]
+#[qapi(condition = "CONFIG_SPICE")]
 #[qapi(added = "1.0.0")]
 pub struct QuerySpice {}
 
@@ -7488,7 +7473,7 @@ pub struct QueryTarget {}
 #[qapi(command)]
 #[qapi(name = "query-tpm")]
 #[qapi(returns = "Vec<TpmInfo>")]
-#[qapi(condition = "defined(CONFIG_TPM)")]
+#[qapi(condition = "CONFIG_TPM")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpm {}
 
@@ -7504,7 +7489,7 @@ pub struct QueryTpm {}
 #[qapi(command)]
 #[qapi(name = "query-tpm-models")]
 #[qapi(returns = "Vec<TpmModel>")]
-#[qapi(condition = "defined(CONFIG_TPM)")]
+#[qapi(condition = "CONFIG_TPM")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpmModels {}
 
@@ -7520,7 +7505,7 @@ pub struct QueryTpmModels {}
 #[qapi(command)]
 #[qapi(name = "query-tpm-types")]
 #[qapi(returns = "Vec<TpmType>")]
-#[qapi(condition = "defined(CONFIG_TPM)")]
+#[qapi(condition = "CONFIG_TPM")]
 #[qapi(added = "1.5.0")]
 pub struct QueryTpmTypes {}
 
@@ -7618,7 +7603,7 @@ pub struct QueryVmGenerationId {}
 #[qapi(command)]
 #[qapi(name = "query-vnc")]
 #[qapi(returns = "VncInfo")]
-#[qapi(condition = "defined(CONFIG_VNC)")]
+#[qapi(condition = "CONFIG_VNC")]
 #[qapi(added = "1.0.0")]
 pub struct QueryVnc {}
 
@@ -7626,7 +7611,7 @@ pub struct QueryVnc {}
 #[qapi(command)]
 #[qapi(name = "query-vnc-servers")]
 #[qapi(returns = "Vec<VncInfo2>")]
-#[qapi(condition = "defined(CONFIG_VNC)")]
+#[qapi(condition = "CONFIG_VNC")]
 #[qapi(added = "2.3.0")]
 pub struct QueryVncServers {}
 
@@ -7643,7 +7628,7 @@ pub struct QueryVncServers {}
 #[qapi(command)]
 #[qapi(name = "query-xen-replication-status")]
 #[qapi(returns = "ReplicationStatus")]
-#[qapi(condition = "defined(CONFIG_REPLICATION)")]
+#[qapi(condition = "CONFIG_REPLICATION")]
 #[qapi(added = "2.9.0")]
 pub struct QueryXenReplicationStatus {}
 
@@ -7881,7 +7866,6 @@ pub struct RingbufWrite {
 #[qapi(command)]
 #[qapi(name = "rtc-reset-reinjection")]
 #[qapi(returns = "()")]
-#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(added = "2.1.0")]
 pub struct RtcResetReinjection {}
 
@@ -7992,7 +7976,6 @@ pub struct SetAction {
 /// @unstable: This command is experimental.
 #[qapi(command)]
 #[qapi(name = "set-cpu-topology")]
-#[qapi(condition = "(TARGET_S390X && CONFIG_KVM)")]
 #[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "8.2.0")]
@@ -8165,7 +8148,6 @@ pub struct SetVcpuDirtyLimit {
 /// ```
 #[qapi(command)]
 #[qapi(name = "sev-inject-launch-secret")]
-#[qapi(condition = "defined(TARGET_I386)")]
 #[qapi(returns = "()")]
 #[qapi(added = "6.0.0")]
 pub struct SevInjectLaunchSecret {
@@ -9270,7 +9252,7 @@ pub struct XDebugQueryBlockGraph {}
 #[qapi(command)]
 #[qapi(name = "xen-colo-do-checkpoint")]
 #[qapi(returns = "()")]
-#[qapi(condition = "defined(CONFIG_REPLICATION)")]
+#[qapi(condition = "CONFIG_REPLICATION")]
 #[qapi(added = "2.9.0")]
 pub struct XenColoDoCheckpoint {}
 
@@ -9285,7 +9267,6 @@ pub struct XenColoDoCheckpoint {}
 /// ```
 #[qapi(command)]
 #[qapi(name = "xen-event-inject")]
-#[qapi(condition = "TARGET_I386")]
 #[qapi(returns = "()")]
 #[qapi(added = "8.0.0")]
 pub struct XenEventInject {
@@ -9326,7 +9307,6 @@ pub struct XenEventInject {
 /// ```
 #[qapi(command)]
 #[qapi(name = "xen-event-list")]
-#[qapi(condition = "TARGET_I386")]
 #[qapi(returns = "Vec<EvtchnInfo>")]
 #[qapi(added = "8.0.0")]
 pub struct XenEventList {}
@@ -9410,7 +9390,7 @@ pub struct XenSetGlobalDirtyLog {
 #[qapi(command)]
 #[qapi(name = "xen-set-replication")]
 #[qapi(returns = "()")]
-#[qapi(condition = "defined(CONFIG_REPLICATION)")]
+#[qapi(condition = "CONFIG_REPLICATION")]
 #[qapi(added = "2.9.0")]
 pub struct XenSetReplication {
     /// true to enable, false to disable.
