@@ -1399,10 +1399,17 @@ fn launched(page: &Launched) -> Element {
             }
             h2 { class: "subheading", "Created" }
             if r.created.is_empty() { p { class: "empty", "Nothing was created." } }
-            ul { for item in &r.created { li { "{item}" } } }
+            else { ul { for item in &r.created { li { "{item}" } } } }
             if !r.rolled_back.is_empty() { h2 { class: "subheading", "Rolled back" } ul { for item in &r.rolled_back { li { "{item}" } } } }
-            if !r.left.is_empty() { h2 { class: "subheading", "Left in place" } ul { for item in &r.left { li { "{item}" } } } }
-            if let Some(path) = &page.vm_path { a { class: "button", href: "{path}", "Open the VM →" } }
+            if !r.left.is_empty() {
+                h2 { class: "subheading", "Left in place" }
+                p { class: "muted", "Read these notes before reusing the VM name." }
+                ul { for item in &r.left { li { "{item}" } } }
+            }
+            div { class: "actions",
+                if let Some(path) = &page.vm_path { a { class: "button", href: "{path}", "Open the VM →" } }
+                if r.failed.is_some() { a { class: "button secondary", href: "/launch", "Back to launch form" } }
+            }
         }
     }
 }

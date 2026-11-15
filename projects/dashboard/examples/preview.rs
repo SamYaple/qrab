@@ -614,6 +614,26 @@ fn main() {
         })),
         &css,
     );
+    for (name, report) in [
+        (
+            "launch-failed-empty",
+            Report {
+                failed: Some(("Check that the name is free".into(), "VirtualMachine test already exists.".into())),
+                ..Default::default()
+            },
+        ),
+        (
+            "launch-failed-left",
+            Report {
+                created: vec!["Kanidm group qrab_vm_qrab_test_admins".into(), "PersistentVolumeClaim qrab/test-state".into()],
+                failed: Some(("Create the VirtualMachine".into(), "The VM service is temporarily unavailable.".into())),
+                rolled_back: vec!["Kanidm group qrab_vm_qrab_test_admins".into()],
+                left: vec!["PersistentVolumeClaim qrab/test-state: kept (the dashboard cannot delete PVCs); a retry with the same name reuses it while it is unbound".into()],
+            },
+        ),
+    ] {
+        write(dir, name, page(Body::Launched(Launched { vm_path: None, report })), &css);
+    }
     write(
         dir,
         "console",

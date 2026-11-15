@@ -1486,7 +1486,7 @@ with sync_playwright() as playwright:
             context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
             for name in ['list', 'list-long', 'list-storage', 'list-empty-launcher', 'list-empty-viewer', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'detail-paused', 'detail-powered-off', 'detail-powering-on', 'detail-unknown-power', 'images', 'images-empty', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
-                         'error-session', 'error-denied', 'error-missing', 'error-service']:
+                         'launch-failed-empty', 'launch-failed-left', 'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 if args.forced_colors:
                     assert page.evaluate("matchMedia('(forced-colors: active)').matches")
