@@ -214,6 +214,7 @@ td .muted { margin: 3px 0 0; }
 #screen { height: 65vh; min-height: 320px; position: relative; background: var(--screen); display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; }
 #screen > p { color: #9bb0b8; padding: 24px; text-align: center; }
 #screen:fullscreen { height: 100vh; border-radius: 0; }
+#screen:has(canvas:focus-visible) { outline: 3px solid var(--accent); outline-offset: -3px; }
 .power-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
 .power-state { display: flex; align-items: center; gap: 12px; margin: 0; flex-wrap: wrap; }
 .power-bar .actions { gap: 8px; }
@@ -246,6 +247,7 @@ td .muted { margin: 3px 0 0; }
 .spark-3 { stroke: var(--series-3); stroke-dasharray: 8 3 2 3; }
 
 @media (forced-colors: active) {
+    #screen:has(canvas:focus-visible) { outline-color: Highlight; }
     .spark > svg { background: Canvas; border-color: CanvasText; }
     .spark .spark-line, .swatch line { stroke: CanvasText; }
     .spark .spark-axis { stroke: GrayText; }

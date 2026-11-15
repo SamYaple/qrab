@@ -1,6 +1,7 @@
 // noVNC and power controls for the dashboard's dedicated console page.
 import RFB from './novnc/core/rfb.js';
 import { createAudioContext } from './novnc/core/audio.js';
+import { wireConsoleKeyboard } from './console-keyboard.js';
 
 const element = id => document.getElementById(id);
 const screen = element('screen');
@@ -205,7 +206,14 @@ function openConsole() {
         rfb.resizeSession = false;
         rfb.focusOnClick = true;
         rfb.showDotCursor = true;
+        const client = rfb;
+        const keyboard = wireConsoleKeyboard(screen.querySelector('canvas'), {
+            enabled: () => !expired && rfb === client,
+            returnFocus: () => focusInView(connect),
+            describedBy: 'console-input-help',
+        });
         rfb.addEventListener('connect', () => {
+            keyboard.connected();
             reconnectDelay = 1000;
             connect.textContent = 'Disconnect';
             status.textContent = 'Connected · Keyboard and mouse enabled';
@@ -213,6 +221,7 @@ function openConsole() {
             element('fullscreen').disabled = false;
         });
         rfb.addEventListener('disconnect', event => {
+            keyboard.dispose();
             disconnected(event.detail.clean ? 'Console disconnected' : 'Connection closed. Your session may have ended: reload the page or sign in again.');
         });
         rfb.addEventListener('securityfailure', () => showError('Console connection failed.'));

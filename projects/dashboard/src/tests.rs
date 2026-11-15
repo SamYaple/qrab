@@ -2517,6 +2517,15 @@ async fn bmc_assets_scope_all_browser_connections_to_the_dashboard_vm() {
     assert!(js.contains("`${vmBase}/bmc/logout`"));
     assert!(js.contains("`${vmBase}/console/ws`") && js.contains("${location.host}${consolePath}"));
     assert!(!js.contains("${location.host}/api/console"));
+    let (status, headers, keyboard) = send(&h, get("/assets/console-keyboard.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/javascript")
+    );
+    assert!(keyboard.contains("wireConsoleKeyboard"));
 }
 
 #[tokio::test]

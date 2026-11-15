@@ -64,7 +64,7 @@ def system(power='On'):
                                                'nics': [{'id': 'eth0', 'mac': '02:5e:a1:3c:77:0b'}]}}}}
 
 
-def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
+def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test', native_page=False):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
                'fail_session': None, 'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'hold_reset_info': False, 'pending_reset_info': [],
@@ -80,7 +80,7 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             relative = path.removeprefix('/assets/')
             relative = {'bmc.js': 'console.js', 'bmc.css': 'style.css'}.get(relative, relative)
             asset_root = root / ('projects/dashboard/assets' if legacy else 'projects/bmc/assets')
-            if relative == 'favicon.svg':
+            if relative in ['favicon.svg', 'console-keyboard.js']:
                 asset_root = root / 'projects/bmc/assets'
             asset = asset_root / relative
             if asset.is_file() and asset.resolve().is_relative_to(asset_root):
@@ -94,6 +94,9 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
             request_route.continue_()
             return
         if path == base + '/bmc':
+            if native_page:
+                request_route.continue_()
+                return
             html = (root / 'projects/bmc/assets/index.html').read_text().replace('/assets/style.css', '/assets/bmc.css').replace('/assets/console.js', '/assets/bmc.js').replace('<body>', f'<body data-vm-base="{base}">')
             request_route.fulfill(body=html, content_type='text/html')
             return
@@ -203,14 +206,16 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
 
 
 @contextmanager
-def native_console_socket():
-    """A native WebSocket with no guest payload, held during RFB negotiation.
+def native_console_socket(ready=False, key_events=None):
+    """A native WebSocket, optionally completing a minimal fixture RFB session.
 
     noVNC checks native channel properties. Playwright's WebSocket proxy wraps
     their prototype, so use a loopback upgrade for the disconnect lifecycle.
     """
     opened, closed = Event(), Event()
     connections = []
+    if key_events is None:
+        key_events = []
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -218,9 +223,83 @@ def native_console_socket():
         def log_message(self, *_):
             pass
 
+        def exact(self, size):
+            data = bytearray()
+            while len(data) < size:
+                part = self.connection.recv(size - len(data))
+                if not part:
+                    raise EOFError
+                data.extend(part)
+            return bytes(data)
+
+        def frame(self, data, opcode=2):
+            length = len(data)
+            header = bytes([128 | opcode, length]) if length < 126 else bytes([128 | opcode, 126]) + length.to_bytes(2, 'big')
+            self.connection.sendall(header + data)
+
+        def rfb(self):
+            buffered = bytearray()
+
+            def receive(size):
+                while len(buffered) < size:
+                    head = self.exact(2)
+                    length = head[1] & 127
+                    if length == 126:
+                        length = int.from_bytes(self.exact(2), 'big')
+                    elif length == 127:
+                        length = int.from_bytes(self.exact(8), 'big')
+                    assert length <= 65536
+                    mask = self.exact(4) if head[1] & 128 else b''
+                    data = self.exact(length)
+                    if mask:
+                        data = bytes(value ^ mask[i % 4] for i, value in enumerate(data))
+                    opcode = head[0] & 15
+                    if opcode == 8:
+                        self.frame(b'', 8)
+                        raise EOFError
+                    if opcode == 9:
+                        self.frame(data, 10)
+                    elif opcode in [0, 2]:
+                        buffered.extend(data)
+                data = bytes(buffered[:size])
+                del buffered[:size]
+                return data
+
+            self.frame(b'RFB 003.008\n')
+            assert receive(12) == b'RFB 003.008\n'
+            self.frame(b'\x01\x01')
+            assert receive(1) == b'\x01'
+            self.frame(b'\0' * 4)
+            receive(1)  # Shared flag.
+            pixel = bytes([32, 24, 0, 1]) + b'\x00\xff' * 3 + bytes([16, 8, 0, 0, 0, 0])
+            name = b'Fixture console'
+            self.frame((640).to_bytes(2, 'big') + (480).to_bytes(2, 'big') + pixel + len(name).to_bytes(4, 'big') + name)
+            while True:
+                kind = receive(1)[0]
+                if kind == 0:
+                    receive(19)  # Pixel format.
+                elif kind == 2:
+                    header = receive(3)
+                    receive(int.from_bytes(header[1:], 'big') * 4)
+                elif kind == 3:
+                    receive(9)  # Framebuffer request; no pixels needed.
+                elif kind == 4:
+                    event = receive(7)
+                    key_events.append((bool(event[0]), int.from_bytes(event[3:], 'big')))
+                elif kind == 5:
+                    receive(5)
+                elif kind == 6:
+                    header = receive(7)
+                    receive(int.from_bytes(header[3:], 'big'))
+                else:
+                    raise OSError(f'Unexpected fixture RFB message {kind}')
+
         def do_GET(self):
-            if self.path == base + '/console' and not self.headers.get('Upgrade'):
-                html = (args.previews / 'console.html').read_text().replace(f'file://{root}/projects/dashboard/assets/style.css', '/assets/style.css').replace(f'file://{root}/projects/dashboard/../bmc/assets/favicon.svg', '/assets/favicon.svg').replace('src="about:blank"', 'src="/assets/console.js"').encode()
+            if self.path in [base + '/console', base + '/bmc'] and not self.headers.get('Upgrade'):
+                if self.path.endswith('/bmc'):
+                    html = (root / 'projects/bmc/assets/index.html').read_text().replace('/assets/style.css', '/assets/bmc.css').replace('/assets/console.js', '/assets/bmc.js').replace('<body>', f'<body data-vm-base="{base}">').encode()
+                else:
+                    html = (args.previews / 'console.html').read_text().replace(f'file://{root}/projects/dashboard/assets/style.css', '/assets/style.css').replace(f'file://{root}/projects/dashboard/../bmc/assets/favicon.svg', '/assets/favicon.svg').replace('src="about:blank"', 'src="/assets/console.js"').encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(html)))
@@ -241,15 +320,21 @@ def native_console_socket():
             self.end_headers()
             connections.append(self.connection)
             opened.set()
-            self.connection.settimeout(10)
+            self.connection.settimeout(30 if ready else 10)
             try:
+                if ready:
+                    self.rfb()
+                    return
                 # RFB waits for the server greeting, so the browser sends no
                 # data before its close frame. Acknowledge the native close.
                 while data := self.connection.recv(4096):
                     if data[0] & 15 == 8:
                         self.connection.sendall(b'\x88\x00')
                         break
-            except OSError:
+            except OSError as error:
+                if ready:
+                    key_events.append(('fixture-error', str(error)))
+            except EOFError:
                 pass
             finally:
                 self.close_connection = True
@@ -1112,6 +1197,81 @@ def timezone_checks(browser):
         context.close()
 
 
+def console_keyboard_checks(browser):
+    for legacy in [False, True]:
+        keys = []
+        with native_console_socket(ready=True, key_events=keys) as (origin, opened, closed):
+            context = browser_context(browser, viewport={'width': 1000, 'height': 800})
+            fixture = install_bmc(context, legacy=legacy, origin=origin, native_page=True)
+            page = context.new_page()
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.clock.install()
+            page.goto(origin + base + ('/console' if legacy else '/bmc'))
+            connect = page.locator('#connect')
+            connect.click()
+            expect(connect).to_have_text('Disconnect')
+            canvas = page.locator('#screen canvas')
+            expect(canvas).to_have_attribute('aria-label', 'VM console display')
+            for _ in range(32):
+                page.keyboard.press('Tab')
+                if canvas.evaluate('e => e === document.activeElement'):
+                    break
+            expect(canvas).to_be_focused()
+            assert page.locator('#screen').evaluate('e => parseFloat(getComputedStyle(e).outlineWidth) >= 2'), 'Guest keyboard focus needs a visible indicator'
+
+            def received(event):
+                for _ in range(100):
+                    if event in keys:
+                        return
+                    page.wait_for_timeout(10)
+                assert event in keys, (event, keys)
+
+            page.keyboard.press('Tab')
+            expect(canvas).to_be_focused()
+            received((True, 0xff09))
+            received((False, 0xff09))
+            page.keyboard.press('Escape')
+            received((True, 0xff1b))
+            received((False, 0xff1b))
+            page.keyboard.down('ShiftLeft')
+            page.locator('h1').click()
+            page.keyboard.up('ShiftLeft')
+            received((False, 0xffe1))
+            canvas.focus()
+            page.keyboard.down('ControlLeft')
+            page.keyboard.down('AltRight')
+            page.keyboard.down('ShiftLeft')
+            expect(canvas).to_be_focused()
+            page.keyboard.up('ShiftLeft')
+            page.keyboard.up('AltRight')
+            page.keyboard.up('ControlLeft')
+            page.locator('#fullscreen').click()
+            page.wait_for_function('document.fullscreenElement !== null')
+            canvas.focus()
+            page.keyboard.down('ControlLeft')
+            page.keyboard.down('AltLeft')
+            page.keyboard.down('ShiftLeft')
+            page.wait_for_function('document.fullscreenElement === null')
+            expect(connect).to_be_focused()
+            page.keyboard.up('ShiftLeft')
+            page.keyboard.up('AltLeft')
+            page.keyboard.up('ControlLeft')
+            received((False, 0xffe3))
+            received((False, 0xffe9))
+            expect(connect).to_have_text('Disconnect')
+            canvas.focus()
+            fixture['expired'] = True
+            page.clock.fast_forward(3100)
+            expect(page.locator('#console-recovery' if legacy else '#login')).to_be_visible()
+            expect(page.locator('#screen canvas')).to_have_count(0)
+            wait_native(page, closed)
+            assert not errors, errors
+            assert not any(event[0] == 'fixture-error' for event in keys), keys
+            assert fixture['posts'] == []
+            context.close()
+
+
 def history_precision_checks(browser):
     context = browser_context(browser, viewport={'width': 320, 'height': 1000})
     fixture = install_bmc(context)
@@ -1481,6 +1641,7 @@ with sync_playwright() as playwright:
     action_discovery_checks(browser)
     metric_focus_checks(browser)
     history_precision_checks(browser)
+    console_keyboard_checks(browser)
     bmc_state_checks(browser, 1440, 'dark')
     bmc_state_checks(browser, 390, 'light')
     bmc_state_checks(browser, 320, 'dark')

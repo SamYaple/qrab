@@ -51,12 +51,18 @@ modules):
   on = `On`, Pause, Resume, Reset = `ForceRestart`, Restart guest =
   `GracefulRestart`, Shut down = `GracefulShutdown`, Force off, Power cycle,
   NMI). Reset, Force off, Power cycle and NMI sit under **More power actions**,
-  a keyboard-accessible native disclosure. Buttons are enabled for the current `PowerState`: only Power on while `Off`, only
+  a keyboard-accessible native disclosure. Buttons are enabled for the current `PowerState`: Power on and Power cycle while `Off`, only
   Force off while powering on or off. All but Power on, Pause and Resume use an
   inline two-step confirm: the first
   click turns the button into **Confirm <action>** for 5 s and only a second
   click sends it. Pressing a toolbar or tab button while the console has
   keyboard focus keeps that focus; clicking anywhere else releases it.
+  Tab can enter the display, with a visible keyboard-focus indicator. Ordinary
+  Tab and Escape then go to the guest. Ctrl+Alt+Shift (using left Alt) returns
+  focus to the console controls and exits console full screen if needed.
+  Right Alt/AltGr combinations remain guest input. Held keys are released when
+  display focus is left; this uses the SDK's DOM key-up handling rather than
+  private SDK methods.
   While `PowerState` is `Off` the console shows a powered-off state and
   **Connect console** is disabled; the Power group is unchanged. A console
   that was open when the VM went off, or after **Power on**, reconnects once

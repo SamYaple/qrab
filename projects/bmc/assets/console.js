@@ -1,5 +1,6 @@
 import RFB from './novnc/core/rfb.js';
 import { createAudioContext } from './novnc/core/audio.js';
+import { wireConsoleKeyboard } from './console-keyboard.js';
 
 // Every management read and action goes to the in-pod Redfish service
 // through the BMC's /bmc/redfish browser bridge; the BMC itself serves only the session
@@ -1163,13 +1164,20 @@ function connect() {
         rfb.resizeSession = false;
         rfb.focusOnClick = true;
         rfb.showDotCursor = true;
+        const client = rfb;
+        const keyboard = wireConsoleKeyboard(screen.querySelector('canvas'), {
+            enabled: () => Boolean(session) && rfb === client,
+            returnFocus: () => focusInView(element('connect')),
+            describedBy: 'hint',
+        });
         rfb.addEventListener('connect', () => {
+            keyboard.connected();
             element('connect').textContent = 'Disconnect';
             element('console-status').textContent = 'Connected · Keyboard and mouse enabled';
             element('cad').disabled = false;
             element('fullscreen').disabled = false;
         });
-        rfb.addEventListener('disconnect', event => { disconnected(event.detail.clean ? 'Console disconnected' : 'Connection closed. Check your session and reconnect.'); });
+        rfb.addEventListener('disconnect', event => { keyboard.dispose(); disconnected(event.detail.clean ? 'Console disconnected' : 'Connection closed. Check your session and reconnect.'); });
         rfb.addEventListener('securityfailure', () => { showError('Console connection failed.'); });
         element('console-status').textContent = 'Connecting…';
     } catch (error) { disconnected('Console disconnected'); showError(error.message); }

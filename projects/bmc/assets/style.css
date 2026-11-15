@@ -172,6 +172,7 @@ footer { padding: 12px 2vw; color: var(--faint); font-size: 12px; }
 }
 #screen > p { color: #7c969f; padding: 20px; text-align: center; }
 #screen:fullscreen { height: 100vh; border: 0; }
+#screen:has(canvas:focus-visible) { outline: 3px solid var(--accent); outline-offset: -3px; }
 .view-only #screen { height: auto; min-height: 0; background: var(--surface-raised); border-radius: 7px; }
 .view-only #screen > p { color: var(--muted); margin: 0; padding: 16px 20px; }
 .view-only .console-foot { display: none; }
@@ -249,6 +250,7 @@ svg.chart .hit { fill: transparent; }
 .chart-error { color: var(--error-text); background: var(--error-bg); border: 1px solid var(--error-border); border-radius: 5px; padding: 8px 10px; }
 
 @media (forced-colors: active) {
+    #screen:has(canvas:focus-visible) { outline-color: Highlight; }
     svg.chart { background: Canvas; border-color: CanvasText; }
     svg.chart .line, .swatch line { stroke: CanvasText; }
     svg.chart .grid, svg.chart .axis { stroke: GrayText; }

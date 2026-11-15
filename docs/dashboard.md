@@ -188,6 +188,12 @@ the console connection status. Action failures have a separate alert so a
 failed state read cannot overwrite the command's outcome. A new request clears
 the previous action error; session expiry clears pending feedback and late
 responses cannot restore it.
+Both console views allow Tab entry into the display and show keyboard focus.
+Ordinary Tab and Escape remain guest keys. Ctrl+Alt+Shift with left Alt returns
+to console controls, leaving console full screen first; Right Alt/AltGr remains
+available to the guest. Leaving display focus releases held keys. Shared static
+keyboard handling is served at `/assets/console-keyboard.js`; it adds no management
+endpoint and uses no private noVNC API.
 The active pending control uses `aria-disabled` with the existing busy guard,
 so keyboard focus survives the request. Other unavailable controls remain
 natively disabled. If the focused action becomes unavailable after settling,

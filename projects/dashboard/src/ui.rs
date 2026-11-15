@@ -1442,6 +1442,7 @@ fn console_page(page: &ConsolePage) -> Element {
             }
         }
         div { id: "screen", "data-socket": "{socket}", p { "Open the console for video, keyboard and mouse access. It closes when your session ends." } }
+        p { id: "console-input-help", class: "muted prose", "Tab or click the display for guest input. Ctrl+Alt+Shift (left Alt) returns to console controls; clicking outside also releases keys." }
         script { r#type: "module", src: "/assets/console.js" }
     }
 }

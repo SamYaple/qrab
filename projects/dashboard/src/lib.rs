@@ -179,6 +179,18 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/assets/bmc.js", get(bmc_page::script))
         .route(
+            "/assets/console-keyboard.js",
+            get(|| async {
+                (
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/javascript; charset=utf-8",
+                    )],
+                    include_str!("../../bmc/assets/console-keyboard.js"),
+                )
+            }),
+        )
+        .route(
             "/assets/favicon.svg",
             get(|| async {
                 (
