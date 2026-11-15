@@ -132,8 +132,11 @@ async function request(path, options = {}) {
 const post = (path, body) => request(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': session.user.csrf}, body: JSON.stringify(body)});
 function signedOut() {
     if (!session && !element('login').hidden) return;
-    const hadDashboardFocus = element('dashboard').contains(document.activeElement) || document.activeElement === element('logout');
-    const leaveFullscreen = document.fullscreenElement === element('screen') ? document.exitFullscreen().catch(() => {}) : Promise.resolve();
+    const ownedFullscreen = document.fullscreenElement === element('screen');
+    // A dropped socket can remove the focused canvas before the next auth
+    // poll. Full-screen ownership still identifies the console context.
+    const hadDashboardFocus = ownedFullscreen || element('dashboard').contains(document.activeElement) || document.activeElement === element('logout');
+    const leaveFullscreen = ownedFullscreen ? document.exitFullscreen().catch(() => {}) : Promise.resolve();
     clearInterval(polling);
     clearInterval(metricsTimer);
     clearTimeout(refreshTimer);

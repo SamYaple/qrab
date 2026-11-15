@@ -6,6 +6,7 @@ test seeds opaque fixture sessions directly and hosts fake VM Pod upstreams.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -157,12 +158,28 @@ with sync_playwright() as p:
         page.wait_for_timeout(min(15000, max(100, remaining * 1000 - 10000)))
     page.locator('#tab-overview').click()
     page.locator('#screen canvas').focus()
+    page.evaluate('''() => {
+        window.expiryFocusTrace = [];
+        for (const type of ['focusin', 'focusout', 'fullscreenchange']) document.addEventListener(type, event => {
+            window.expiryFocusTrace.push({event: type, target: event.target.id || event.target.tagName,
+                active: document.activeElement?.id || document.activeElement?.tagName,
+                fullscreen: document.fullscreenElement?.id || null});
+        });
+    }''')
     page.locator('#screen').evaluate('(e) => e.requestFullscreen()')
     expect(page.locator('#screen:fullscreen')).to_have_count(1)
+    if os.environ.get('QRAB_UI_EARLY_DISCONNECT') == '1':
+        page.locator('#connect').dispatch_event('click')
+        expect(page.locator('#screen canvas')).to_have_count(0)
+        expect(page.locator('#screen:fullscreen')).to_have_count(1)
     expect(page.locator('#login')).to_be_visible(timeout=15000)
     expect(page.locator('#screen canvas')).to_have_count(0)
     expect(page.locator(':fullscreen')).to_have_count(0)
-    expect(page.locator('#sign-in')).to_be_focused()
+    try:
+        expect(page.locator('#sign-in')).to_be_focused()
+    except AssertionError:
+        print(page.evaluate('window.expiryFocusTrace'), flush=True)
+        raise
     before = len(requests)
     page.wait_for_timeout(4000)
     assert len(requests) == before, 'Expired UI kept making background requests'

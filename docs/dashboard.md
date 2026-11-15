@@ -140,6 +140,10 @@ Closing the optional power group clears its armed confirmation. Expiry stops
 pending feedback, exits application full-screen mode and moves dashboard focus
 to visible sign-in; unrelated VM navigation focus is preserved. Late action
 refusals cannot reopen an error after the signed-out view appears.
+Full-screen ownership also counts as console focus if a disconnected socket
+has already removed the focused canvas. The real-router browser check enters
+full-screen before natural expiry; `QRAB_UI_EARLY_DISCONNECT=1` additionally
+closes the console first to exercise this recovery race.
 
 ### Console power controls
 
