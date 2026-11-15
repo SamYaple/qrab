@@ -411,6 +411,20 @@ fn main() {
             }
         }
         if name == "detail-network" {
+            let mut no_actions = live_panel.clone();
+            if let Ok(system) = &mut no_actions.system {
+                system.actions.reset.allowable_values.clear();
+            }
+            write(
+                dir,
+                "detail-no-power-actions",
+                page(Body::Detail(Box::new(DetailPage {
+                    detail: detail.clone(),
+                    panel: PanelState::Loaded(Box::new(no_actions)),
+                    deletable: true,
+                }))),
+                &css,
+            );
             let mut redfish_only = detail.clone();
             redfish_only.bmc_enabled = false;
             write(

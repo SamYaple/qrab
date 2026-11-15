@@ -338,6 +338,11 @@ PVC and groups before the dashboard can reuse the name. Power confirmation
 checkboxes identify both their action and VM to assistive technology, and their
 click targets include the full label height. These changes do not alter the
 server's exact-name and explicit-confirmation requirements.
+The detail page keeps routine power controls visible and puts Reset, Power
+cycle, NMI and Force off under “More power actions,” matching the BMC. This is
+a native disclosure; each action still has its own confirmed POST form, and
+only resets currently offered by the VM's Redfish service are rendered. An
+empty offered-action list has an explicit message instead of an empty toolbar.
 
 ### The detail page
 

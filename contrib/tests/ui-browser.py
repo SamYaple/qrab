@@ -592,7 +592,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
+            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 no_overflow(page, name, width)
@@ -634,6 +634,17 @@ with sync_playwright() as playwright:
                     expect(row.locator('td[data-label=Storage]')).to_contain_text('8.0 GiB reported')
                 capture(page, args.output / f'{name}-{theme}-{width}.png')
                 if name.startswith('detail'):
+                    more_power = page.locator('#more-power-actions')
+                    if more_power.count():
+                        assert not more_power.evaluate('(e) => e.open')
+                        expect(more_power.get_by_role('button')).to_have_count(0)
+                        more_power.locator('summary').focus()
+                        page.keyboard.press('Enter')
+                        assert more_power.evaluate('(e) => e.open')
+                        assert more_power.get_by_role('button').count() > 0
+                    if name == 'detail-no-power-actions':
+                        expect(page.get_by_role('heading', name='Power', exact=True).locator('..')).to_contain_text('No guest power actions are currently offered')
+                        assert more_power.count() == 0
                     confirmations = page.get_by_role('checkbox')
                     if confirmations.count():
                         names = [box.get_attribute('aria-label') for box in confirmations.all()]

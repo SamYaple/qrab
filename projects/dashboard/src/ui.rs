@@ -653,10 +653,22 @@ fn config_card(config: Option<&redfish::Config>) -> Element {
     } }
 }
 
-/// In-pod power, offered as Redfish's `Systems/1` currently allows. Power on
-/// and off (`spec.running`) are on the console page.
-fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
+/// All native power forms share the same confirmation and CSRF fields.
+fn power_form(detail: &Detail, csrf: &str, power: Power) -> Element {
     let action = format!("{}/action", detail.row.path());
+    rsx! { form { method: "post", action: "{action}",
+        input { r#type: "hidden", name: "csrf", value: "{csrf}" }
+        input { r#type: "hidden", name: "action", value: power.key() }
+        if power.needs_confirmation() {
+            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, aria_label: "Confirm {power.label()} for {detail.row.name}" } "Confirm" }
+        }
+        button { class: if power.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {power.label()} }
+    } }
+}
+
+/// Detail-page power controls, limited to actions currently offered by Redfish.
+/// Power on/off also stay here when there is no BMC console page.
+fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
     let allowed = match panel {
         PanelState::Loaded(panel) => panel
             .system
@@ -678,32 +690,26 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
                 p { class: "muted", "Sent to the VM's Redfish service with your sign-in. Shut down and Force off leave the VM powered off in its Pod; Power on starts it again in place. Power off stops the VM and keeps it off." }
             }
             if let Some(actions) = spec_power { div { class: "actions",
-                for a in actions {
-                    form { method: "post", action: "{action}",
-                        input { r#type: "hidden", name: "csrf", value: "{csrf}" }
-                        input { r#type: "hidden", name: "action", value: a.key() }
-                        if a.needs_confirmation() {
-                            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, aria_label: "Confirm {a.label()} for {detail.row.name}" } "Confirm" }
-                        }
-                        button { class: if a.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {a.label()} }
-                    }
-                }
+                for power in actions { {power_form(detail, csrf, power)} }
             } }
             match allowed {
                 None if !detail.redfish_enabled => rsx! {},
                 None => rsx! { p { class: "muted", role: "status", "In-pod power actions are unavailable while the VM's Redfish service cannot be read." } },
-                Some(allowed) => rsx! { div { class: "actions",
-                    for a in allowed {
-                        form { method: "post", action: "{action}",
-                            input { r#type: "hidden", name: "csrf", value: "{csrf}" }
-                            input { r#type: "hidden", name: "action", value: a.name() }
-                            if a.needs_confirmation() {
-                                label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, aria_label: "Confirm {a.label()} for {detail.row.name}" } "Confirm" }
+                Some(allowed) if allowed.is_empty() => rsx! { p { class: "muted", "No guest power actions are currently offered by this VM." } },
+                Some(allowed) => {
+                    let (common, more): (Vec<_>, Vec<_>) = allowed.into_iter().partition(|power|
+                        matches!(power, ResetType::Resume | ResetType::Pause | ResetType::GracefulRestart | ResetType::GracefulShutdown));
+                    rsx! {
+                        div { class: "actions", for power in common { {power_form(detail, csrf, Power::Reset(power))} } }
+                        if !more.is_empty() {
+                            details { class: "inline-disclosure", id: "more-power-actions",
+                                summary { "More power actions" }
+                                p { class: "muted prose", "Reset restarts the guest immediately. Power cycle turns it off and on. NMI sends a diagnostic interrupt. Force off stops it immediately." }
+                                div { class: "actions", for power in more { {power_form(detail, csrf, Power::Reset(power))} } }
                             }
-                            button { class: if a.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {a.label()} }
                         }
                     }
-                } },
+                },
             }
         }
     }
