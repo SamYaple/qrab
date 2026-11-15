@@ -257,6 +257,7 @@ fn process_version_schema_with_names(
         })
         .collect::<Result<Vec<_>>>()?;
     crate::schema_validation::validate(&schemas)?;
+    let declared = crate::symbols::SchemaNames::declared_names(&schemas);
     let mut local = crate::symbols::SchemaNames::default();
     let symbols = if let Some(shared) = shared {
         shared
@@ -559,6 +560,7 @@ fn process_version_schema_with_names(
         structs_lookup.insert(cmd_key, processed);
     }
 
+    symbols.rewrite_types(&declared, &mut enums_lookup, &mut structs_lookup);
     Ok((enums_lookup, structs_lookup))
 }
 

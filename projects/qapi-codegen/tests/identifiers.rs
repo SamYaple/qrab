@@ -34,7 +34,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'struct':'PeerFields', 'data':{'windows':{'type':'str','if':'CONFIG_WIN32'},'posix':{'type':'str','if':'CONFIG_POSIX'}} }\n");
     schema.push_str("{ 'enum':'PeerKind', 'data':[{'name':'windows','if':'CONFIG_WIN32'},{'name':'posix','if':'CONFIG_POSIX'}] }\n");
     schema.push_str("{ 'command':'peer-windows', 'if':'CONFIG_WIN32', 'returns':'PeerWindows' }\n");
-    schema.push_str("{ 'pragma':{'command-returns-exceptions':['read-string','read-strings']} }\n");
+    schema.push_str("{ 'pragma':{'command-returns-exceptions':['read-string','read-strings','query-changing-direct','query-changing-array']} }\n");
     schema.push_str("{ 'command':'read-string', 'returns':'str' }\n");
     schema.push_str("{ 'command':'read-strings', 'returns':['str'] }\n");
     schema.push_str(
@@ -62,6 +62,19 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'union':'VersionedUnion', 'base':'CollisionBase', 'discriminator':'kind', 'data':{'none':'PeerWindows'} }\n");
     let modern_only = "{ 'struct':'VersionedUnionBranch', 'data':{'marker':'bool'} }\n{ 'struct':'NestedInlineOuterEmpty', 'data':{'marker':'bool'} }\n";
     schema.push_str(modern_only);
+    let changing_type = "{ 'struct':'ChangingType', 'data':{'value':'str'} }\n";
+    schema.push_str(changing_type);
+    schema.push_str("{ 'struct':'ChangingTypeLegacy', 'data':{'marker':'bool'} }\n");
+    schema.push_str("{ 'command':'query-changing-direct', 'returns':'ChangingType' }\n");
+    schema.push_str("{ 'command':'query-changing-array', 'returns':['ChangingType'] }\n");
+    let cycle_type = "{ 'enum':'CycleShape', 'data':['new'] }\n";
+    schema.push_str(cycle_type);
+    schema.push_str("{ 'struct':'CycleHolder', 'data':{'item':'CycleShape'} }\n");
+    schema.push_str("{ 'struct':'ChangingHolder', 'data':{'item':'ChangingType'} }\n");
+    schema.push_str("{ 'command':'query-changing', 'returns':'ChangingHolder' }\n");
+    let changing_alt = "{ 'alternate':'ChangingAlt', 'data':{'text':'str','object':'String'} }\n";
+    schema.push_str(changing_alt);
+    schema.push_str("{ 'struct':'AltHolder', 'data':{'item':'ChangingAlt'} }\n");
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -73,11 +86,18 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     );
     let modern_schema = schema.clone();
     schema = schema.replace(modern_only, "");
+    schema = schema.replace(changing_alt, "{ 'enum':'ChangingAlt', 'data':['old'] }\n");
+    schema = schema.replace(changing_type, "{ 'enum':'ChangingType', 'data':['old'] }\n");
+    schema = schema.replace(
+        cycle_type,
+        "{ 'struct':'CycleShape', 'data':{'value':'str'} }\n",
+    );
     // Modern QEMU no longer accepts simple unions. Keep a historical array
     // payload in the compiled fixture after validating the modern definitions.
     schema.push_str("{ 'union':'ArrayPayload', 'data':{'strings':['str'],'objects':['String'],'kinds':['Kind']} }\n");
     schema.push_str("{ 'struct':'OpaqueReferences', 'data':{'visitor':'visitor','dict':'dict','wildcard':'**'} }\n");
-    let nested_schema = "{ 'struct':'NestedInline', 'data':{'outer':{'inner':{'value':'str','*count':'int'},'*empty':{}},'*choice':{'flag':'bool'}} }\n{ 'struct':'NestedInlineOuterInner', 'data':{'declared':'bool'} }\n";
+    schema.push_str("{ 'union':'HistoricalChangingPayload', 'data':{'item':'ChangingType'} }\n");
+    let nested_schema = "{ 'struct':'NestedInline', 'data':{'outer':{'inner':{'value':'str','*count':'int'},'*empty':{}},'*choice':{'flag':'bool'}} }\n{ 'struct':'NestedInlineOuterInner', 'data':{'declared':'bool'} }\n{ 'enum':'CycleShape', 'data':['old'] }\n{ 'struct':'CycleHolder', 'data':{'item':'CycleShape'} }\n";
     std::fs::write(&entry, nested_schema).unwrap();
     git(&repo, &["init", "-q"]);
     git(&repo, &["add", "."]);
@@ -133,5 +153,11 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         &workspace,
         &fixture,
         include_str!("fixtures/compiler/main.rs"),
+    );
+    common::run_fixture_with_bounds(
+        &workspace,
+        &fixture,
+        include_str!("fixtures/compiler/old.rs"),
+        Some(("6.1.0", "6.1.0")),
     );
 }

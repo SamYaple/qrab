@@ -34,6 +34,15 @@ pub fn write_module(path: &Path, output: qapi_codegen::unified::GeneratedOutput)
 }
 
 pub fn run_fixture(workspace: &Path, fixture: &Path, main: &str) {
+    run_fixture_with_bounds(workspace, fixture, main, None)
+}
+
+pub fn run_fixture_with_bounds(
+    workspace: &Path,
+    fixture: &Path,
+    main: &str,
+    bounds: Option<(&str, &str)>,
+) {
     let manifest = format!(
         r#"[package]
 name = "qapi-generated-fixture"
@@ -52,15 +61,24 @@ phf = {{ version = "0.11", features = ["macros"] }}
     );
     std::fs::write(fixture.join("Cargo.toml"), manifest).unwrap();
     std::fs::write(fixture.join("src/main.rs"), main).unwrap();
-    let result = Command::new(env!("CARGO"))
+    let mut command = Command::new(env!("CARGO"));
+    let target = workspace.join("target/qapi-codegen-fixtures");
+    let target = bounds.map_or(target.clone(), |(min, max)| {
+        target.join(format!("{min}-{max}"))
+    });
+    command
         .args(["run", "--offline", "--quiet", "--manifest-path"])
         .arg(fixture.join("Cargo.toml"))
         .arg("--target-dir")
-        .arg(workspace.join("target/qapi-codegen-fixtures"))
+        .arg(target)
         .env_remove("QEMU_MIN_VERSION")
-        .env_remove("QEMU_MAX_VERSION")
-        .output()
-        .unwrap();
+        .env_remove("QEMU_MAX_VERSION");
+    if let Some((min, max)) = bounds {
+        command
+            .env("QEMU_MIN_VERSION", min)
+            .env("QEMU_MAX_VERSION", max);
+    }
+    let result = command.output().unwrap();
     assert!(
         result.status.success(),
         "Generated fixture failed:\n{}",

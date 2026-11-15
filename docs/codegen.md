@@ -163,6 +163,11 @@ needs a Rust `Option`. Explicit peer contexts enforce active required fields;
 unscoped record inspection remains lenient. Present nullable values retain
 `Some(null)` separately from absent fields.
 
+When a named type changes between a string enum, alternate and object, earlier
+definitions receive lifetime-gated `Legacy` names. References follow each
+release's definition; a return to an earlier kind starts a separate lifetime.
+Structs and tagged unions retain their shared object field history.
+
 QAPI build conditions describe the remote QEMU or guest-agent build. They are
 retained in generated documentation, never translated into Rust host OS gates.
 Conditional fields use `Option` because a peer can omit them even when their

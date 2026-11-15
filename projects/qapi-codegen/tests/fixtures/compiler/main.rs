@@ -5,6 +5,50 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    for (version, wire) in [
+        ((6, 1, 0), serde_json::json!({"item":"old"})),
+        ((11, 1, 3), serde_json::json!({"item":{"value":"new"}})),
+    ] {
+        with_version(version, || {
+            let value: AltHolder = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    with_version((6, 1, 0), || {
+        assert_eq!(
+            serde_json::to_value(ChangingAltLegacy::Old).unwrap(),
+            serde_json::json!("old")
+        );
+        assert!(serde_json::to_value(CycleShapeLegacy2::Old).is_err());
+        let wire = serde_json::json!({"type":"item","data":"old"});
+        let value: HistoricalChangingPayload = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    });
+    assert_eq!(
+        metadata::STRUCTS.get("CycleShapeLegacy").unwrap().name,
+        "CycleShape"
+    );
+    for (version, wire) in [
+        ((2, 3, 0), serde_json::json!({"item":"old"})),
+        ((6, 1, 0), serde_json::json!({"item":{"value":"middle"}})),
+        ((11, 1, 3), serde_json::json!({"item":"new"})),
+    ] {
+        with_version(version, || {
+            let value: CycleHolder = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    let _ = ChangingTypeLegacy { marker: true };
+    for (version, wire) in [
+        ((6, 1, 0), serde_json::json!({"item":"old"})),
+        ((11, 1, 3), serde_json::json!({"item":{"value":"new"}})),
+    ] {
+        with_version(version, || {
+            let value: <commands::QueryChanging as QapiCommand>::Returns =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
     for version in [(6, 1, 0), (11, 1, 3)] {
         with_version(version, || {
             let wire = serde_json::json!({"kind":"none","value":"historical"});
