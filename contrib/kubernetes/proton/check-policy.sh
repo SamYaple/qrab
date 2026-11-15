@@ -46,6 +46,7 @@ kubectl create namespace "$ns" >/dev/null
 sed -e "s/name: qrab-proton-broker-writes$/name: $policy/" \
     -e "s/policyName: qrab-proton-broker-writes$/policyName: $policy/" \
     "$here/policy.yaml" | kubectl apply -f - >/dev/null
+kubectl -n "$ns" create serviceaccount qrab-proton-broker >/dev/null
 kubectl -n "$ns" apply -f "$here/rbac.yaml" >/dev/null
 # Admission policies take a moment to load.
 sleep 3

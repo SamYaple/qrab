@@ -2,13 +2,8 @@
 # two Secrets it owns by name; it writes profile Secrets blind (server-side
 # apply), and policy.yaml confines every write to vpn-<profile> Secrets owned
 # by that VpnProfile, proton-keys, proton-session and ConfigMap proton-catalog.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: qrab-proton-broker
-  labels:
-    app.kubernetes.io/name: qrab-proton-broker
----
+# Its ServiceAccount, with its image-pull identity, lives in kubernetes-gitops
+# (infrastructure/qrab-identity), like the operator's and the dashboard's.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
