@@ -1,0 +1,50 @@
+# The ProtonVPN broker: one replica, the only holder of the Proton session
+# (two refreshing holders would get it revoked, hence Recreate).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qrab-proton-broker
+  labels:
+    app.kubernetes.io/name: qrab-proton-broker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-proton-broker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qrab-proton-broker
+    spec:
+      serviceAccountName: qrab-proton-broker
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: broker
+        # The operator image carries qrab-proton; updated by the release pin commit.
+        image: zot.yapplesauce.com/qrab/operator@sha256:IMAGE_DIGEST
+        imagePullPolicy: IfNotPresent
+        command: [/usr/local/bin/qrab-proton, broker]
+        env:
+        - name: QRAB_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests: {cpu: 20m, memory: 64Mi}
+          # Proton's catalog (~19k servers) is parsed in full every 6 h.
+          limits: {cpu: '1', memory: 512Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]

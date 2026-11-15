@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
 /// Logical-server feature bits, as Proton numbers them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum Feature {
     SecureCore,
@@ -342,6 +342,98 @@ impl Catalog {
     }
 }
 
+/// One server as the dashboard shows it: no entry IPs or keys.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompactServer {
+    #[serde(rename = "n")]
+    pub name: String,
+    #[serde(rename = "e")]
+    pub entry_country: String,
+    #[serde(rename = "x")]
+    pub exit_country: String,
+    #[serde(rename = "c", default, skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    #[serde(rename = "t")]
+    pub tier: u8,
+    #[serde(rename = "f")]
+    pub features: u32,
+    #[serde(rename = "s")]
+    pub status: u8,
+    #[serde(rename = "l")]
+    pub load: u8,
+    #[serde(rename = "r")]
+    pub score: f64,
+}
+
+/// The catalog the broker publishes in ConfigMap `proton-catalog`
+/// (gzip-compressed JSON under `catalog.json.gz`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactCatalog {
+    /// Unix seconds.
+    pub updated: i64,
+    pub max_tier: u8,
+    pub servers: Vec<CompactServer>,
+}
+
+impl Catalog {
+    /// The servers an account of `max_tier` can use, without addresses or keys.
+    pub fn compact(&self, updated: i64, max_tier: u8) -> CompactCatalog {
+        CompactCatalog {
+            updated,
+            max_tier,
+            servers: self
+                .servers
+                .iter()
+                .filter(|l| l.tier <= max_tier)
+                .map(|l| CompactServer {
+                    name: l.name.clone(),
+                    entry_country: l.entry_country.clone(),
+                    exit_country: l.exit_country.clone(),
+                    city: l.city.clone(),
+                    tier: l.tier,
+                    features: l.features,
+                    status: l.status,
+                    load: l.load,
+                    // Two decimals are all a ranking needs.
+                    score: (l.score * 100.0).round() / 100.0,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Largest compressed catalog published: a ConfigMap holds at most 1 MiB,
+/// and binaryData is base64 (4/3).
+pub const MAX_ENCODED: usize = 700 * 1024;
+
+pub fn encode(catalog: &CompactCatalog) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    let json = serde_json::to_vec(catalog).map_err(|e| e.to_string())?;
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    gz.write_all(&json).map_err(|e| e.to_string())?;
+    let bytes = gz.finish().map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_ENCODED {
+        return Err(format!(
+            "the catalog compresses to {} bytes, over {MAX_ENCODED}",
+            bytes.len()
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Read what [`encode`] wrote; bounded, so a hostile ConfigMap cannot
+/// balloon the reader.
+pub fn decode(bytes: &[u8]) -> Result<CompactCatalog, String> {
+    use std::io::Read;
+    let mut json = Vec::new();
+    flate2::read::GzDecoder::new(bytes)
+        .take(64 * 1024 * 1024)
+        .read_to_end(&mut json)
+        .map_err(|e| e.to_string())?;
+    serde_json::from_slice(&json).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,6 +575,36 @@ mod tests {
             let error = c.select(&criteria, 2, None).unwrap_err();
             assert!(error.contains(reason), "{reason}: {error}");
         }
+    }
+
+    #[test]
+    fn a_full_size_catalog_fits_a_configmap_and_round_trips() {
+        // Proton listed 18832 logical servers on 2026-11-15.
+        let countries = ["US", "CH", "SE", "DE", "NL", "JP", "GB", "CA", "FR", "IS"];
+        let servers = (0..20_000)
+            .map(|i| {
+                let country = countries[i % countries.len()];
+                let mut l = logical(
+                    &format!("{country}#{i}"),
+                    (i % 3) as u8,
+                    (i % 32) as u32,
+                    1,
+                    0.0,
+                );
+                l.score = (i % 997) as f64 / 7.0;
+                l.load = (i % 100) as u8;
+                l.city = Some(format!("City {}", i % 400));
+                l
+            })
+            .collect();
+        let compact = Catalog { servers }.compact(1, 2);
+        let bytes = encode(&compact).unwrap();
+        assert!(bytes.len() < MAX_ENCODED, "{} bytes", bytes.len());
+        assert_eq!(decode(&bytes).unwrap(), compact);
+        // No address or key leaves for the dashboard.
+        let json = String::from_utf8(serde_json::to_vec(&compact).unwrap()).unwrap();
+        assert!(!json.contains("203.0.113") && !json.contains(KEY));
+        assert!(decode(b"not gzip").is_err());
     }
 
     #[test]

@@ -31,7 +31,7 @@ pub const WIREGUARD_PORT: u16 = 51820;
 pub const PORT_FORWARDING_MARKER: &str = "# qrab: port-forwarding";
 
 /// Connection features bound to a certificate.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Features {
     /// NetShield DNS filtering: 0 off, 1 malware, 2 malware, ads and trackers.

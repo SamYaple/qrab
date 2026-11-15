@@ -1,0 +1,81 @@
+# What the ProtonVPN broker may write. RBAC lets it create and patch Secrets
+# and ConfigMaps by any name (profile names are not known in advance); this
+# policy narrows that to:
+# - vpn-<profile> Secrets controller-owned by that VpnProfile, holding only
+#   wg.conf, and never one it did not already own (so a hand-written vpn-*
+#   Secret cannot be taken over);
+# - Secret proton-keys (its own key ring) and proton-session (the session it
+#   refreshes: uid and refresh_token only);
+# - ConfigMap proton-catalog.
+# Checked live by contrib/kubernetes/proton/check-policy.sh.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: qrab-proton-broker-writes
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ['']
+      apiVersions: [v1]
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [secrets, configmaps]
+  matchConditions:
+  - name: qrab-proton-broker
+    expression: "request.userInfo.username == 'system:serviceaccount:' + request.namespace + ':qrab-proton-broker'"
+  variables:
+  - name: subject
+    expression: "request.operation == 'DELETE' ? oldObject : object"
+  - name: name
+    expression: "variables.subject.metadata.name"
+  - name: isSecret
+    expression: "request.resource.resource == 'secrets'"
+  - name: owners
+    expression: "has(variables.subject.metadata.ownerReferences) ? variables.subject.metadata.ownerReferences : []"
+  - name: labels
+    expression: "has(variables.subject.metadata.labels) ? variables.subject.metadata.labels : {}"
+  - name: keys
+    expression: "has(variables.subject.data) ? variables.subject.data.map(k, k) : []"
+  - name: profileSecret
+    expression: "variables.isSecret && variables.name.startsWith('vpn-')"
+  validations:
+  - expression: "request.operation != 'DELETE'"
+    message: the ProtonVPN broker never deletes; profile Secrets go with their VpnProfile
+  - expression: >-
+      variables.isSecret
+      ? (variables.name in ['proton-session', 'proton-keys'] || variables.profileSecret)
+      : variables.name == 'proton-catalog'
+    message: the ProtonVPN broker may write only vpn-<profile> Secrets, proton-session, proton-keys and ConfigMap proton-catalog
+  - expression: >-
+      !variables.isSecret || variables.name != 'proton-session' ||
+      (request.operation == 'UPDATE' && variables.keys.size() == 2 &&
+       'uid' in variables.keys && 'refresh_token' in variables.keys)
+    message: proton-session is created by `qrab-proton login`; the broker only updates its uid and refresh_token
+  - expression: >-
+      !variables.profileSecret ||
+      (variables.owners.size() == 1 &&
+       variables.owners[0].apiVersion == 'qrab.yapplesauce.com/v1alpha1' &&
+       variables.owners[0].kind == 'VpnProfile' &&
+       has(variables.owners[0].controller) && variables.owners[0].controller == true &&
+       variables.name == 'vpn-' + variables.owners[0].name &&
+       'app.kubernetes.io/component' in variables.labels &&
+       variables.labels['app.kubernetes.io/component'] == 'proton-vpn' &&
+       'qrab.yapplesauce.com/vpn-profile' in variables.labels &&
+       variables.labels['qrab.yapplesauce.com/vpn-profile'] == variables.owners[0].name &&
+       variables.keys == ['wg.conf'])
+    message: profile Secrets are vpn-<profile>, controller-owned by that VpnProfile, labelled, holding only wg.conf
+  - expression: >-
+      !variables.profileSecret || request.operation != 'UPDATE' ||
+      (has(oldObject.metadata.ownerReferences) && oldObject.metadata.ownerReferences.size() == 1 &&
+       oldObject.metadata.ownerReferences[0].kind == 'VpnProfile' &&
+       variables.owners.size() == 1 &&
+       oldObject.metadata.ownerReferences[0].uid == variables.owners[0].uid)
+    message: the broker may only update a vpn-* Secret its VpnProfile already owns
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: qrab-proton-broker-writes
+spec:
+  policyName: qrab-proton-broker-writes
+  validationActions: [Deny]
