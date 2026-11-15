@@ -31,12 +31,19 @@ function sessionEnded() {
     disarm();
     render();
     connect.disabled = true;
+    element('cad').disabled = true;
+    element('fullscreen').disabled = true;
     status.textContent = 'Session ended · Sign in to reconnect';
     element('console-recovery').hidden = false;
     if (document.fullscreenElement === screen) document.exitFullscreen().catch(() => {});
     if (rfb) rfb.disconnect();
     else endedScreen();
     if (audioContext) { audioContext.close(); audioContext = null; }
+    if (audioButton) {
+        audioButton.disabled = true;
+        audioButton.textContent = 'Audio off';
+        audioButton.setAttribute('aria-pressed', 'false');
+    }
 }
 
 async function failure(response) {
@@ -180,6 +187,7 @@ function openConsole() {
     }
 }
 connect.addEventListener('click', () => {
+    if (expired) return;
     stopReconnecting();
     resume = false;
     if (rfb) { rfb.disconnect(); return; }
@@ -191,6 +199,7 @@ connect.addEventListener('click', () => {
 let audioContext = null;
 const audioButton = element('audio');
 audioButton?.addEventListener('click', () => {
+    if (expired) return;
     if (audioContext) { audioContext.close(); audioContext = null; } else { audioContext = createAudioContext(); }
     audioButton.textContent = audioContext ? 'Audio on' : 'Audio off';
     audioButton.setAttribute('aria-pressed', String(Boolean(audioContext)));
@@ -200,8 +209,8 @@ audioButton?.addEventListener('click', () => {
         rfb.disconnect();
     }
 });
-element('cad').addEventListener('click', () => rfb?.sendCtrlAltDel());
-element('fullscreen').addEventListener('click', () => screen.requestFullscreen().catch(error => showError(error.message)));
+element('cad').addEventListener('click', () => { if (!expired) rfb?.sendCtrlAltDel(); });
+element('fullscreen').addEventListener('click', () => { if (!expired) screen.requestFullscreen().catch(error => showError(error.message)); });
 
 // Power. The server enforces role, CSRF, Origin and confirmation, and Redfish
 // enforces the role again; the buttons only reflect what currently makes
@@ -305,6 +314,7 @@ async function send(button) {
             headers: {'Content-Type': 'application/json', 'X-CSRF-Token': power.dataset.csrf},
             body: JSON.stringify({action, confirm: disruptive}),
         });
+        if (expired) return;
         showError('');
         status.textContent = `${button.dataset.label} sent.`;
         if (RECONNECTS.includes(action)) {

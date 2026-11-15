@@ -258,6 +258,11 @@ def console_state_checks(browser, width, theme):
         assert page.locator('#console-error').is_hidden(), page.locator('#console-error').inner_text()
         expect(page.locator('#screen canvas')).to_have_count(1)
         wait_native(page, opened, (fixture['requests'], console_errors))
+        fixture['hold_posts'] = True
+        reset = page.locator('[data-power=ForceRestart]')
+        reset.click()
+        reset.click()
+        expect(reset).to_be_disabled()
         if width == 1440:
             page.evaluate("document.querySelector('#screen').requestFullscreen()")
             assert page.evaluate('document.fullscreenElement.id') == 'screen'
@@ -270,6 +275,11 @@ def console_state_checks(browser, width, theme):
             page.wait_for_function('document.fullscreenElement === null')
         expect(page.locator('#screen')).to_contain_text('Your session has ended')
         expect(page.locator('#connect')).to_be_disabled()
+        fixture['hold_posts'] = False
+        fixture['pending_posts'].pop().fulfill(status=204)
+        page.wait_for_timeout(50)
+        expect(page.locator('#console-status')).to_contain_text('Session ended')
+        expect(page.locator('#audio')).to_be_disabled()
         destination = parse_qs(urlparse(page.locator('#console-recovery a').get_attribute('href')).query)
         assert destination['next'] == [base + '/console']
         requests = len(fixture['requests'])
