@@ -1,7 +1,7 @@
 use super::parser_version;
 use nom::IResult;
 use nom::Parser;
-use nom::bytes::complete::{is_a, tag, tag_no_case, take_while1};
+use nom::bytes::complete::{tag, tag_no_case};
 use nom::character::complete::{line_ending, not_line_ending, space0};
 use nom::combinator::{not, opt, peek, recognize};
 use nom::error::{Error, ErrorKind};
@@ -16,7 +16,7 @@ fn not_name_break(c: char) -> bool {
 
 fn take_line_start(input: &str) -> IResult<&str, &str> {
     // Accept optional leading whitespace before # (some versions indent doc blocks)
-    recognize((space0, tag("#"), space0)).parse(input)
+    recognize((space0, tag("#"), not(peek(tag("#"))), space0)).parse(input)
 }
 
 fn take_line_end(input: &str) -> IResult<&str, &str> {
@@ -25,28 +25,6 @@ fn take_line_end(input: &str) -> IResult<&str, &str> {
 
 fn take_empty_line(input: &str) -> IResult<&str, &str> {
     recognize((take_line_start, take_line_end)).parse(input)
-}
-
-/// Like take_empty_line but tolerates leading whitespace before `#`.
-fn take_empty_line_ws(input: &str) -> IResult<&str, &str> {
-    recognize((space0, tag("#"), space0, take_line_end)).parse(input)
-}
-
-/// Like take_name but tolerates leading whitespace before `# @Name:`.
-fn take_name_ws(input: &str) -> IResult<&str, &str> {
-    preceded(
-        (space0, tag("#"), space0, tag("@")),
-        terminated(take_while1(not_name_break), opt(tag(":"))),
-    )
-    .parse(input)
-}
-
-fn take_value(input: &str) -> IResult<&str, Vec<&str>> {
-    many1(preceded(
-        take_line_start,
-        terminated(not_line_ending, line_ending),
-    ))
-    .parse(input)
 }
 
 fn take_line_continuation(input: &str) -> IResult<&str, &str> {
@@ -75,35 +53,6 @@ fn take_multiline_text(input: &str) -> IResult<&str, &str> {
     recognize(many1(take_line_continuation)).parse(input)
 }
 
-fn is_since_without_colon(input: &str) -> IResult<&str, &str> {
-    preceded(
-        (take_line_start, tag_no_case("since"), many0(is_a(" :"))),
-        terminated(not_line_ending, line_ending),
-    )
-    .parse(input)
-}
-
-fn take_name(input: &str) -> IResult<&str, &str> {
-    preceded(
-        (take_line_start, tag("@")),
-        terminated(take_while1(not_name_break), opt(tag(":"))),
-    )
-    .parse(input)
-}
-
-fn take_name_optional_colon(input: &str) -> IResult<&str, &str> {
-    preceded((take_line_start, tag("@")), take_while1(not_name_break)).parse(input)
-}
-
-fn take_namedkey<'i>(
-    key: &'static str,
-) -> impl Parser<&'i str, Output = Vec<&'i str>, Error = Error<&'i str>> {
-    preceded(
-        (take_line_start, tag_no_case(key), opt(tag(":")), space0),
-        take_value,
-    )
-}
-
 pub fn extract_since_from_comment(desc: &Vec<&str>) -> Option<String> {
     for line in desc.iter().rev() {
         let trimmed = line.trim();
@@ -125,10 +74,12 @@ pub fn extract_since_from_comment(desc: &Vec<&str>) -> Option<String> {
 
 // ─── QapiDocumentation ────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct QapiDocumentation<'i> {
     pub name: &'i str,
     pub description: Vec<&'i str>,
+    /// Ordered prose and sections, excluding member descriptions and Since metadata.
+    pub body: Vec<&'i str>,
     pub fields: Vec<(&'i str, Vec<&'i str>)>,
     pub features: Vec<(&'i str, Vec<&'i str>)>,
     pub since: Option<&'i str>,
@@ -139,242 +90,258 @@ pub struct QapiDocumentation<'i> {
     pub todos: Vec<&'i str>,
 }
 
+fn documentation_line(input: &str) -> IResult<&str, &str> {
+    let (input, _) = (space0, tag("#"), not(peek(tag("#"))), opt(tag(" "))).parse(input)?;
+    terminated(not_line_ending, line_ending).parse(input)
+}
+
+fn documentation_end(input: &str) -> IResult<&str, &str> {
+    recognize((
+        space0,
+        tag("##"),
+        space0,
+        peek(nom::branch::alt((line_ending, nom::combinator::eof))),
+    ))
+    .parse(input)
+}
+
 impl<'i> QapiDocumentation<'i> {
-    /// Dispatches to the correct versioned parser.
     pub fn parse(input: &'i str) -> IResult<&'i str, Self> {
-        let v = parser_version();
-        if v < (2, 8, 0) {
+        if parser_version() < (2, 8, 0) {
             Self::parse_v1(input)
-        } else if v < (5, 0, 0) {
+        } else if parser_version() < (5, 0, 0) {
             Self::parse_v2(input)
         } else {
             Self::parse_v3(input)
         }
     }
 
-    /// v1 (QEMU v1.0–v2.7.0): `# @Name` with optional colon, standard `##...##` blocks.
-    /// Also handles `## @Name` shorthand (v2.3.0–v2.7.0).
+    /// Legacy headers permit an omitted colon and `## @Name` shorthand.
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, _) = tag("##").parse(input)?;
-        // Check if @Name follows on the same line (shorthand: `## @ACPISlotType`)
-        let (input, name) = if let Ok((input, name)) = preceded(
-            space0::<&str, Error<&str>>,
-            preceded(
-                tag("@"),
-                terminated(take_while1(not_name_break), (opt(tag(":")), take_line_end)),
-            ),
-        )
-        .parse(input)
-        {
-            // Shorthand: ## @Name on same line
-            (input, name)
-        } else {
-            // Standard: ##\n then # @Name on next line
-            let (input, _) = take_line_end(input)?;
-            let (input, _) = many0(take_empty_line).parse(input)?;
-            let (input, name) =
-                terminated(take_name_optional_colon, (opt(tag(":")), take_line_end))
-                    .parse(input)?;
-            (input, name)
-        };
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, description_str) = opt(take_multiline_text).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-
-        let mut doc = Self {
-            name,
-            description: Vec::new(),
-            fields: Vec::new(),
-            features: Vec::new(),
-            since: None,
-            returns: Vec::new(),
-            errors: Vec::new(),
-            notes: Vec::new(),
-            examples: Vec::new(),
-            todos: Vec::new(),
-        };
-
-        // Parse field docs, since, returns, etc.
-        let input = Self::parse_body(input, &mut doc)?;
-
-        if let Some(desc) = description_str {
-            doc.description = desc.lines().collect();
-        }
-
-        // Closing ## (optional for v1)
-        let input = if let Ok((input, _)) = tag::<&str, &str, Error<&str>>("##").parse(input) {
-            input
-        } else {
-            input
-        };
-
-        Ok((input, doc))
+        Self::parse_common(input, true)
     }
 
-    /// v2 (QEMU v2.8.0–v4.2.0): `# @Name:` with mandatory colon, standard `##...##`.
-    /// Tolerates leading whitespace on `##` and `#` lines.
     pub fn parse_v2(input: &'i str) -> IResult<&'i str, Self> {
-        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line_ws).parse(input)?;
-        let (input, name) = terminated(take_name_ws, take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, description_str) = opt(take_multiline_text).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-
-        let mut doc = Self {
-            name,
-            description: Vec::new(),
-            fields: Vec::new(),
-            features: Vec::new(),
-            since: None,
-            returns: Vec::new(),
-            errors: Vec::new(),
-            notes: Vec::new(),
-            examples: Vec::new(),
-            todos: Vec::new(),
-        };
-
-        let input = Self::parse_body(input, &mut doc)?;
-
-        if let Some(desc) = description_str {
-            doc.description = desc.lines().collect();
-        }
-
-        // Closing ## (accept leading whitespace)
-        let (input, _) = preceded(space0, tag("##")).parse(input)?;
-        Ok((input, doc))
+        Self::parse_common(input, false)
     }
 
-    /// v3 (QEMU v5.0.0+): standard + blank lines allowed, leading whitespace tolerance.
     pub fn parse_v3(input: &'i str) -> IResult<&'i str, Self> {
-        // Allow leading whitespace before ##
-        let (input, _) = terminated(preceded(space0, tag("##")), take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, name) = terminated(take_name, take_line_end).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-        let (input, description_str) = opt(take_multiline_text).parse(input)?;
-        let (input, _) = many0(take_empty_line).parse(input)?;
-
-        let mut doc = Self {
-            name,
-            description: Vec::new(),
-            fields: Vec::new(),
-            features: Vec::new(),
-            since: None,
-            returns: Vec::new(),
-            errors: Vec::new(),
-            notes: Vec::new(),
-            examples: Vec::new(),
-            todos: Vec::new(),
-        };
-
-        let input = Self::parse_body(input, &mut doc)?;
-
-        if let Some(desc) = description_str {
-            doc.description = desc.lines().collect();
-        }
-
-        // Closing ## (accept leading whitespace)
-        let (input, _) = preceded(space0, tag("##")).parse(input)?;
-        Ok((input, doc))
+        Self::parse_common(input, false)
     }
 
-    /// Shared: parse fields, since, returns, etc. after the description.
-    fn parse_body(mut input: &'i str, doc: &mut Self) -> Result<&'i str, nom::Err<Error<&'i str>>> {
+    fn parse_common(input: &'i str, legacy: bool) -> IResult<&'i str, Self> {
+        let start = input;
+        let (input, _) = (space0, tag("##")).parse(input)?;
+        let (mut input, opening) = terminated(not_line_ending, line_ending).parse(input)?;
+        let header = if legacy && opening.trim_start().starts_with('@') {
+            opening.trim()
+        } else {
+            if !opening.trim().is_empty() {
+                return Err(nom::Err::Error(Error::new(start, ErrorKind::Tag)));
+            }
+            loop {
+                let (next, _) = many0((space0, line_ending)).parse(input)?;
+                input = next;
+                let (next, line) = documentation_line(input)?;
+                input = next;
+                if !line.trim().is_empty() {
+                    break line.trim();
+                }
+            }
+        };
+        let name = header
+            .strip_prefix('@')
+            .and_then(|name| name.strip_suffix(':').or_else(|| legacy.then_some(name)))
+            .filter(|name| !name.is_empty() && name.chars().all(not_name_break))
+            .ok_or_else(|| nom::Err::Error(Error::new(start, ErrorKind::Tag)))?;
+        let mut lines = Vec::new();
         loop {
-            // Try blank line
-            if let Ok((next, _)) = take_empty_line(input) {
+            let end = if legacy {
+                recognize((
+                    space0,
+                    tag("##"),
+                    nom::bytes::complete::take_while(|c| c == '#'),
+                    space0,
+                    peek(nom::branch::alt((line_ending, nom::combinator::eof))),
+                ))
+                .parse(input)
+            } else {
+                documentation_end(input)
+            };
+            if let Ok((next, _)) = end {
+                let mut doc = Self {
+                    name,
+                    ..Self::default()
+                };
+                doc.parse_lines(&lines, legacy);
+                return Ok((next, doc));
+            }
+            if let Ok((next, _)) = (space0::<&str, Error<&str>>, line_ending).parse(input) {
                 input = next;
                 continue;
             }
-            // Try field: @field-name: description (possibly multi-line)
-            if let Ok((next, (name, first_line))) = (|input| {
-                let (input, _) = take_line_start(input)?;
-                let (input, _) = tag("@").parse(input)?;
-                let (input, name) = take_while1(not_name_break).parse(input)?;
-                let (input, _) = opt(tag(":")).parse(input)?;
-                let (input, _) = space0.parse(input)?;
-                let (input, first_line) = not_line_ending.parse(input)?;
-                let (input, _) = line_ending.parse(input)?;
-                Ok((input, (name, first_line)))
-            })
-            .parse(input)
-            {
-                let mut field_vals: Vec<&str> = Vec::new();
-                if !first_line.trim().is_empty() {
-                    field_vals.push(first_line);
+            match documentation_line(input) {
+                Ok((next, line)) => {
+                    lines.push(line);
+                    input = next;
                 }
-                // Consume continuation lines (indented, not starting with @, not a section keyword)
-                let mut next = next;
-                while let Ok((n, line)) = take_line_continuation(next) {
-                    field_vals.push(line);
-                    next = n;
+                Err(nom::Err::Error(_)) if legacy => {
+                    let mut doc = Self {
+                        name,
+                        ..Self::default()
+                    };
+                    doc.parse_lines(&lines, legacy);
+                    return Ok((input, doc));
                 }
-                // Skip trailing empty lines
-                while let Ok((n, _)) = take_empty_line(next) {
-                    next = n;
-                }
-                doc.fields.push((name, field_vals));
-                input = next;
-                continue;
+                Err(error) => return Err(error),
             }
-            // Try since
-            if let Ok((next, since)) = is_since_without_colon(input) {
-                doc.since = Some(since.trim().trim_end_matches('.'));
-                input = next;
-                continue;
-            }
-            // Try named sections
-            if let Ok((next, vals)) = take_namedkey("Since").parse(input) {
-                if let Some(v) = vals.first() {
-                    doc.since = Some(v.trim().trim_end_matches('.'));
-                }
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("Returns").parse(input) {
-                doc.returns = vals;
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("Errors").parse(input) {
-                doc.errors = vals;
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("Note").parse(input) {
-                doc.notes = vals;
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("Notes").parse(input) {
-                doc.notes = vals;
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("Example").parse(input) {
-                doc.examples = vals;
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("Examples").parse(input) {
-                doc.examples = vals;
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("TODO").parse(input) {
-                doc.todos = vals;
-                input = next;
-                continue;
-            }
-            if let Ok((next, vals)) = take_namedkey("Features").parse(input) {
-                doc.features.push(("features", vals));
-                input = next;
-                continue;
-            }
-            break;
         }
-        Ok(input)
+    }
+
+    fn parse_lines(&mut self, lines: &[&'i str], legacy: bool) {
+        #[derive(Clone, Copy)]
+        enum Section {
+            Description,
+            Field(usize),
+            Feature(usize),
+            Returns,
+            Errors,
+            Notes,
+            Examples,
+            Todos,
+        }
+        fn section_lines<'a, 'i>(
+            doc: &'a mut QapiDocumentation<'i>,
+            section: Section,
+        ) -> &'a mut Vec<&'i str> {
+            match section {
+                Section::Description => &mut doc.description,
+                Section::Field(index) => &mut doc.fields[index].1,
+                Section::Feature(index) => &mut doc.features[index].1,
+                Section::Returns => &mut doc.returns,
+                Section::Errors => &mut doc.errors,
+                Section::Notes => &mut doc.notes,
+                Section::Examples => &mut doc.examples,
+                Section::Todos => &mut doc.todos,
+            }
+        }
+        let mut section = Section::Description;
+        let mut features = false;
+        let mut previous_blank = true;
+        for &line in lines {
+            let indented = line.starts_with([' ', '\t']);
+            if !indented {
+                if let Some((name, value)) = line
+                    .strip_prefix('@')
+                    .and_then(|text| text.split_once(':'))
+                    .filter(|(name, _)| !name.is_empty() && name.chars().all(not_name_break))
+                {
+                    let target = if features {
+                        &mut self.features
+                    } else {
+                        &mut self.fields
+                    };
+                    target.push((name, vec![value.trim_start()]));
+                    if features {
+                        self.body.push(line);
+                    }
+                    section = if features {
+                        Section::Feature(target.len() - 1)
+                    } else {
+                        Section::Field(target.len() - 1)
+                    };
+                    previous_blank = false;
+                    continue;
+                }
+                if let Some((name, value)) = line
+                    .split_once(':')
+                    .filter(|(_, value)| !value.starts_with(':'))
+                {
+                    let next = match name.to_ascii_lowercase().as_str() {
+                        "returns" => Some(Section::Returns),
+                        "errors" => Some(Section::Errors),
+                        "note" | "notes" => Some(Section::Notes),
+                        "example" | "examples" => Some(Section::Examples),
+                        "todo" => Some(Section::Todos),
+                        "features" if value.trim().is_empty() => {
+                            self.body.push(line);
+                            features = true;
+                            section = Section::Description;
+                            previous_blank = true;
+                            continue;
+                        }
+                        "since" => {
+                            self.since = Some(value.trim().trim_end_matches('.'));
+                            features = false;
+                            section = Section::Description;
+                            previous_blank = true;
+                            continue;
+                        }
+                        _ => None,
+                    };
+                    if let Some(next) = next {
+                        self.body.push(line);
+                        section = next;
+                        features = false;
+                        section_lines(self, section).push(value.trim_start());
+                        previous_blank = false;
+                        continue;
+                    }
+                }
+                if legacy
+                    && line
+                        .get(..5)
+                        .is_some_and(|word| word.eq_ignore_ascii_case("since"))
+                    && line.as_bytes().get(5).is_some_and(u8::is_ascii_whitespace)
+                {
+                    self.since = Some(line[5..].trim().trim_end_matches('.'));
+                    section = Section::Description;
+                    features = false;
+                    previous_blank = true;
+                    continue;
+                }
+                if previous_blank
+                    && !line.is_empty()
+                    && (matches!(section, Section::Field(_) | Section::Feature(_))
+                        || (!legacy && !matches!(section, Section::Description)))
+                {
+                    section = Section::Description;
+                    features = false;
+                }
+            }
+            if !matches!(section, Section::Field(_)) {
+                self.body.push(line);
+            }
+            match section {
+                Section::Description => self.description.push(line),
+                Section::Field(index) => self.fields[index].1.push(line),
+                Section::Feature(index) => self.features[index].1.push(line),
+                _ => section_lines(self, section).push(line),
+            }
+            previous_blank = line.trim().is_empty();
+        }
+        fn trim_lines(lines: &mut Vec<&str>) {
+            while lines.first().is_some_and(|line| line.trim().is_empty()) {
+                lines.remove(0);
+            }
+            while lines.last().is_some_and(|line| line.trim().is_empty()) {
+                lines.pop();
+            }
+        }
+        for lines in [
+            &mut self.body,
+            &mut self.description,
+            &mut self.returns,
+            &mut self.errors,
+            &mut self.notes,
+            &mut self.examples,
+            &mut self.todos,
+        ] {
+            trim_lines(lines);
+        }
+        for (_, lines) in self.fields.iter_mut().chain(self.features.iter_mut()) {
+            trim_lines(lines);
+        }
     }
 }
 
@@ -525,6 +492,41 @@ impl<'i> QapiFreeformDoc<'i> {
 mod tests {
     use super::*;
     use crate::parsers::set_parser_version;
+
+    #[test]
+    fn legacy_docs_allow_bare_blank_lines_and_triple_hash_terminators() {
+        set_parser_version((1, 6, 0));
+        let input = "##\n# @Example\n# first paragraph\n\n# continuation\n###\n{ 'type': 'Example', 'data': {} }";
+        let (remaining, doc) = QapiDocumentation::parse(input).unwrap();
+        assert!(remaining.starts_with("\n{ 'type'"));
+        assert_eq!(doc.description, ["first paragraph", "continuation"]);
+    }
+
+    #[test]
+    fn block_boundaries_sections_and_literal_indentation_are_preserved() {
+        set_parser_version((11, 1, 3));
+        let input = concat!(
+            "##\n# @Example:\n#\n# # Heading\n#\n",
+            "# @member: first line\n#     indented continuation\n#\n",
+            "# Features:\n# @flag: feature text\n#\n",
+            "# Returns: inline result\n#\n# Errors: failure details\n#\n",
+            "# Example::\n#\n#     # literal comment\n#     @not-a-field: value\n#\n",
+            "# Since: 11.0\n##\n{ 'struct': 'Example', 'data': {} }",
+        );
+        let (remaining, doc) = QapiDocumentation::parse(input).unwrap();
+        assert!(remaining.starts_with("\n{ 'struct'"));
+        assert_eq!(doc.fields.len(), 1);
+        assert_eq!(doc.fields[0].0, "member");
+        assert_eq!(doc.fields[0].1, ["first line", "    indented continuation"]);
+        assert_eq!(doc.features, [("flag", vec!["feature text"])]);
+        assert_eq!(doc.returns, ["inline result"]);
+        assert_eq!(doc.errors, ["failure details"]);
+        assert_eq!(doc.since, Some("11.0"));
+        assert!(doc.body.contains(&"# Heading"));
+        assert!(doc.body.contains(&"    # literal comment"));
+        assert!(doc.body.contains(&"    @not-a-field: value"));
+        assert!(!doc.body.iter().any(|line| line.starts_with("@member:")));
+    }
 
     #[test]
     fn test_doc_v3_basic() {

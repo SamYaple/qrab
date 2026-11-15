@@ -42,7 +42,21 @@ use std::path::{Path, PathBuf};
 
 /// Parse a single schema file's content into tokens.
 pub fn parse_schema(input: &str) -> Result<QapiSchema<'_>> {
-    let (i, schema) = take_schema(input).map_err(|e| anyhow::anyhow!("Parse error: {}", e))?;
+    let (i, schema) = take_schema(input).map_err(|error| match error {
+        nom::Err::Error(error) | nom::Err::Failure(error) => {
+            let remainder = error.input.trim_start();
+            let offset = input.len().saturating_sub(remainder.len());
+            let consumed = &input[..offset];
+            let line = consumed.bytes().filter(|byte| *byte == b'\n').count() + 1;
+            let column = consumed.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+            anyhow::anyhow!(
+                "QAPI parse error at line {line}, column {column} ({:?}): {:?}",
+                error.code,
+                remainder.chars().take(160).collect::<String>()
+            )
+        }
+        nom::Err::Incomplete(needed) => anyhow::anyhow!("Incomplete QAPI schema: {needed:?}"),
+    })?;
     anyhow::ensure!(
         i.is_empty(),
         "Unparsed input remaining ({} bytes): {:?}",

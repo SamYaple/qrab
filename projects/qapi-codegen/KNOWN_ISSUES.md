@@ -11,6 +11,7 @@ actual type definition name.
 | Doc Name | Actual Type | Versions |
 |---|---|---|
 | `ChardevBackend` | `ChardevDummy` | v2.0.0–v3.1.0 |
+| `GuestFsFreezeStatus` | `GuestFsfreezeStatus` | historical and current QGA schemas |
 | `InputButton` | `InputAxis` | v2.0.0–v4.2.0 |
 | `Rocker` | `RockerSwitch` | v2.4.0–v5.2.0 |
 | `TpmInfo` | `TPMInfo` | v2.5.0–v10.2.0 |

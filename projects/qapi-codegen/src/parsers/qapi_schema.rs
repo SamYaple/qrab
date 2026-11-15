@@ -62,6 +62,7 @@ impl<'i> QapiSchema<'i> {
             QapiPragma::parse.map(QapiSchemaToken::Pragma),
             QapiSectionDocumentation::parse.map(QapiSchemaToken::Doc),
             QapiFreeformDoc::parse.map(QapiSchemaToken::FreeformDoc),
+            invalid_documentation,
             // Bare ## separator (not followed by doc content, common in v2.x)
             bare_doc_separator.map(|_| QapiSchemaToken::EmptyLines),
             qcomment.map(QapiSchemaToken::Comment),
@@ -70,6 +71,34 @@ impl<'i> QapiSchema<'i> {
         .map(Self)
         .parse(input)
     }
+}
+
+// Failed documentation must not fall back to ordinary comments and vanish.
+fn invalid_documentation(input: &str) -> IResult<&str, QapiSchemaToken<'_>> {
+    let mut lines = input.lines();
+    let first = lines.next().unwrap_or("").trim();
+    let shorthand = first
+        .strip_prefix("##")
+        .is_some_and(|rest| rest.trim_start().starts_with('@'));
+    let symbol = if first == "##" {
+        lines
+            .map(str::trim)
+            .find(|line| !line.is_empty() && *line != "#")
+            .and_then(|line| line.strip_prefix('#'))
+            .is_some_and(|line| line.trim_start().starts_with('@'))
+    } else {
+        false
+    };
+    let error = nom::error::Error::new(input, nom::error::ErrorKind::Verify);
+    Err(
+        if super::parser_version() >= (2, 8, 0)
+            && (shorthand || symbol || (super::parser_version() >= (5, 0, 0) && first == "##"))
+        {
+            nom::Err::Failure(error)
+        } else {
+            nom::Err::Error(error)
+        },
+    )
 }
 
 /// Matches a bare `##` line (with optional trailing whitespace) that acts as a separator.

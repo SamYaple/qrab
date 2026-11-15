@@ -3,7 +3,6 @@ use crate as qapi;
 use qapi_macros::qapi;
 use std::collections::HashMap;
 /// Information about guest agent commands.
-///
 #[qapi(added = "1.4.0")]
 pub struct GuestAgentCommandInfo {
     /// whether command is currently enabled by guest admin
@@ -18,7 +17,6 @@ pub struct GuestAgentCommandInfo {
 }
 
 /// Information about guest agent.
-///
 #[qapi(added = "1.4.0")]
 pub struct GuestAgentInfo {
     /// Information about guest agent commands
@@ -49,7 +47,6 @@ pub struct GuestCcwAddress {
 }
 
 /// Get statistics of each CPU in millisecond.
-///
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestCpuStats {
@@ -70,7 +67,6 @@ pub enum GuestCpuStatsBranch {
 }
 
 /// Guest operating systems supporting CPU statistics
-///
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub enum GuestCpuStatsType {
@@ -80,7 +76,6 @@ pub enum GuestCpuStatsType {
 }
 
 /// Id of the device
-///
 #[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub struct GuestDeviceId {
@@ -131,6 +126,7 @@ pub struct GuestDeviceInfo {
 #[qapi(condition = "CONFIG_WIN32")]
 #[qapi(added = "5.2.0")]
 pub enum GuestDeviceType {
+    /// PCI device
     #[qapi(name = "pci")]
     Pci,
 }
@@ -164,7 +160,6 @@ pub struct GuestDiskAddress {
 }
 
 /// An enumeration of bus type of disks
-///
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_LINUX)")]
 #[qapi(added = "2.2.0")]
 pub enum GuestDiskBusType {
@@ -241,6 +236,7 @@ pub enum GuestDiskBusType {
     Xen,
 }
 
+/// Since 5.2
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "5.2.0")]
 pub struct GuestDiskInfo {
@@ -263,7 +259,6 @@ pub struct GuestDiskInfo {
 }
 
 /// Disk type related smart information.
-///
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "7.1.0")]
 pub struct GuestDiskSmart {
@@ -397,12 +392,21 @@ pub struct GuestDiskStats {
     pub write_ticks: Option<u64>,
 }
 
+/// @name disk name
+///
+/// @major major device number of disk
+///
+/// @minor minor device number of disk
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestDiskStatsInfo {
+    /// major device number of disk
     pub major: u64,
+    /// minor device number of disk
     pub minor: u64,
+    /// disk name
     pub name: String,
+    /// I/O statistics
     pub stats: GuestDiskStats,
 }
 
@@ -413,7 +417,6 @@ pub struct GuestExec {
 }
 
 /// Controls what `guest-exec` output gets captures.
-///
 #[qapi(added = "8.1.0")]
 pub enum GuestExecCaptureOutput {
     /// captures both stdout and stderr if true.  Equivalent to
@@ -426,7 +429,6 @@ pub enum GuestExecCaptureOutput {
 }
 
 /// An enumeration of `guest-exec` capture modes.
-///
 #[qapi(added = "8.1.0")]
 pub enum GuestExecCaptureOutputMode {
     /// capture both stdout and stderr, but merge together into
@@ -479,7 +481,6 @@ pub struct GuestExecStatus {
 }
 
 /// Result of guest agent file-read operation
-///
 #[qapi(added = "1.4.0")]
 pub struct GuestFileRead {
     /// base64-encoded bytes read
@@ -493,7 +494,6 @@ pub struct GuestFileRead {
 }
 
 /// Result of guest agent file-seek operation
-///
 #[qapi(added = "1.4.0")]
 pub struct GuestFileSeek {
     /// whether EOF was encountered during file seek
@@ -552,7 +552,6 @@ pub struct GuestFilesystemTrimResult {
 }
 
 /// Controls the meaning of offset to `guest-file-seek`.
-///
 #[qapi(added = "2.6.0")]
 pub enum GuestFileWhence {
     /// Symbolic name, and preferred interface
@@ -566,7 +565,6 @@ pub enum GuestFileWhence {
 }
 
 /// Result of guest agent file-write operation
-///
 #[qapi(added = "1.4.0")]
 pub struct GuestFileWrite {
     /// number of bytes written (note: count is actual bytes
@@ -577,7 +575,6 @@ pub struct GuestFileWrite {
 }
 
 /// An enumeration of filesystem freeze states
-///
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_FSFREEZE)")]
 #[qapi(added = "1.4.0")]
 pub enum GuestFsfreezeStatus {
@@ -610,7 +607,6 @@ pub struct GuestIpAddress {
 }
 
 /// An enumeration of supported IP address types
-///
 #[qapi(condition = "(CONFIG_WIN32 || HAVE_GETIFADDRS)")]
 #[qapi(added = "1.4.0")]
 pub enum GuestIpAddressType {
@@ -623,7 +619,6 @@ pub enum GuestIpAddressType {
 }
 
 /// CPU statistics of Linux
-///
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "7.1.0")]
 pub struct GuestLinuxCpuStats {
@@ -653,7 +648,6 @@ pub struct GuestLinuxCpuStats {
 }
 
 /// Statistics about process load information
-///
 #[qapi(condition = "CONFIG_GETLOADAVG")]
 #[qapi(added = "10.0.0")]
 pub struct GuestLoadAverage {
@@ -724,7 +718,6 @@ pub struct GuestMemoryBlockResponse {
 }
 
 /// An enumeration of memory block operation result.
-///
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "2.3.0")]
 pub enum GuestMemoryBlockResponseType {
@@ -794,7 +787,6 @@ pub struct GuestNetworkInterfaceStat {
 
 /// Route information.  Supported on Linux (since 9.1) and Windows
 /// (since 11.0).
-///
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "9.1.0")]
 pub struct GuestNetworkRoute {
@@ -838,6 +830,7 @@ pub struct GuestNetworkRoute {
 /// NVMe smart information, based on NVMe specification, section
 /// <SMART / Health Information (Log Identifier 02h)>
 ///
+/// TODO: document members briefly
 #[qapi(name = "GuestNVMeSmart")]
 #[qapi(condition = "(CONFIG_WIN32 || CONFIG_LIBUDEV)")]
 #[qapi(added = "7.1.0")]
@@ -893,6 +886,16 @@ pub struct GuestNvMeSmart {
     pub unsafe_shutdowns_lo: u64,
 }
 
+/// .. note:: On POSIX systems the fields @id, @name, @pretty-name,
+///    @version, @version-id, @variant and @variant-id follow the
+///    definition specified in os-release(5).  Refer to the manual page
+///    for exact description of the fields.  Their values are taken from
+///    the os-release file.  If the file is not present in the system,
+///    or the values are not present in the file, the fields are not
+///    included.
+///
+///    On Windows the values are filled from information gathered from
+///    the system.
 #[qapi(name = "GuestOSInfo")]
 #[qapi(added = "2.10.0")]
 pub struct GuestOsInfo {
@@ -922,19 +925,11 @@ pub struct GuestOsInfo {
     pub variant: Option<String>,
     /// * POSIX: as defined by os-release(5)
     /// * Windows: contains string "server" or "client"
-    ///
-    /// .. note:: On POSIX systems the fields @id, @name, @pretty-name,
     #[qapi(name = "variant-id")]
     pub variant_id: Option<String>,
-    /// , @version-id, @variant and @variant-id follow the
-    /// definition specified in os-release(5).  Refer to the manual page
-    /// for exact description of the fields.  Their values are taken from
-    /// the os-release file.  If the file is not present in the system,
-    /// or the values are not present in the file, the fields are not
-    /// included.
-    ///
-    /// On Windows the values are filled from information gathered from
-    /// the system.
+    /// * POSIX: as defined by os-release(5)
+    /// * Windows: long version string, e.g. "Microsoft Windows Server
+    ///   2008"
     pub version: Option<String>,
     /// * POSIX: as defined by os-release(5)
     /// * Windows: short version identifier, e.g. "7" or "20012r2"
@@ -982,7 +977,6 @@ pub struct GuestUser {
 }
 
 /// Symbolic names for use in `guest-file-seek`
-///
 #[qapi(name = "QGASeek")]
 #[qapi(added = "2.6.0")]
 pub enum QgaSeek {

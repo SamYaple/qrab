@@ -45,8 +45,8 @@ fn classify_type(ut: &UnifiedType) -> TypeCategory {
 }
 
 fn clean_doc(doc: &str) -> Option<String> {
-    let doc = doc.trim();
-    if doc.is_empty() {
+    let doc = doc.trim_matches('\n');
+    if doc.trim().is_empty() {
         return None;
     }
     Some(doc.to_string())

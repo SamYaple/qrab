@@ -114,3 +114,12 @@ payloads whose Rust types carry no QEMU metadata. Invalid outgoing values name
 the unavailable type or variant and peer version. Deserialization remains
 independent of the serialization scope so recorded and newer replies can still
 be inspected.
+
+Definition documentation is parsed as complete comment blocks. A closing `##`
+is never treated as prose, and malformed modern blocks cannot fall back to
+ordinary comments. Member and feature text is compared with QEMU's own parser
+for the production schemas and its documentation fixture. Generated comments
+retain ordered prose, Returns/Errors sections and literal examples; member
+continuation indentation is normalized separately from literal-block indentation.
+Legacy headers, optional closing markers and the historical `###` terminator
+remain accepted for older inputs.

@@ -187,12 +187,6 @@ pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
     let mut in_code_block = false;
 
     for line in doc.lines() {
-        // Strip leading `# ` (QAPI comment prefix) if present
-        let line = line
-            .strip_prefix("# ")
-            .or_else(|| line.strip_prefix("#"))
-            .unwrap_or(line);
-
         let is_indented = line.starts_with("    ") && !line.trim().is_empty();
 
         if is_indented && !in_code_block {

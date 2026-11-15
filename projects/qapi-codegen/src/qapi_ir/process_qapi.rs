@@ -1,12 +1,5 @@
-///
-/// Here lies hot-garbage. Youve been warned
-/// This code is a bandaid to go from the raw qapi parsed schema to the structs we
-/// setup for rendering enum and struct variants as rust code.
-///
-/// We have to extract all documentation, if conditions, features, and the original
-/// names of the various objects and fields. Those get set to attributes in the
-/// generated code.
-///
+//! Lower parsed QAPI definitions into Rust IR with wire names and schema metadata.
+
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
 use crate::qapi_ir::{rustify_field_name, rustify_name};
 use crate::{
@@ -49,6 +42,34 @@ macro_rules! add_feat {
     };
 }
 
+/// Remove the schema indentation used for member-description continuations.
+fn member_documentation(lines: &[&str]) -> String {
+    let start = usize::from(
+        lines
+            .first()
+            .is_some_and(|line| !line.starts_with([' ', '\t'])),
+    );
+    let indent = lines
+        .iter()
+        .skip(start)
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.len() - line.trim_start_matches([' ', '\t']).len())
+        .min()
+        .unwrap_or(0);
+    lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if index >= start && !line.trim().is_empty() {
+                &line[indent..]
+            } else {
+                *line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 macro_rules! add_docs {
     ($meta:expr, $docs:expr, $name:expr, $variants:expr) => {
         if let Some(doc) = $docs {
@@ -58,8 +79,13 @@ macro_rules! add_docs {
                     doc.name, $name
                 );
             }
-            if !doc.description.is_empty() {
-                $meta.doc = Some(doc.description.join("\n"));
+            let body = if doc.body.is_empty() {
+                &doc.description
+            } else {
+                &doc.body
+            };
+            if !body.is_empty() {
+                $meta.doc = Some(body.join("\n"));
             }
             if let Some(since) = doc.since {
                 $meta.attributes.push(Attribute::with_value(
@@ -72,7 +98,7 @@ macro_rules! add_docs {
                 for value in &mut *$variants {
                     if &value.name == name {
                         let since = extract_since_from_comment(desc);
-                        value.meta.doc = Some(desc.join("\n"));
+                        value.meta.doc = Some(member_documentation(desc));
                         if let Some(since) = since {
                             value.meta.attributes.push(Attribute::with_value(
                                 "added",
@@ -559,6 +585,18 @@ mod tests {
             r#if: None,
             features: None,
         }
+    }
+
+    #[test]
+    fn member_comments_remove_syntax_indent_but_keep_nested_literal_indent() {
+        assert_eq!(
+            member_documentation(&["intro", "    continuation", "", "        code", "    after"]),
+            "intro\ncontinuation\n\n    code\nafter"
+        );
+        assert_eq!(
+            member_documentation(&["    new-line description", "    continuation"]),
+            "new-line description\ncontinuation"
+        );
     }
 
     #[test]
