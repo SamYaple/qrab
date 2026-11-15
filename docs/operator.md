@@ -332,7 +332,7 @@ brings qrab-netd's socket into the VM Pod), and stable NIC addresses
 Without stable addresses the VM is `Blocked` with reason `InvalidSpec`.
 
 - **Anchor Pods.** For each NIC the operator creates an anchor Pod
-  `<vm>-nic-<name>`, controller-owned by the VM, which runs
+  `<vm>-nic-<name>-<node>`, controller-owned by the VM, which runs
   `qrab-manager anchor` (it waits for SIGTERM) as the `qrab-manager`
   ServiceAccount with no API token. It is restricted, with no ports, probes or
   volumes: its IP is the guest's. It is annotated with the NIC's address pool
@@ -347,7 +347,13 @@ Without stable addresses the VM is `Blocked` with reason `InvalidSpec`.
   are default-allow until a security-group or baseline policy selects them**.
 - **Placement.** The anchor is created once the VM Pod is scheduled and is
   pinned to that node (`matchFields metadata.name`). A VM Pod on another node
-  gets new anchors.
+  gets new anchors; anchors on other nodes are annotated
+  `qrab.yapplesauce.com/retire-after` (20 s later) and then deleted.
+- **Live migration.** Before the target VM Pod, the operator creates each
+  NIC's anchor for the target node with `ipam.cilium.io/handoff-from` naming
+  the source anchor and `qrab.yapplesauce.com/migration`, waits for its
+  readiness gate, and gives the target `incoming.node_ip`. A failed migration
+  deletes them ([networking.md](networking.md#live-migration)).
 - **Readiness and status.** qrab-netd builds the NIC's tap in the anchor's
   network namespace and sets the anchor's readiness gate
   `qrab.yapplesauce.com/nic-plumbed`. `status.nics` reports `name`, `mac`,
@@ -375,7 +381,7 @@ Without stable addresses the VM is `Blocked` with reason `InvalidSpec`.
 ## cloud-init seed
 
 `spec.cloudInit` is opt-in. With it, the VM gets a read-only cloud-init NoCloud
-disk labelled `cidata` and configures itself without DHCP:
+disk labelled `cidata` and configures itself from it:
 
 ```yaml
 spec:
@@ -414,7 +420,8 @@ spec:
   - the nameserver is `169.254.1.1`, which qrab-netd redirects to the
     anchor's resolver.
 
-  There is no DHCP: a guest configures its NICs from the seed.
+  qrab-netd also answers DHCP on each tap with the same address, gateway and
+  DNS, for guests that ignore the seed's network-config.
 
 ## Power, restart and deletion
 

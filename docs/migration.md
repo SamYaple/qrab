@@ -3,10 +3,10 @@
 A running VM moves to another node without a reboot. The guest's memory,
 devices, TPM state and UEFI variables travel in QEMU's migration stream over a
 SPIFFE mTLS tunnel between the two managers of the same VM. Disks are shared
-iSCSI LUNs, so no disk data is copied. Guest NICs are taps in anchor Pods
-pinned to the VM Pod's node; the operator does not drive their handoff yet (the
-target manager needs `incoming.node_ip`, which the operator does not set), so a
-VM with NICs cannot be live-migrated yet ([networking.md](networking.md#tap-datapath)).
+iSCSI LUNs, so no disk data is copied. Guest NICs are taps in anchor Pods on
+the VM Pod's node; each NIC's address and Cilium endpoint hand over to a
+standby anchor on the target node inside QEMU's final pause
+([networking.md](networking.md#live-migration)).
 Design and work items: towl
 `container/vm-live-migration`.
 
@@ -106,8 +106,16 @@ else `spec.storageNode`).
 3. The source sets `return-path` and `events`, caps bandwidth at 1 GiB/s and
    runs `migrate unix:<session>/migrate-out.sock`. Each manager splices its
    QEMU's Unix socket with the TLS stream, so QEMU never sees a TCP socket.
-4. Both managers poll `query-migrate` every 250 ms and keep publishing status,
-   so probes stay green. On `completed` the target runs `cont`; the source
+   With guest NICs, the target's config also carries `incoming.node_ip` (the
+   target node's InternalIP), the source enables `pause-before-switchover`,
+   and at `pre-switchover` it switches the NICs over (forward route, target
+   `activate` over a second hello on channel `switchover`, source `standby`)
+   before `migrate-continue`, undoing them on failure
+   ([networking.md](networking.md#live-migration)).
+4. Both managers poll `query-migrate` every 250 ms (20 ms with NICs, since the
+   pre-switchover wait is guest downtime) and keep publishing status,
+   so probes stay green. On `completed` the target runs `cont` (and, with NICs,
+   `announce-self`); the source
    QEMU (paused, disks inactive) is quit, and its manager exits 0 with outcome
    `{"reason":"migrated","shutdown_method":"migration"}`. On failure the source
    keeps running the guest, records `migration failed: ...` in its status
