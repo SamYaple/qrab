@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-# The normal developer path is the generated protocol and pod runtime. Tooling,
-# confidential-guest experiments remain explicit package selections.
+# The normal developer path is the generated protocol and pod runtime.
+# Schema generation remains an explicit package selection.
 default-members = [
     "projects/qapi-macros",
     "projects/qapi",
@@ -23,8 +23,6 @@ members = [
     "projects/qapi",
     "projects/qapi-protocol",
     "projects/manager",
-    "projects/qrab-init",
-    "projects/qrab-guest-init",
     "projects/oidc-bearer",
     "projects/bmc",
     "projects/redfish",
@@ -34,17 +32,6 @@ members = [
     "projects/qrab-guest-agent",
     "projects/kvm-device-plugin",
     "projects/qrab-spiffe",
-    "projects/attest-server",
-    "projects/qrab-boot-proto",
-    "projects/qrab-boot-verify",
-    "projects/qrab-snp-proto",
-    "projects/qrab-attest-verifier",
-    "projects/qrab-real-uki-demo-tests",
-]
-# Standalone UEFI targets have their own toolchains. See docs/legacy.md.
-exclude = [
-    "projects/qrab-boot",
-    "projects/qrab-real-uki-demo",
 ]
 
 [workspace.dependencies]
@@ -58,8 +45,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 nix = { version = "0.29" }
 proc-macro2 = "1"
 quote = "1"
-which = "7"
-paste = "1"
 tempfile = "3"
 futures = "0.3"
 sha2 = { version = "0.10", default-features = false }

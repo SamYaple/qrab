@@ -56,7 +56,6 @@ Read [protocol.md](docs/protocol.md) for the transport contract and
 
 ## Earlier experiments
 
-Host namespace/SEV/SVSM manager APIs are opt-in through `manager/legacy-host`.
-Confidential-guest boot/attestation
-experiments and standalone UEFI crates remain available separately; see
-[legacy.md](docs/legacy.md). They are not prerequisites for a normal VM pod.
+Confidential-computing/SVSM projects and the legacy host manager were retired.
+Their final source is preserved in the annotated tag
+`eol/confidential-computing-svsm-2026-11-15`; see [legacy.md](docs/legacy.md).

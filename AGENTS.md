@@ -2,9 +2,9 @@
 
 The active path is the minimal Rust VM operator, per-VM OIDC BMC, pod-native
 UEFI/TPM manager and QAPI/QMP/QGA libraries. The
-default workspace and manager features select this path; host/SEV APIs are
-explicitly opt-in. Work tracking and durable operational notes
-belong to the `qrab` project in towl.
+workspace selects this path. Retired confidential-computing/SVSM projects are
+archived under `eol/confidential-computing-svsm-2026-11-15`; see `docs/legacy.md`.
+Work tracking and durable operational notes belong to the `qrab` project in towl.
 
 - Read the crate's `AGENTS.md` before editing it.
 - Generated files under `projects/qapi/src/generated/` and `projects/qapi/src/qga/`

@@ -1,53 +1,28 @@
-# Legacy host and confidential-guest tooling
+# Retired confidential-computing and SVSM projects
 
-The active deployment path is the pod manager in [manager.md](manager.md).
-The following code remains available for explicit development, outside the
-normal `cargo build` / `cargo test` package selection:
+These projects reached end of life on 2026-11-15 and were removed from the
+active tree. The annotated Git tag `eol/confidential-computing-svsm-2026-11-15`
+preserves their final source, build scripts, lockfiles and vendor gitlinks.
 
-| Component | Purpose |
-| --- | --- |
-| `manager` with `legacy-host` | Host namespaces, firmware discovery and the SEV/SVSM `VmBuilder` API |
-| `qrab-init` | Host namespace helper used by that earlier manager |
-| `qrab-boot`, `qrab-real-uki-demo` | Standalone UEFI targets with their own toolchains |
-| `qrab-boot-*`, `qrab-snp-proto`, `qrab-attest-verifier`, `attest-server`, `qrab-guest-init` | Confidential-guest boot, attestation and policy experiments |
-| `contrib/build-*`, `matrix-*`, `smoke-snp-*` | Specialized firmware/hardware build and smoke procedures |
+The archive includes the host namespace/SEV/SVSM manager API (`legacy-host`),
+`qrab-init`, `qrab-guest-init`, `qrab-boot`, `qrab-boot-proto`,
+`qrab-boot-verify`, `qrab-boot-tests`, `qrab-snp-proto`, `qrab-attest-verifier`,
+`attest-server`, `qrab-real-uki-demo` and `qrab-real-uki-demo-tests`.
+Their firmware/UKI builders, attestation keys and certificate tooling, SNP/SVSM
+smokes, initrd module, edk2 patches and dedicated vendor pins were removed too.
 
-The old API keeps its module names and re-exports when enabled:
-
-```toml
-manager = { path = "../manager", features = ["legacy-host"] }
-```
-
-Safe host API/unit checks are:
+Inspect the archive without restoring it into the active workspace:
 
 ```sh
-cargo test --locked -p manager --features legacy-host --lib
+git show eol/confidential-computing-svsm-2026-11-15:docs/legacy.md
+git ls-tree eol/confidential-computing-svsm-2026-11-15 projects/
 ```
 
-The legacy manager integration targets require `legacy-host`. Selecting that
-feature and running all integration tests is an explicit hardware/firmware test
-operation; it is not part of pod-runtime validation. A passing TCG guest smoke
-does not validate confidential-guest security or firmware behavior.
+The tag preserves submodule revisions, not copies of external repositories.
+The historical `qemu-svsm` pin was unavailable in the local mirror at retirement.
+Fetch QEMU only from the local Gitea mirror; do not substitute upstream sources.
 
-UEFI crates are excluded from the Linux workspace and must be built from their
-own directories. Other experiment crates remain workspace members and can be
-selected with `-p`; `--workspace` intentionally selects these as well. See each
-component's source and build script for its prerequisites before running it.
-
-Historical `llm-rag` plans, audit IDs and absolute workspace paths in older
-comments are provenance, not self-contained runbooks. Those external documents
-are not required for the pod runtime and are not shipped here. Old phase-status
-claims should not be treated as evidence of current firmware validation.
-
-Do not initialize every vendor submodule for ordinary development. In particular,
-the historical `qemu-svsm` pin is not available in the current local SVSM mirror;
-that lane needs deliberate source reconciliation before it can be restored.
-Do not silently switch it to another revision or fetch QEMU from upstream.
-
-The obsolete Debian QEMU 3.1/5.2/7.2 container wrapper matrix was retired. Current
-images are built from pinned local source under `contrib/images`, and current
-live tests are documented in [testing.md](testing.md). Older-version
-compatibility will be revisited separately.
-
-The earlier Dioxus/host BMC was replaced by the pod-native OIDC BMC; its source
-is retained in Git history before the BMC 0.2 refactor. See [bmc.md](bmc.md).
+The pod-native manager, UEFI/Secure Boot and TPM identity support, guest agent,
+operator, BMC and QAPI/QMP/QGA libraries remain active. Generated protocol types
+still describe current QEMU confidential-guest commands as part of the schema.
+See [manager.md](manager.md) and [testing.md](testing.md) for current development.

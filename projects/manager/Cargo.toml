@@ -5,24 +5,9 @@ edition = "2021"
 
 [features]
 default = []
-# Preserved host namespace/SEV/SVSM API, used by the older BMC server.
-legacy-host = [
-    "dep:base64",
-    "dep:paste",
-    "dep:tracing",
-    "dep:which",
-    "nix/ioctl",
-    "nix/mount",
-    "nix/sched",
-    "nix/user",
-    "tokio/fs",
-    "tokio/rt-multi-thread",
-]
 
 [dependencies]
 thiserror = { workspace = true }
-tracing = { workspace = true, optional = true }
-which = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -30,8 +15,6 @@ x509-cert = { version = "0.2", features = ["std"] }
 tempfile = { workspace = true }
 # Writes the cloud-init NoCloud seed volume; no clock, so timestamps are fixed.
 fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc"] }
-base64 = { version = "0.22", optional = true }
-paste = { workspace = true, optional = true }
 
 [dependencies.qapi]
 path = "../qapi"
@@ -62,31 +45,3 @@ features = ["io-util"]
 [dev-dependencies.qrab-spiffe]
 path = "../qrab-spiffe"
 features = ["fixture"]
-
-[[test]]
-name = "child_crash_event"
-required-features = ["legacy-host"]
-
-[[test]]
-name = "firmware"
-required-features = ["legacy-host"]
-
-[[test]]
-name = "integration"
-required-features = ["legacy-host"]
-
-[[test]]
-name = "sev"
-required-features = ["legacy-host"]
-
-[[test]]
-name = "sev_kvm_readonly"
-required-features = ["legacy-host"]
-
-[[test]]
-name = "sev_negative"
-required-features = ["legacy-host"]
-
-[[test]]
-name = "vnc_display"
-required-features = ["legacy-host"]

@@ -5,7 +5,7 @@
 standalone CLI. [operator.md](operator.md) describes the default CR-driven
 Kubernetes deployment, and [bmc.md](bmc.md) describes OIDC and the console.
 There is no systemd, host namespace helper or Kubernetes client in the manager.
-The older confidential-guest API is opt-in through `legacy-host`.
+The retired host/confidential-guest API is archived; see [legacy.md](legacy.md).
 
 ## Images
 

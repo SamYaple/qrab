@@ -31,7 +31,7 @@ generator, and regenerates QMP/QGA to verify committed outputs byte for byte.
 Historical schemas remain tooling inputs; their compatibility work is not a
 mandatory runtime development step.
 
-Legacy host APIs and firmware tests are opt-in; see [legacy.md](legacy.md).
+Retired host and confidential-guest experiments are archived; see [legacy.md](legacy.md).
 BMC authentication and browser acceptance are described in [bmc.md](bmc.md).
 
 Protocol cleanup can be checked directly with:
@@ -71,8 +71,8 @@ ninja -j 8 qemu-system-x86_64
 ```
 
 QEMU's build requires its own C/Python dependencies and may fetch its build
-subprojects. Launcher, confidential guest and boot tests have separate
-requirements and remain outside this core-library check.
+subprojects. Pod launcher and UEFI/TPM boot tests have separate requirements and remain
+outside this core-library check.
 
 The real guest-agent test uses a private Unix listener, temporary files and an
 explicit RPC allowlist. It checks sync, guest-info, ping, a typed 2 MiB file read
