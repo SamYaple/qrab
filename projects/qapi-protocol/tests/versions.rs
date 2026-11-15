@@ -132,3 +132,68 @@ async fn typed_guest_file_read_decodes_response_not_request() {
     assert!(reply.eof);
     server.await.unwrap();
 }
+
+#[qapi::qapi(
+    command,
+    name = "test-address",
+    added = "1.3.0",
+    returns = "qapi::SocketAddress",
+    allow_oob
+)]
+struct TestAddress {}
+
+#[tokio::test]
+async fn qmp_reply_layout_uses_each_peer_version_in_band_and_oob() {
+    for version in [(2, 9, 0), (11, 1, 3)] {
+        let (client, server) = tokio::net::UnixStream::pair().unwrap();
+        let mut peer = QmpSession::from_stream(server);
+        let (client, ()) = tokio::join!(Qmp::from_stream(client), async {
+            peer.send_greeting(version.0, version.1, version.2)
+                .await
+                .unwrap();
+            peer.negotiate().await.unwrap();
+        });
+        let (client, _) = client.unwrap();
+        let reply = if version < (2, 10, 0) {
+            serde_json::json!({"type":"inet","data":{"host":"127.0.0.1","port":"10809"}})
+        } else {
+            serde_json::json!({"type":"inet","host":"127.0.0.1","port":"10809"})
+        };
+        let server_reply = reply.clone();
+        let server = tokio::spawn(async move {
+            for _ in 0..if version < (2, 12, 0) { 1 } else { 2 } {
+                assert_eq!(peer.recv_command().await.unwrap().0, "test-address");
+                peer.send_return(server_reply.clone()).await.unwrap();
+            }
+        });
+        let value = client.execute(&TestAddress {}).await.unwrap();
+        assert_eq!(qapi::to_value(version, &value).unwrap(), reply);
+        if version >= (2, 12, 0) {
+            let value = client.execute_oob(&TestAddress {}).await.unwrap();
+            assert_eq!(qapi::to_value(version, &value).unwrap(), reply);
+        }
+        client.shutdown().await;
+        server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn qga_reply_layout_uses_guest_version() {
+    let (client, server) = tokio::net::UnixStream::pair().unwrap();
+    let mut peer = QgaSession::from_stream(server);
+    let reply = serde_json::json!({"type":"inet","data":{"host":"127.0.0.1","port":"10809"}});
+    let server_reply = reply.clone();
+    let server = tokio::spawn(async move {
+        peer.handle_sync().await.unwrap();
+        assert_eq!(peer.recv_command().await.unwrap().0, "guest-info");
+        peer.send_return(serde_json::json!({"version":"2.9.0","supported_commands":[]}))
+            .await
+            .unwrap();
+        assert_eq!(peer.recv_command().await.unwrap().0, "test-address");
+        peer.send_return(server_reply).await.unwrap();
+    });
+    let mut client = Qga::from_stream(client).await.unwrap();
+    let value = client.execute(&TestAddress {}).await.unwrap();
+    assert_eq!(qapi::to_value((2, 9, 0), &value).unwrap(), reply);
+    server.await.unwrap();
+}

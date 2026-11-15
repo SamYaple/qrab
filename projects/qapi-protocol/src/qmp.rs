@@ -302,7 +302,8 @@ impl Qmp {
         let request = qapi::with_version(self.version(), || {
             wire::request(C::NAME, serde_json::to_value(cmd)?, false)
         })?;
-        wire::decode(self.dispatch(request, false, duration).await?)
+        let reply = self.dispatch(request, false, duration).await?;
+        qapi::with_version(self.version(), || wire::decode(reply))
     }
 
     pub async fn execute_oob<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
@@ -320,10 +321,10 @@ impl Qmp {
         let request = qapi::with_version(self.version(), || {
             wire::request(C::NAME, serde_json::to_value(cmd)?, true)
         })?;
-        wire::decode(
-            self.dispatch(request, true, self.options.command_timeout)
-                .await?,
-        )
+        let reply = self
+            .dispatch(request, true, self.options.command_timeout)
+            .await?;
+        qapi::with_version(self.version(), || wire::decode(reply))
     }
 
     /// Raw envelopes contain execute and optional object arguments. Caller IDs

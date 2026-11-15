@@ -111,9 +111,9 @@ advertised command appears under its exact wire name in generated metadata.
 Generated enum serializers enforce both type and variant lifetimes. The same
 checks apply to alternate values and union branch payloads, including scalar
 payloads whose Rust types carry no QEMU metadata. Invalid outgoing values name
-the unavailable type or variant and peer version. Deserialization remains
-independent of the serialization scope so recorded and newer replies can still
-be inspected.
+the unavailable type or variant and peer version. Enum deserialization does not
+enforce serialization lifetimes, so recorded and newer replies can still be
+inspected.
 
 Definition documentation is parsed as complete comment blocks. A closing `##`
 is never treated as prose, and malformed modern blocks cannot fall back to
@@ -123,3 +123,11 @@ retain ordered prose, Returns/Errors sections and literal examples; member
 continuation indentation is normalized separately from literal-block indentation.
 Legacy headers, optional closing markers and the historical `###` terminator
 remain accepted for older inputs.
+
+Historical simple unions retain their nested `{"type": ..., "data": ...}` wire
+shape, including scalar, array and null payloads. The `simple_union` property
+tracks transitions to flat unions per type rather than using a global cutoff.
+Use `qapi::with_version` when decoding a recorded historical layout; unscoped
+decoding selects the newest layout. Protocol clients scope typed reply decoding
+to each peer, including OOB replies. Changes to branch payload types across
+releases require separate version-history handling.

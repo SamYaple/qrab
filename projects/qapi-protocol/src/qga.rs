@@ -141,7 +141,7 @@ impl Qga {
         match result {
             Ok(value) => {
                 self.session = Some(session);
-                wire::decode(value)
+                qapi::with_version(self.version, || wire::decode(value))
             }
             Err(error @ Error::Qmp(_)) => {
                 self.session = Some(session);

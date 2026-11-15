@@ -45,6 +45,7 @@ struct TypeAttrs {
     is_command: bool,
     is_event: bool,
     is_union_branch: bool,
+    simple_union: AttrRange,
 }
 
 #[derive(Default, Clone)]
@@ -193,6 +194,8 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     attrs.is_command = true;
                 } else if list.path.is_ident("unstable") {
                     attrs.unstable = parse_attr_range(&list.nested);
+                } else if list.path.is_ident("simple_union") {
+                    attrs.simple_union = parse_attr_range(&list.nested);
                 } else if list.path.is_ident("deprecated") {
                     attrs.deprecated = parse_attr_range(&list.nested);
                 } else if list.path.is_ident("no_success_response") {
@@ -216,6 +219,8 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     attrs.is_event = true;
                 } else if path.is_ident("union_branch") {
                     attrs.is_union_branch = true;
+                } else if path.is_ident("simple_union") {
+                    attrs.simple_union = AttrRange::bare();
                 }
             }
             _ => {}
@@ -316,6 +321,25 @@ fn version_range_check(since: Option<&str>, until: Option<&str>) -> Option<Token
             Some(quote! { qapi::qemu_version() < (#umaj, #umin, #upatch) })
         }
         (None, None) => None,
+    }
+}
+
+// Unscoped decoding uses the latest layout; explicit contexts can select an older one.
+fn simple_union_layout(ta: &TypeAttrs, decoding: bool) -> TokenStream2 {
+    if !ta.simple_union.present {
+        return quote! { false };
+    }
+    let active = version_range_check(
+        ta.simple_union.added.as_deref(),
+        ta.simple_union.removed.as_deref(),
+    )
+    .unwrap_or_else(|| quote! { true });
+    if decoding && ta.simple_union.removed.is_some() {
+        quote! { qapi::qemu_version() != (0, 0, 0) && (#active) }
+    } else if decoding {
+        quote! { qapi::qemu_version() == (0, 0, 0) || (#active) }
+    } else {
+        active
     }
 }
 
@@ -499,6 +523,9 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 ta.is_command = ta.is_command || extra.is_command;
                 ta.is_event = ta.is_event || extra.is_event;
                 ta.is_union_branch = ta.is_union_branch || extra.is_union_branch;
+                if extra.simple_union.present {
+                    ta.simple_union = extra.simple_union;
+                }
             }
         }
     }
@@ -950,7 +977,7 @@ fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStre
                 VariantKind::Tuple(_) => Some(quote! {
                     #cond
                     #wn => Ok(#name::#ident(
-                        serde_json::from_value(serde_json::Value::Object(_map))
+                        serde_json::from_value(_value)
                             .map_err(|e| serde_json::Error::custom(format!(
                                 "deserializing {} variant '{}': {}",
                                 stringify!(#name), discriminator, e
@@ -971,6 +998,13 @@ fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStre
             fn deserialize_variant(
                 discriminator: &str,
                 _map: serde_json::Map<String, serde_json::Value>,
+            ) -> Result<Self, serde_json::Error> {
+                <Self as qapi::QapiFlatUnion>::deserialize_variant_value(discriminator, serde_json::Value::Object(_map))
+            }
+
+            fn deserialize_variant_value(
+                discriminator: &str,
+                _value: serde_json::Value,
             ) -> Result<Self, serde_json::Error> {
                 use serde::de::Error as _;
                 match discriminator {
@@ -1065,7 +1099,7 @@ fn gen_struct(
     };
 
     let de = if has_flatten {
-        gen_struct_de_flatten(&struct_name, &fields)
+        gen_struct_de_flatten(&struct_name, &fields, ta)
     } else {
         gen_struct_de(&struct_name, &fields)
     };
@@ -1261,17 +1295,26 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
         let dep_warn = field_deprecation_warn(&type_name_str, f);
 
         if f.attrs.flatten {
-            // Serialize flattened struct's fields inline into the map.
-            // Convert to serde_json::Value and merge its fields.
+            let nested = if f.attrs.union_field { simple_union_layout(ta, false) } else { quote! { false } };
+            let required = if is_opt && f.attrs.union_field { quote! {
+                if (#nested) && self.#ident.is_none() {
+                    return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": missing simple union payload")));
+                }
+            }} else { TokenStream2::new() };
             quote! {
                 #cond
                 {
                     #dep_warn
+                    #required
                     let flat_value = serde_json::to_value(&self.#ident).map_err(serde::ser::Error::custom)?;
-                    if let serde_json::Value::Object(flat_map) = flat_value {
+                    if #nested {
+                        map.serialize_entry("data", &flat_value)?;
+                    } else if let serde_json::Value::Object(flat_map) = flat_value {
                         for (k, v) in flat_map {
                             map.serialize_entry(&k, &v)?;
                         }
+                    } else if !flat_value.is_null() {
+                        return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": flattened QAPI payload must be an object")));
                     }
                 }
             }
@@ -1507,7 +1550,7 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
     }
 }
 
-fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
+fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
     let non_flat: Vec<&FieldInfo> = fields.iter().filter(|f| !f.attrs.flatten).collect();
     let flat: Vec<&FieldInfo> = fields.iter().filter(|f| f.attrs.flatten).collect();
 
@@ -1573,9 +1616,9 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
                     quote! {
                         let __disc: Option<String> = None #(.or_else(|| #ids.as_ref().map(|d| d.to_string())))*;
                         let #id: #ty = match __disc {
-                            Some(d) => Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant(
+                            Some(d) => Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &d,
-                                full_map.clone(),
+                                __qapi_union_payload.clone(),
                             ).map_err(serde::de::Error::custom)?),
                             None => None,
                         };
@@ -1588,9 +1631,9 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
                         .expect("union field with optional discriminator must be Option<T>");
                     quote! {
                         let #id: #ty = if let Some(ref __disc_val) = #disc_id {
-                            Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant(
+                            Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &__disc_val.to_string(),
-                                full_map.clone(),
+                                __qapi_union_payload.clone(),
                             ).map_err(serde::de::Error::custom)?)
                         } else {
                             None
@@ -1601,16 +1644,16 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
                     if is_option_type(ty) {
                         let inner_ty = inner_option_type(ty).unwrap();
                         quote! {
-                            let #id: #ty = Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant(
+                            let #id: #ty = Some(<#inner_ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &#disc_id.to_string(),
-                                full_map.clone(),
+                                __qapi_union_payload.clone(),
                             ).map_err(serde::de::Error::custom)?);
                         }
                     } else {
                         quote! {
-                            let #id: #ty = <#ty as qapi::QapiFlatUnion>::deserialize_variant(
+                            let #id: #ty = <#ty as qapi::QapiFlatUnion>::deserialize_variant_value(
                                 &#disc_id.to_string(),
-                                full_map.clone(),
+                                __qapi_union_payload.clone(),
                             ).map_err(serde::de::Error::custom)?;
                         }
                     }
@@ -1628,6 +1671,17 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
         }
     }).collect();
 
+    let payload = if flat.iter().any(|field| field.attrs.union_field) {
+        let simple = simple_union_layout(ta, true);
+        quote! {
+            let __qapi_union_payload = if #simple {
+                full_map.get("data").cloned().ok_or_else(|| serde::de::Error::missing_field("data"))?
+            } else { serde_json::Value::Object(full_map.clone()) };
+        }
+    } else {
+        TokenStream2::new()
+    };
+
     let all_ids: Vec<&syn::Ident> = fields.iter().map(|f| &f.ident).collect();
 
     quote! {
@@ -1641,6 +1695,7 @@ fn gen_struct_de_flatten(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream
                     _ => return Err(serde::de::Error::custom("expected object")),
                 };
                 let full_map = map.clone();
+                #payload
                 #(#extractions)*
                 #(#flat_extractions)*
                 Ok(#name { #(#all_ids),* })

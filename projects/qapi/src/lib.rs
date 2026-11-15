@@ -37,18 +37,27 @@ pub trait QapiEvent: serde::de::DeserializeOwned {
     const NAME: &'static str;
 }
 
-/// Trait for discriminator-based flat union deserialization.
-///
-/// QAPI flat unions embed the discriminator and branch-specific fields in the
-/// same JSON object. The `#[qapi]` proc macro generates an impl for each union
-/// branch enum so that the containing struct's deserializer can select the
-/// correct variant by discriminator value instead of brute-force trial
-/// deserialization.
+/// Decode a QAPI union branch selected by its discriminator.
+/// Flat union payloads are objects; historical simple unions can carry any JSON value.
 pub trait QapiFlatUnion: Sized {
     fn deserialize_variant(
         discriminator: &str,
         map: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Self, serde_json::Error>;
+
+    /// Decode a branch payload, including historical scalar and array payloads.
+    fn deserialize_variant_value(
+        discriminator: &str,
+        value: serde_json::Value,
+    ) -> Result<Self, serde_json::Error> {
+        use serde::de::Error as _;
+        match value {
+            serde_json::Value::Object(map) => Self::deserialize_variant(discriminator, map),
+            _ => Err(serde_json::Error::custom(
+                "expected an object for a flat union payload",
+            )),
+        }
+    }
 }
 
 impl<T: QapiFlatUnion> QapiFlatUnion for Box<T> {
@@ -58,6 +67,13 @@ impl<T: QapiFlatUnion> QapiFlatUnion for Box<T> {
     ) -> Result<Self, serde_json::Error> {
         T::deserialize_variant(discriminator, map).map(Box::new)
     }
+
+    fn deserialize_variant_value(
+        discriminator: &str,
+        value: serde_json::Value,
+    ) -> Result<Self, serde_json::Error> {
+        T::deserialize_variant_value(discriminator, value).map(Box::new)
+    }
 }
 
 static QEMU_VERSION: OnceLock<(u32, u32, u32)> = OnceLock::new();
@@ -66,11 +82,12 @@ thread_local! {
     static SERIALIZATION_VERSION: Cell<Option<(u32, u32, u32)>> = const { Cell::new(None) };
 }
 
-/// Serialize QAPI values using a particular peer's version. QMP and QGA clients
-/// use this for each request, so connections to different releases can coexist.
+/// Scope QAPI serialization and historical wire layouts to a peer's version.
+/// QMP and QGA clients use this for requests and replies, so different releases
+/// can coexist.
 ///
 /// The override is synchronous, thread-local, nestable and restored on unwind.
-/// Run serialization inside the closure; do not return a future to await later.
+/// Perform the work inside the closure; do not return a future to await later.
 pub fn with_version<T>(version: (u32, u32, u32), f: impl FnOnce() -> T) -> T {
     struct Restore(Option<(u32, u32, u32)>);
     impl Drop for Restore {
@@ -142,7 +159,7 @@ pub fn unavailable_type_message(type_name: &str) -> String {
     }
 }
 
-/// Get the scoped serialization version, or the legacy process default.
+/// Get the scoped peer version, or the legacy process default.
 /// Returns (0, 0, 0) if neither has been set.
 pub fn qemu_version() -> (u32, u32, u32) {
     SERIALIZATION_VERSION

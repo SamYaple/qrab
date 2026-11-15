@@ -401,3 +401,21 @@ fn escaped_backslash_in_include_is_decoded() {
     assert_eq!(sources.len(), 2);
     assert!(sources.iter().any(|(path, _)| path == &child));
 }
+
+#[test]
+fn simple_union_layout_lifetimes_follow_each_types_actual_transition() {
+    let registry = build_unified_registry(
+        &qemu(),
+        &["v2.9.0", "v2.10.0", "v6.1.0", "v6.2.0", "v11.1.3"],
+    )
+    .unwrap();
+    for (name, until) in [
+        ("SocketAddress", (2, 10, 0)),
+        ("SocketAddressLegacy", (6, 2, 0)),
+    ] {
+        let UnifiedType::Struct(value) = &registry.types[name] else {
+            panic!("missing {name}")
+        };
+        assert_eq!(value.attr_versions["simple_union"].until, Some(until));
+    }
+}

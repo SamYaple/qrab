@@ -403,7 +403,6 @@ pub fn process_union(
     let mut variants = Vec::new();
     for branch in q.data {
         let (r#type, array) = process_type_ref(&branch.r#type);
-        assert!(!array);
         let mut meta = Metadata::default();
         if let Some(attr) = name_attr(branch.name) {
             meta.attributes.push(attr);
@@ -416,7 +415,7 @@ pub fn process_union(
             name: branch.name.into(),
             kind: EnumVariantKind::Tuple(r#type.into()),
             meta,
-            array: false,
+            array,
         });
     }
     if !is_simple {
@@ -482,6 +481,9 @@ pub fn process_union(
     }
     add_feat! {meta, q.r#features};
     add_docs! {meta, q.doc, q.name, &mut fields};
+    if is_simple {
+        meta.attributes.push(Attribute::new("simple_union"));
+    }
     let s = Struct {
         name: q.name.into(),
         fields,
@@ -585,6 +587,28 @@ mod tests {
             r#if: None,
             features: None,
         }
+    }
+
+    #[test]
+    fn historical_simple_union_arrays_lower_without_panicking() {
+        crate::set_parser_version((2, 0, 0));
+        let (_, input) =
+            QapiUnion::parse("{ 'union': 'Example', 'data': {'text': 'str', 'values': ['int']} }")
+                .unwrap();
+        let (value, branches, _) = process_union(input, &HashMap::new(), &HashMap::new());
+        assert!(
+            value
+                .meta
+                .attributes
+                .contains(&Attribute::new("simple_union"))
+        );
+        let array = branches
+            .variants
+            .iter()
+            .find(|variant| variant.name == "values")
+            .unwrap();
+        assert!(array.array);
+        assert!(branches.generate().to_string().contains("Vec < i64 >"));
     }
 
     #[test]

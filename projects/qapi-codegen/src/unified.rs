@@ -364,6 +364,22 @@ fn process_version_schema(
                 "QAPI union {} discriminator {discriminator} must be a required scalar enum",
                 v.name
             );
+            for branch in &v.data.0 {
+                anyhow::ensure!(
+                    !matches!(branch.r#type, crate::QapiTypeRef::ArrayRef(_)),
+                    "QAPI flat union {} branch {} must reference a struct, not an array",
+                    v.name,
+                    branch.name
+                );
+                if crate::parser_version() >= (6, 2, 0) {
+                    anyhow::ensure!(
+                        matches!(&branch.r#type, crate::QapiTypeRef::Ref(name) if structs_lookup.contains_key(&rustify_name(name))),
+                        "QAPI flat union {} branch {} must reference a struct",
+                        v.name,
+                        branch.name
+                    );
+                }
+            }
             if let Some(tags) = enums_lookup.get(&rustify_name(&discriminator_type)) {
                 anyhow::ensure!(
                     !tags.variants.is_empty(),
@@ -695,8 +711,13 @@ fn has_feature(meta: &Metadata, feature_name: &str) -> bool {
     })
 }
 
-/// The set of boolean Unit attributes on commands/events that must be version-tracked.
-const TRACKED_BOOL_ATTRS: &[&str] = &["allow_preconfig", "allow_oob", "no_success_response"];
+/// Boolean schema properties whose presence changes between releases.
+const TRACKED_BOOL_ATTRS: &[&str] = &[
+    "allow_preconfig",
+    "allow_oob",
+    "no_success_response",
+    "simple_union",
+];
 
 /// Extract version ranges for boolean command attributes present in metadata.
 fn extract_bool_attr_versions(meta: &Metadata, version: Version) -> BTreeMap<String, VersionRange> {
@@ -1779,6 +1800,12 @@ mod schema_resolution_tests {
             ("{'kind': ['Kind']}", "{}", "required scalar enum"),
             ("{'kind': 'str'}", "{}", "non-enum type"),
             ("{'kind': 'Empty'}", "{}", "has no branches"),
+            ("{'kind': 'Kind'}", "{'known': ['Payload']}", "not an array"),
+            (
+                "{'kind': 'Kind'}",
+                "{'known': 'str'}",
+                "must reference a struct",
+            ),
             (
                 "{'kind': 'Kind'}",
                 "{'unknown': 'Payload'}",

@@ -1293,6 +1293,7 @@ pub struct BlockChildInfo {
 /// @transaction.
 #[qapi(added = "1.1.0")]
 #[qapi(removed = "1.6.0")]
+#[qapi(simple_union)]
 pub struct BlockdevAction {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -5769,6 +5770,7 @@ pub struct CanHostSocketcanProperties {
 
 /// Configuration info for the new chardev backend.
 #[qapi(added = "1.4.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct ChardevBackend {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -9676,6 +9678,7 @@ pub struct ImageInfo {
 /// A discriminated record of image format specific information
 /// structures.
 #[qapi(added = "1.7.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct ImageInfoSpecific {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -10036,6 +10039,7 @@ pub enum InputButton {
 
 /// Input event union.
 #[qapi(added = "2.0.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct InputEvent {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -10527,6 +10531,7 @@ pub enum JsonType {
 
 /// Represents a keyboard key.
 #[qapi(added = "1.3.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct KeyValue {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -11045,6 +11050,7 @@ pub struct MemoryBackendShmProperties {
 
 /// Union containing information about a memory device
 #[qapi(added = "2.1.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct MemoryDeviceInfo {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -12960,6 +12966,7 @@ pub enum NetClientDriver {
 /// 'l2tpv3' - since 2.1
 #[qapi(added = "1.2.0")]
 #[qapi(removed = "2.7.0")]
+#[qapi(simple_union)]
 pub struct NetClientOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -13873,6 +13880,7 @@ pub struct NetLegacyNicOptions {
 /// Like Netdev, but for use only by the legacy command line options
 #[qapi(added = "2.7.0")]
 #[qapi(removed = "5.1.0")]
+#[qapi(simple_union(removed = "2.9.0"))]
 pub struct NetLegacyOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -14146,6 +14154,7 @@ pub struct NumaNodeOptions {
 
 /// A discriminated record of NUMA options.  (for OptsVisitor)
 #[qapi(added = "2.1.0")]
+#[qapi(simple_union(removed = "2.9.0"))]
 pub struct NumaOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -18001,6 +18010,7 @@ pub struct SnapshotInfo {
 /// Captures the address of a socket, which could also be a socket file
 /// descriptor
 #[qapi(added = "1.3.0")]
+#[qapi(simple_union(removed = "2.10.0"))]
 pub struct SocketAddress {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -18078,6 +18088,7 @@ pub enum SocketAddressFlatType {
 /// Captures the address of a socket, which could also be a named file
 /// descriptor
 #[qapi(added = "2.10.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct SocketAddressLegacy {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -19190,6 +19201,7 @@ pub enum TpmType {
 /// options
 #[qapi(condition = "defined(CONFIG_TPM)")]
 #[qapi(added = "1.5.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct TpmTypeOptions {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
@@ -19261,6 +19273,7 @@ pub enum TraceEventState {
 /// A discriminated record of operations that can be performed with
 /// `transaction`.
 #[qapi(added = "1.6.0")]
+#[qapi(simple_union(removed = "6.2.0"))]
 pub struct TransactionAction {
     #[qapi(discriminator)]
     #[qapi(name = "type")]
