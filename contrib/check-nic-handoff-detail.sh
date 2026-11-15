@@ -130,10 +130,12 @@ EOF
     sleep 1
   done
   [ "$phase" = Succeeded ] || fail "move $i did not finish"
+  # The manager's switch end, read before the source Pod is retired.
+  switch_line=$(kubectl -n "$ns" logs "$source_pod" -c manager --timestamps 2>/dev/null | grep '"event":"migration_switched"' | tail -1 || true)
+  [ -n "$switch_line" ] || fail "move $i: no migration_switched line in $source_pod"
   sleep "$settle"
   done_at=$(date +%s.%N)
-  # The manager's switch end, and each netd step's completion.
-  switch_line=$(kubectl -n "$ns" logs "$source_pod" -c manager --timestamps 2>/dev/null | grep '"event":"migration_switched"' | tail -1)
+  # Each netd step's completion.
   switched=$(ts "$(echo "$switch_line" | cut -d' ' -f1)")
   switch_ms=$(echo "$switch_line" | grep -o '"ms":[0-9]*' | cut -d: -f2)
   step() { # node pattern
