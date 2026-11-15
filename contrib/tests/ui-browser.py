@@ -860,7 +860,7 @@ def action_discovery_checks(browser):
         advertised.pop('ResetType@Redfish.AllowableValues')
         fixture['reset_types'] = ['Pause']
         if failed:
-            fixture['fail_reset_info'] = 'Action information temporarily unavailable.'
+            fixture['fail_reset_info'] = 'Action information temporarily unavailable. ' + 'x' * 400
             fixture['fail_system'] = {'json': {'error': {'message': 'VM is starting.'}}}
         page = context.new_page()
         errors = []
@@ -878,6 +878,7 @@ def action_discovery_checks(browser):
             expect(page.locator('#connect')).to_be_enabled()
             expect(page.locator('#error')).to_be_hidden()
             assert page.locator('#power button:enabled').count() == 0
+            no_overflow(page, 'bmc-power-discovery-unavailable', 390)
             capture(page, args.output / 'bmc-power-discovery-unavailable.png')
             advertised['ResetType@Redfish.AllowableValues'] = ['Pause']
             page.clock.fast_forward(3100)
