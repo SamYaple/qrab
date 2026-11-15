@@ -41,7 +41,7 @@
     "source_revision": "2eaead91e99dc5b7eb5c965b4838d7e24dc45a4d"
   },
   "dashboard": {
-    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:bb0f957c090a743b492b6d0bdaa6f8e0aa9fb61bf76c211ffc8f0a74b2837d96",
-    "source_revision": "eca6a31caed3020e9aefe366e4688f4ed89f5795"
+    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:b688afbc9a374891673d8dbd9c5cf4c68e8c31ac47e9e8817684507bfbe2b0f4",
+    "source_revision": "29ef166c282dbddbf3db6c3fe91b25ad83d06e71"
   }
 }
