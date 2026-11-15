@@ -405,6 +405,7 @@ def console_state_checks(browser, width, theme):
             page.clock.fast_forward(3100)
             assert len(fixture['posts']) == previous_posts + 1, 'A blocked held key must not send after settlement'
         expect(page.locator('[data-power=Resume]')).to_be_enabled()
+        expect(page.locator('[data-power=GracefulShutdown]')).to_be_enabled()
         focused_in_view(page.locator('.back' if width == 390 else '#power-chip'))
         expect(pause).to_have_text('Pause')
         expect(pause).to_have_attribute('aria-busy', 'false')
@@ -718,6 +719,8 @@ def bmc_state_checks(browser, width, theme):
     page.locator('#dashboard').wait_for(state='visible')
     expect(page.locator('#connect')).to_be_disabled()
     expect(page.locator('#power button[data-type=On]')).to_be_enabled()
+    page.locator('#advanced-power summary').click()
+    expect(page.locator('#power button[data-type=PowerCycle]')).to_be_enabled()
     page.locator('#tab-events').click()
     expect(page.locator('#events-empty')).to_have_text('No events recorded yet.')
     assert page.locator('#screen').bounding_box()['height'] <= 200

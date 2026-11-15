@@ -275,9 +275,9 @@ function allowed(action) {
         case 'off': return state.running || state.pod;
         case 'Resume': return live && power === 'Paused';
         case 'Pause':
-        case 'GracefulShutdown':
         case 'Nmi': return live && power === 'On';
         case 'GracefulRestart': return live && power === 'On' && !state.guest_restart_unavailable;
+        case 'GracefulShutdown':
         case 'ForceRestart': return live && (power === 'On' || power === 'Paused');
         case 'PowerCycle': return live && (power === 'On' || power === 'Paused' || power === 'Off');
         case 'ForceOff': return live && power !== 'Off';

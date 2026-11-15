@@ -33,11 +33,11 @@ const RESETS = [
     ['PowerCycle', 'Power cycle', true],
     ['Nmi', 'NMI', true],
 ];
-// Which reset types make sense in each PowerState; unknown states allow all.
+// Which reset types make sense in each PowerState; unknown states stay disabled.
 const POWER_ALLOWS = {
     On: new Set(['Pause', 'ForceRestart', 'GracefulRestart', 'GracefulShutdown', 'ForceOff', 'PowerCycle', 'Nmi']),
     Paused: new Set(['Resume', 'ForceRestart', 'GracefulShutdown', 'ForceOff', 'PowerCycle']),
-    Off: new Set(['On']),
+    Off: new Set(['On', 'PowerCycle']),
     PoweringOn: new Set(['ForceOff']),
     PoweringOff: new Set(['ForceOff']),
 };

@@ -199,8 +199,9 @@ enabled from a state poll every 3 seconds while the tab is visible. An in-pod
 button is shown only while the VM's `Systems/1/ResetActionInfo` lists its
 ResetType (Restart guest also needs a connected guest agent at action time),
 and enabled from `Systems/1` `PowerState`: Resume while `Paused`; Pause,
-Restart guest, NMI and Shut down while `On`; Reset while `On` or `Paused`;
-Power cycle also while `Off`; Force off unless `Off`. Every button except
+Restart guest and NMI while `On`; Reset and Shut down while `On` or `Paused`;
+Power cycle also while `Off`; Force off unless `Off`. The full BMC and detail
+page use the same rules for these existing operations. Every button except
 Power on, Resume and Pause arms on the first click ("Confirm reset") and sends
 only on a second click within 5 seconds; the server also refuses them without
 `"confirm": true`.
