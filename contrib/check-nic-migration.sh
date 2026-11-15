@@ -13,7 +13,7 @@
 # After every move it requires:
 #   - the migration Succeeded;
 #   - the NIC's anchor and the VM host's BGP route are on the VM's new node
-#     (single hop);
+#     (single hop), and the new node's CiliumNode holds the NIC's pool;
 #   - the guest's boot id, TPM state and UEFI variables are unchanged;
 #   - no ping, report or stream gap exceeds MAX_GAP_S, and the stream is still
 #     its first connection.
@@ -185,6 +185,9 @@ EOF
   [ "$(field pod "$anchor" '{.spec.nodeName}')" = "$target" ] || fail "move $step: anchor $anchor is not on $target"
   node_ip=$(kubectl get node "$target" -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
   wait_for 60 "the VM host's route to $address via $target" sh -c "ip route get $address | grep -q 'via $node_ip '"
+  pool="qrab-nic-${address//./-}"
+  wait_for 30 "$target's CiliumNode to request and hold $pool" sh -c \
+    "[ \"\$(kubectl get ciliumnode $target -o jsonpath='{.spec.ipam.pools.requested[?(@.pool==\"$pool\")].pool} {.spec.ipam.pools.allocated[?(@.pool==\"$pool\")].cidrs[0]}')\" = '$pool $address/32' ]"
   # Gaps inside this move's window, from ping and from the guest's reports.
   ping_gap=$(awk -v s="$start" -v e="$done_at" -F'[][]' '/bytes from/ {t=$2+0; if (t>=s && t<=e) {if (p && t-p>g) g=t-p; p=t}} END {printf "%.2f", g+0}' "$work/ping.log")
   lost=$(awk -v s="$start" -v e="$done_at" -F'[][]' '/no answer yet/ {t=$2+0; if (t>=s && t<=e) n++} END {print n+0}' "$work/ping.log")

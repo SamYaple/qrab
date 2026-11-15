@@ -392,6 +392,12 @@ late for the probe's 1 s limit. The kube01 anchor showed as
 `ready (handoff-standby)` in `cilium-dbg endpoint list` until the switch, and
 kube03's forward route was swept once its retired anchor's 20 s grace passed.
 
+A second run on operator `c7e1b3b3`, which adds the pool move (the check now
+requires the new node's CiliumNode to request and hold the pool), switched
+in 7, 7 and 8 ms with QEMU downtime of 135, 119 and 111 ms, lost two pings in
+all (each within a pause) and no SSH probe; the old node dropped the pool
+once its anchor was retired.
+
 ## Limits
 
 - Guest NICs need `accelerator: kvm`, stable NIC addresses and qrab-netd on
