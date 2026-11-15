@@ -554,7 +554,7 @@ pub struct GuestSetVcpus {
 #[qapi(name = "guest-shutdown")]
 #[qapi(returns = "()")]
 #[qapi(added = "0.15.0")]
-#[qapi(no_success_response(added = "2.4.0"))]
+#[qapi(no_success_response(added = "1.1.0"))]
 pub struct GuestShutdown {
     /// "halt", "powerdown" (default), or "reboot"
     pub mode: Option<String>,
@@ -635,7 +635,7 @@ pub struct GuestSshRemoveAuthorizedKeys {
 #[qapi(returns = "()")]
 #[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "1.1.0")]
-#[qapi(no_success_response(added = "2.4.0"))]
+#[qapi(no_success_response)]
 pub struct GuestSuspendDisk {}
 
 /// Save guest state to disk and suspend to ram.
@@ -676,7 +676,7 @@ pub struct GuestSuspendDisk {}
 #[qapi(returns = "()")]
 #[qapi(condition = "CONFIG_LINUX")]
 #[qapi(added = "1.1.0")]
-#[qapi(no_success_response(added = "2.4.0"))]
+#[qapi(no_success_response)]
 pub struct GuestSuspendHybrid {}
 
 /// Suspend guest to ram.
@@ -718,7 +718,7 @@ pub struct GuestSuspendHybrid {}
 #[qapi(returns = "()")]
 #[qapi(condition = "(CONFIG_LINUX || CONFIG_WIN32)")]
 #[qapi(added = "1.1.0")]
-#[qapi(no_success_response(added = "2.4.0"))]
+#[qapi(no_success_response)]
 pub struct GuestSuspendRam {}
 
 /// Echo back a unique integer value

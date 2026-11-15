@@ -97,7 +97,8 @@ Named union argument types require boxing for both commands and events;
 scalars, enums and alternates cannot serve as argument objects.
 Command flags enforce QEMU's true-only execution flags, false-only modern
 generation/reply flags and incompatible OOB/coroutine modes. Legacy string
-generation flags retain their historical handling.
+generation and reply flags retain their historical handling, including
+`success-response: 'no'` before 2.4.
 From 8.1, conditional members in command/event argument objects require boxing,
 including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before

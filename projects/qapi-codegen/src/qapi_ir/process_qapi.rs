@@ -873,6 +873,22 @@ mod tests {
     }
 
     #[test]
+    fn historical_success_response_strings_keep_their_wire_behavior() {
+        for (flag, suppressed) in [("'no'", true), ("'yes'", false), ("false", true)] {
+            let input = format!("{{'command':'test','success-response':{flag}}}");
+            let (_, command) = QapiCommand::parse_v1(&input).unwrap();
+            let ir = process_command(command, &HashMap::new());
+            assert_eq!(
+                ir.meta
+                    .attributes
+                    .contains(&Attribute::new("no_success_response")),
+                suppressed,
+                "{flag}",
+            );
+        }
+    }
+
+    #[test]
     fn test_process_command_with_flags() {
         let q = QapiCommand {
             name: "test-cmd",
@@ -1073,7 +1089,7 @@ pub fn process_command(q: QapiCommand, structs_lookup: &HashMap<String, Struct>)
     if q.allow_preconfig == Some("true") {
         meta.attributes.push(Attribute::new("allow_preconfig"));
     }
-    if q.success_response == Some("false") {
+    if matches!(q.success_response, Some("false" | "no")) {
         meta.attributes.push(Attribute::new("no_success_response"));
     }
 
