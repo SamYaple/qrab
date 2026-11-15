@@ -611,9 +611,14 @@ fn emit_command(
     let rust_name = rustify_name(&us.ir.name);
     let wire_name = type_wire_name(&us.ir.name, attrs);
     let doc = us.ir.meta.doc.clone().unwrap_or_default();
-    let allow_oob = has_unit_attr(attrs, "allow_oob");
-    let allow_preconfig = has_unit_attr(attrs, "allow_preconfig");
-    let success_response = !has_unit_attr(attrs, "no_success_response");
+    let active_flag = |name| {
+        us.attr_versions
+            .get(name)
+            .map_or_else(|| has_unit_attr(attrs, name), |range| range.until.is_none())
+    };
+    let allow_oob = active_flag("allow_oob");
+    let allow_preconfig = active_flag("allow_preconfig");
+    let success_response = !active_flag("no_success_response");
     let deprecated = has_feature(attrs, "deprecated");
     let unstable = has_feature(attrs, "unstable");
     let returns = item_attr(attrs, "returns").unwrap_or("()");

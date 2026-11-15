@@ -107,7 +107,7 @@ impl Qga {
     /// Commands with success-response:false must use send_no_response, which
     /// explicitly acknowledges delivery rather than claiming remote success.
     pub async fn execute<C: QapiCommand>(&mut self, cmd: &C) -> Result<C::Returns> {
-        if !C::SUCCESS_RESPONSE {
+        if !C::sends_success_response(self.version) {
             return Err(Error::InvalidRequest(format!(
                 "{} does not send a success response; use send_no_response",
                 C::NAME
@@ -155,7 +155,7 @@ impl Qga {
     /// Success only means the bytes were written. The agent can still fail the
     /// command or shut down later, and no remote success acknowledgement exists.
     pub async fn send_no_response<C: QapiCommand<Returns = ()>>(&mut self, cmd: &C) -> Result<()> {
-        if C::SUCCESS_RESPONSE {
+        if C::sends_success_response(self.version) {
             return Err(Error::InvalidRequest(
                 "command has a response; use execute".into(),
             ));

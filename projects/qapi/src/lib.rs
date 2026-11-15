@@ -10,8 +10,11 @@ pub use serde_json;
 pub trait QapiCommand: serde::Serialize {
     type Returns: serde::de::DeserializeOwned + 'static;
     const NAME: &'static str;
+    /// OOB flag in the newest represented schema; use `allows_oob` for a peer.
     const ALLOW_OOB: bool;
+    /// Preconfig flag in the newest represented schema.
     const ALLOW_PRECONFIG: bool;
+    /// Reply flag in the newest represented schema.
     const SUCCESS_RESPONSE: bool;
     const UNSTABLE: bool;
     const AVAILABLE_SINCE: (u32, u32, u32);
@@ -19,11 +22,25 @@ pub trait QapiCommand: serde::Serialize {
     /// The QEMU version when `allow-preconfig` was added for this command.
     /// `None` if the command never supports preconfig.
     const PRECONFIG_SINCE: Option<(u32, u32, u32)>;
+
+    /// Whether this command permits out-of-band execution on a peer release.
+    fn allows_oob(_version: (u32, u32, u32)) -> bool {
+        Self::ALLOW_OOB
+    }
+
+    /// Whether this command is safe during preconfig on a peer release.
+    fn allows_preconfig(_version: (u32, u32, u32)) -> bool {
+        Self::ALLOW_PRECONFIG
+    }
+
+    /// Whether a successful command produces a reply on a peer release.
+    fn sends_success_response(_version: (u32, u32, u32)) -> bool {
+        Self::SUCCESS_RESPONSE
+    }
 }
 
-/// Marker trait for commands that are safe to execute during QEMU's preconfig
-/// state (before `x-exit-preconfig`). Automatically implemented by the `#[qapi]`
-/// macro for commands with `allow-preconfig: true` in the QEMU schema.
+/// Marker for commands with `allow-preconfig` in at least one schema release.
+/// Check `QapiCommand::allows_preconfig` when selecting a peer release.
 ///
 /// This enables compile-time enforcement: `PreconfigVm::execute()` requires
 /// `C: QapiCommand + PreconfigSafe`, preventing non-preconfig commands from

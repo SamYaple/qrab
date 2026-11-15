@@ -294,7 +294,7 @@ impl Qmp {
         cmd: &C,
         duration: Duration,
     ) -> Result<C::Returns> {
-        if !C::SUCCESS_RESPONSE {
+        if !C::sends_success_response(self.version()) {
             return Err(Error::InvalidRequest(
                 "command does not send a success response".into(),
             ));
@@ -307,13 +307,13 @@ impl Qmp {
     }
 
     pub async fn execute_oob<C: QapiCommand>(&self, cmd: &C) -> Result<C::Returns> {
-        if !C::ALLOW_OOB {
+        if !C::allows_oob(self.version()) {
             return Err(Error::InvalidRequest(format!(
                 "{} does not allow OOB execution",
                 C::NAME
             )));
         }
-        if !C::SUCCESS_RESPONSE {
+        if !C::sends_success_response(self.version()) {
             return Err(Error::InvalidRequest(
                 "command does not send a success response".into(),
             ));

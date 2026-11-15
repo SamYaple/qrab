@@ -89,6 +89,8 @@ Commands with `success-response: false`, such as guest-shutdown and guest-suspen
 use `send_no_response` instead of `execute`. Success means only that the request
 bytes were written; no remote success acknowledgement exists. This operation
 closes the socket so a possible error reply cannot contaminate a later call.
+Typed QMP and QGA calls evaluate OOB and reply flags for their connected peer's
+release, including historical additions and removals of those flags.
 
 ## Types and errors
 

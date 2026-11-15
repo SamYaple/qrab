@@ -5,6 +5,27 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    assert!(!commands::ChangingFlags::ALLOW_OOB);
+    assert!(!commands::ChangingFlags::ALLOW_PRECONFIG);
+    assert!(commands::ChangingFlags::SUCCESS_RESPONSE);
+    assert!(commands::ChangingFlags::allows_oob((6, 1, 0)));
+    assert!(commands::ChangingFlags::allows_preconfig((6, 1, 0)));
+    assert!(!commands::ChangingFlags::sends_success_response((6, 1, 0)));
+    assert!(!commands::LateFlags::allows_oob((6, 1, 0)));
+    assert!(!commands::LateFlags::allows_preconfig((6, 1, 0)));
+    assert!(commands::LateFlags::sends_success_response((6, 1, 0)));
+    assert!(commands::LateFlags::ALLOW_OOB);
+    assert!(commands::LateFlags::ALLOW_PRECONFIG);
+    assert!(!commands::LateFlags::SUCCESS_RESPONSE);
+    for (name, expected) in [("changing-flags", false), ("late-flags", true)] {
+        let command = metadata::COMMANDS
+            .iter()
+            .find(|command| command.wire_name == name)
+            .unwrap();
+        assert_eq!(command.allow_oob, expected);
+        assert_eq!(command.allow_preconfig, expected);
+        assert_eq!(command.success_response, !expected);
+    }
     with_version((11, 1, 3), || {
         let _: <commands::ReadImplicitInts as QapiCommand>::Returns = vec![1i64, 2];
         let _: <commands::ReadImplicitNamed as QapiCommand>::Returns = vec![QapiStringGenerated {

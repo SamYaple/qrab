@@ -99,6 +99,9 @@ Command flags enforce QEMU's true-only execution flags, false-only modern
 generation/reply flags and incompatible OOB/coroutine modes. Legacy string
 generation and reply flags retain their historical handling, including
 `success-response: 'no'` before 2.4.
+Generated command constants describe the newest schema flags. The
+`allows_oob`, `allows_preconfig` and `sends_success_response` trait methods
+query their added/removed ranges for a particular peer release.
 From 8.1, conditional members in command/event argument objects require boxing,
 including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before

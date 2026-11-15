@@ -7,10 +7,19 @@ use qapi_protocol::{
 use tokio::{net::UnixStream, sync::mpsc};
 
 pub async fn qmp(options: ClientOptions) -> (Qmp, mpsc::Receiver<QmpEvent>, QmpSession) {
+    qmp_version(options, (11, 1, 3)).await
+}
+
+pub async fn qmp_version(
+    options: ClientOptions,
+    version: (u32, u32, u32),
+) -> (Qmp, mpsc::Receiver<QmpEvent>, QmpSession) {
     let (client, server) = UnixStream::pair().unwrap();
     let mut peer = QmpSession::from_stream(server);
     let (client, ()) = tokio::join!(Qmp::from_stream_with_options(client, options), async {
-        peer.send_greeting(11, 1, 3).await.unwrap();
+        peer.send_greeting(version.0, version.1, version.2)
+            .await
+            .unwrap();
         peer.negotiate().await.unwrap();
     });
     let (client, events) = client.unwrap();
@@ -18,12 +27,16 @@ pub async fn qmp(options: ClientOptions) -> (Qmp, mpsc::Receiver<QmpEvent>, QmpS
 }
 
 pub async fn qga(options: ClientOptions) -> (Qga, QgaSession) {
+    qga_version(options, "11.1.3").await
+}
+
+pub async fn qga_version(options: ClientOptions, version: &str) -> (Qga, QgaSession) {
     let (client, server) = UnixStream::pair().unwrap();
     let mut peer = QgaSession::from_stream(server);
     let (client, ()) = tokio::join!(Qga::from_stream_with_options(client, options), async {
         peer.handle_sync().await.unwrap();
         assert_eq!(peer.recv_command().await.unwrap().0, "guest-info");
-        peer.send_return(serde_json::json!({"version": "11.1.3", "supported_commands": []}))
+        peer.send_return(serde_json::json!({"version": version, "supported_commands": []}))
             .await
             .unwrap();
     });

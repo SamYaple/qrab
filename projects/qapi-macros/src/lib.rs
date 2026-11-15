@@ -40,7 +40,7 @@ struct TypeAttrs {
     condition: Option<String>,
     returns: Option<String>,
     returns_history: Vec<((u32, u32, u32), String)>,
-    allow_oob: bool,
+    allow_oob: AttrRange,
     allow_preconfig: AttrRange,
     no_success_response: AttrRange,
     is_command: bool,
@@ -209,6 +209,9 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                         attrs.returns_history.push((version, value));
                     }
                     attrs.is_command = true;
+                } else if list.path.is_ident("allow_oob") {
+                    attrs.allow_oob = parse_attr_range(&list.nested);
+                    attrs.is_command = true;
                 } else if list.path.is_ident("allow_preconfig") {
                     attrs.allow_preconfig = parse_attr_range(&list.nested);
                     attrs.is_command = true;
@@ -225,7 +228,7 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
             }
             NestedMeta::Meta(Meta::Path(path)) => {
                 if path.is_ident("allow_oob") {
-                    attrs.allow_oob = true;
+                    attrs.allow_oob = AttrRange::bare();
                     attrs.is_command = true;
                 } else if path.is_ident("allow_preconfig") {
                     attrs.allow_preconfig = AttrRange::bare();
@@ -510,7 +513,9 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                     ta.unstable = extra.unstable;
                 }
                 ta.returns_history.extend(extra.returns_history);
-                ta.allow_oob = ta.allow_oob || extra.allow_oob;
+                if extra.allow_oob.present {
+                    ta.allow_oob = extra.allow_oob;
+                }
                 if extra.allow_preconfig.present {
                     ta.allow_preconfig = extra.allow_preconfig;
                 }
@@ -1949,10 +1954,13 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
             ),
         )
     })?;
-    let oob = ta.allow_oob;
-    let preconfig = ta.allow_preconfig.present;
-    let success = !ta.no_success_response.present;
+    let oob = ta.allow_oob.present && ta.allow_oob.removed.is_none();
+    let preconfig = ta.allow_preconfig.present && ta.allow_preconfig.removed.is_none();
+    let success = !(ta.no_success_response.present && ta.no_success_response.removed.is_none());
     let unstable = ta.unstable.present && ta.unstable.removed.is_none();
+    let oob_at = command_flag_check(&ta.allow_oob);
+    let preconfig_at = command_flag_check(&ta.allow_preconfig);
+    let no_success_at = command_flag_check(&ta.no_success_response);
 
     let since_const = if let Some(ref s) = ta.since {
         let (maj, min, pat) = parse_version(s);
@@ -1974,7 +1982,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
     let preconfig_since_const = if let Some(ref s) = ta.allow_preconfig.added {
         let (maj, min, pat) = parse_version(s);
         quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
-    } else if preconfig {
+    } else if ta.allow_preconfig.present {
         // Present from the start — use the command's own since version
         if let Some(ref s) = ta.since {
             let (maj, min, pat) = parse_version(s);
@@ -1986,7 +1994,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
         quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = None; }
     };
 
-    let preconfig_impl = if preconfig {
+    let preconfig_impl = if ta.allow_preconfig.present {
         quote! {
             #[allow(deprecated)]
             impl qapi::PreconfigSafe for #name {}
@@ -2004,6 +2012,9 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
             const ALLOW_PRECONFIG: bool = #preconfig;
             const SUCCESS_RESPONSE: bool = #success;
             const UNSTABLE: bool = #unstable;
+            fn allows_oob(_version: (u32, u32, u32)) -> bool { #oob_at }
+            fn allows_preconfig(_version: (u32, u32, u32)) -> bool { #preconfig_at }
+            fn sends_success_response(_version: (u32, u32, u32)) -> bool { !(#no_success_at) }
             #since_const
             #until_const
             #preconfig_since_const
@@ -2011,6 +2022,24 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
 
         #preconfig_impl
     })
+}
+
+fn command_flag_check(flag: &AttrRange) -> TokenStream2 {
+    if !flag.present {
+        return quote! { false };
+    }
+    let since = flag
+        .added
+        .as_deref()
+        .map(parse_version)
+        .unwrap_or((0, 0, 0));
+    let (major, minor, patch) = since;
+    if let Some(until) = flag.removed.as_deref() {
+        let (end_major, end_minor, end_patch) = parse_version(until);
+        quote! { _version >= (#major, #minor, #patch) && _version < (#end_major, #end_minor, #end_patch) }
+    } else {
+        quote! { _version >= (#major, #minor, #patch) }
+    }
 }
 
 fn gen_event_impl(name: &syn::Ident, wn: &str) -> TokenStream2 {
