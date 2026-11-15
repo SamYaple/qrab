@@ -5,6 +5,50 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    with_version((11, 1, 3), || {
+        for tag in ["self", "qapi-self", "qapi-self-alt"] {
+            let value: KeywordVariants = serde_json::from_value(serde_json::json!(tag)).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!(tag));
+        }
+    });
+    for version in [(6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            for wire in [serde_json::json!("text"), serde_json::json!([1, 2])] {
+                let value: VariantAlt = serde_json::from_value(wire.clone()).unwrap();
+                assert_eq!(serde_json::to_value(value).unwrap(), wire);
+            }
+        });
+    }
+    with_version((11, 1, 3), || {
+        assert_eq!(
+            serde_json::to_value(VariantAlt::A1Alt(())).unwrap(),
+            serde_json::Value::Null
+        );
+    });
+    for name in ["CaseKind", "VariantAlt", "VariantUnionBranch"] {
+        let info = metadata::ENUMS.get(name).unwrap();
+        let names: std::collections::BTreeSet<_> =
+            info.variants.iter().map(|variant| variant.name).collect();
+        assert_eq!(names.len(), info.variants.len());
+    }
+    for version in [(6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            for tag in ["fooBAR", "foo_bar"] {
+                let value: CaseKind = serde_json::from_value(serde_json::json!(tag)).unwrap();
+                assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!(tag));
+                let wire = serde_json::json!({"kind":tag,"value":"payload"});
+                let value: VariantUnion = serde_json::from_value(wire.clone()).unwrap();
+                assert_eq!(serde_json::to_value(value).unwrap(), wire);
+            }
+        });
+    }
+    with_version((6, 1, 0), || {
+        assert_eq!(
+            serde_json::to_value(CaseKind::FooBarAlt2).unwrap(),
+            serde_json::json!("foo_bar")
+        );
+        assert!(serde_json::to_value(CaseKind::FooBarAlt).is_err());
+    });
     for version in [(6, 1, 0), (11, 1, 3)] {
         with_version(version, || {
             let command = commands::LateArgs {

@@ -75,7 +75,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     let changing_alt = "{ 'alternate':'ChangingAlt', 'data':{'text':'str','object':'String'} }\n";
     schema.push_str(changing_alt);
     schema.push_str("{ 'struct':'AltHolder', 'data':{'item':'ChangingAlt'} }\n");
-    schema.push_str("{ 'pragma':{'member-name-exceptions':['CollisionFields','VirtualBase']} }\n");
+    schema.push_str("{ 'pragma':{'member-name-exceptions':['CollisionFields','VirtualBase','CaseKind','VariantUnion']} }\n");
     let collision_fields = "{ 'struct':'CollisionFields', 'data':{'FooBAR':'str','FooBar':'str','foo_bar_alt':'str','FooBAR_alt':'str'} }\n";
     schema.push_str(collision_fields);
     schema.push_str("{ 'command':'manual-arguments', 'gen':false, 'data':{'arguments':'str'} }\n");
@@ -113,6 +113,15 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     );
     let late_request = "{ 'command':'late-args', 'data':'LateArgs' }\n";
     schema.push_str(late_request);
+    let case_kind = "{ 'enum':'CaseKind', 'data':['fooBAR','foo_bar','foo_bar_alt'] }\n";
+    let case_union = "{ 'union':'VariantUnion', 'base':'VariantBase', 'discriminator':'kind', 'data':{'foo_bar':'PeerWindows','fooBAR':'PeerWindows','foo_bar_alt':'PeerWindows'} }\n";
+    schema.push_str(case_kind);
+    schema.push_str("{ 'struct':'VariantBase', 'data':{'kind':'CaseKind'} }\n");
+    schema.push_str(case_union);
+    let case_alt =
+        "{ 'alternate':'VariantAlt', 'data':{'a1':'str','a-1':['int'],'a1-alt':'null'} }\n";
+    schema.push_str(case_alt);
+    schema.push_str("{ 'enum':'KeywordVariants', 'data':['self','qapi-self','qapi-self-alt'] }\n");
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -124,6 +133,15 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     );
     let modern_schema = schema.clone();
     schema = schema.replace(modern_only, "");
+    schema = schema.replace(
+        case_alt,
+        "{ 'alternate':'VariantAlt', 'data':{'a1':'str','a-1':['int']} }\n",
+    );
+    schema = schema.replace(
+        case_kind,
+        "{ 'enum':'CaseKind', 'data':['fooBAR','foo_bar'] }\n",
+    );
+    schema = schema.replace(case_union, "{ 'union':'VariantUnion', 'base':'VariantBase', 'discriminator':'kind', 'data':{'foo_bar':'PeerWindows','fooBAR':'PeerWindows'} }\n");
     schema = schema.replace(
         late_request,
         "{ 'command':'late-args', 'data':{'value':'str'} }\n",

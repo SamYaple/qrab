@@ -208,6 +208,9 @@ mutually exclusive historical spellings can retain a shared identity.
 Coexisting field names that normalize alike receive stable `_alt` names across
 the selected history. Allocation reserves future declared fields and distinguishes
 virtual flatten receivers from wire fields, preserving keys such as `pc` and `PC`.
+Enum, alternate and branch variants use the same history-aware reservation,
+with `Alt`/`AltN` names for collisions. Original tags remain in wire attributes,
+including keyword escapes such as `self` and numeric names such as `a-1`.
 Name planning covers every selected release before IR lowering, so a newer
 declaration cannot overwrite an older generated branch or anonymous object.
 Extraction, name collection and lowering use bounded workers; schema hashes

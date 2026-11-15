@@ -625,64 +625,112 @@ struct VersionResult {
     structs: HashMap<String, Struct>,
 }
 
-fn normalize_field_names(versions: &mut [VersionResult]) {
+fn normalize_member_names(versions: &mut [VersionResult]) {
     #[derive(Default)]
     struct Group {
         identities: Vec<(String, bool)>,
         collision: bool,
     }
-    let mut groups: BTreeMap<(String, String), Group> = BTreeMap::new();
-    let mut reserved: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    let mut ordered: Vec<_> = versions.iter().collect();
-    ordered.sort_by_key(|version| {
-        std::cmp::Reverse(crate::versions::parse_version_tag_full(&version.tag).unwrap())
-    });
-    for version in ordered {
-        for (owner, value) in &version.structs {
+    #[derive(Default)]
+    struct Groups {
+        groups: BTreeMap<(String, String), Group>,
+        reserved: BTreeMap<String, BTreeSet<String>>,
+    }
+    impl Groups {
+        fn observe(&mut self, owner: &str, members: impl Iterator<Item = (String, String, bool)>) {
             let mut local: BTreeMap<String, Vec<_>> = BTreeMap::new();
-            for field in &value.fields {
-                local.entry(field_rust_name(field)).or_default().push(field);
+            for (raw, preferred, virtual_field) in members {
+                local
+                    .entry(preferred)
+                    .or_default()
+                    .push((raw, virtual_field));
             }
-            for (preferred, fields) in local {
-                reserved
-                    .entry(owner.clone())
+            for (preferred, identities) in local {
+                self.reserved
+                    .entry(owner.to_owned())
                     .or_default()
                     .insert(preferred.clone());
-                let group = groups.entry((owner.clone(), preferred)).or_default();
-                group.collision |= fields.len() > 1;
-                for field in fields {
-                    let identity = (
-                        field.name.clone(),
-                        field.meta.attributes.contains(&Attribute::new("flatten")),
-                    );
+                let group = self
+                    .groups
+                    .entry((owner.to_owned(), preferred))
+                    .or_default();
+                group.collision |= identities.len() > 1;
+                for identity in identities {
                     if !group.identities.contains(&identity) {
                         group.identities.push(identity);
                     }
                 }
             }
         }
-    }
-    let mut aliases = BTreeMap::new();
-    for ((owner, preferred), mut group) in groups {
-        if !group.collision {
-            continue;
-        }
-        // Declared wire fields keep priority over virtual flatten receivers.
-        group.identities.sort_by_key(|(_, flatten)| *flatten);
-        let used = reserved.get_mut(&owner).unwrap();
-        for identity in group.identities.into_iter().skip(1) {
-            let mut suffix = 1;
-            let mut name = format!("{preferred}_alt");
-            while !used.insert(name.clone()) {
-                suffix += 1;
-                name = format!("{preferred}_alt{suffix}");
+        fn allocate(mut self, suffix: &str) -> BTreeMap<(String, (String, bool)), String> {
+            let mut aliases = BTreeMap::new();
+            for ((owner, preferred), mut group) in self.groups {
+                if !group.collision {
+                    continue;
+                }
+                // Declared wire fields keep priority over virtual flatten receivers.
+                group
+                    .identities
+                    .sort_by_key(|(_, virtual_field)| *virtual_field);
+                let used = self.reserved.get_mut(&owner).unwrap();
+                for identity in group.identities.into_iter().skip(1) {
+                    let base = format!("{preferred}{suffix}");
+                    let mut name = base.clone();
+                    let mut number = 2;
+                    while !used.insert(name.clone()) {
+                        name = format!("{base}{number}");
+                        number += 1;
+                    }
+                    aliases.insert((owner.clone(), identity), name);
+                }
             }
-            aliases.insert((owner.clone(), identity), name);
+            aliases
         }
     }
-    if aliases.is_empty() {
+    let mut fields = Groups::default();
+    let mut variants = Groups::default();
+    let mut ordered: Vec<_> = versions.iter().collect();
+    ordered.sort_by_key(|version| {
+        std::cmp::Reverse(crate::versions::parse_version_tag_full(&version.tag).unwrap())
+    });
+    for version in ordered {
+        for (owner, value) in &version.structs {
+            fields.observe(
+                owner,
+                value.fields.iter().map(|field| {
+                    (
+                        field.name.clone(),
+                        field_rust_name(field),
+                        field.meta.attributes.contains(&Attribute::new("flatten")),
+                    )
+                }),
+            );
+        }
+        for (owner, value) in &version.enums {
+            variants.observe(
+                owner,
+                value
+                    .variants
+                    .iter()
+                    .map(|variant| (variant.name.clone(), variant_rust_name(variant), false)),
+            );
+        }
+    }
+    let fields = fields.allocate("_alt");
+    let variants = variants.allocate("Alt");
+    if fields.is_empty() && variants.is_empty() {
         return;
     }
+    let rename = |raw: &mut String, meta: &mut Metadata, assigned: &String| {
+        if !meta
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, Attribute::Item { name, .. } if name == "name"))
+        {
+            meta.attributes.push(Attribute::with_value("name", &*raw));
+        }
+        raw.clone_from(assigned);
+    };
     for version in versions {
         for (owner, value) in &mut version.structs {
             for field in &mut value.fields {
@@ -690,19 +738,15 @@ fn normalize_field_names(versions: &mut [VersionResult]) {
                     field.name.clone(),
                     field.meta.attributes.contains(&Attribute::new("flatten")),
                 );
-                if let Some(name) = aliases.get(&(owner.clone(), identity)) {
-                    if !field
-                        .meta
-                        .attributes
-                        .iter()
-                        .any(|attr| matches!(attr, Attribute::Item { name, .. } if name == "name"))
-                    {
-                        field
-                            .meta
-                            .attributes
-                            .push(Attribute::with_value("name", &field.name));
-                    }
-                    field.name.clone_from(name);
+                if let Some(name) = fields.get(&(owner.clone(), identity)) {
+                    rename(&mut field.name, &mut field.meta, name);
+                }
+            }
+        }
+        for (owner, value) in &mut version.enums {
+            for variant in &mut value.variants {
+                if let Some(name) = variants.get(&(owner.clone(), (variant.name.clone(), false))) {
+                    rename(&mut variant.name, &mut variant.meta, name);
                 }
             }
         }
@@ -838,7 +882,7 @@ fn load_versions(
         }))
     })?;
     let mut results: Vec<_> = results.into_iter().flatten().collect();
-    normalize_field_names(&mut results);
+    normalize_member_names(&mut results);
     Ok((results, absent))
 }
 
