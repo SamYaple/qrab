@@ -207,3 +207,49 @@ VM was moved by this test. This is live functional proof on the TLS-only node
 artifact, in addition to the fixture tests for wrong peers, missing certificates,
 plaintext refusal, malformed exports and rotation. It is not a recorded packet
 capture or a guarantee about unrelated management/metrics/iSCSI streams.
+
+## Management workload mTLS rollout: 2026-11-15 22:56–23:04 UTC
+
+Source `793d404` was published/pulled with matching revision labels for all
+three images; release pins are in `images.lock.json` (commit `1799681`):
+
+| Component | Immutable digest |
+| --- | --- |
+| Operator | `sha256:0414a35b7358b7f295a63cc8b03418acd5aeb6459e2620bcc462fe1e95ea17d4` |
+| Dashboard | `sha256:f200cfe745bde411c0202f23c850fb9422c6ea848c655f6dede8bef01957ab3c` |
+| Manager/BMC/Redfish | `sha256:2b84545114dd871252623ea9cede97bf017bc410b3d8d8b1072822ad291d9608` |
+
+[GitOps PR 467](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/467)
+passed CI/review and merged as `541c302`. Flux enrolled the dashboard image and
+per-VM BMC/Redfish roles and updated the operator image selector before rollout.
+The scoped kustomized operator Deployment retained its storage client; dashboard
+Deployment and Cilium backend policies then rolled to mTLS8443/8444. Both
+Deployments became Ready. No inactive POC bundle/retained identity was recreated.
+
+A fresh disposable VM (`secure-mgmt-20261115`, UID
+`17d600d0-7178-42bd-8d2a-94744b90b4e3`) booted all three containers, received its
+separate service SVIDs and migrated from kube03 to kube01. The deployed dashboard
+on kube03 repeated the fixed-path probes against the new Pod on kube01:
+
+- Correct `/vm/<UID>/bmc` and `/vm/<UID>/redfish` peers passed mTLS and returned
+  the expected application **401** with no user credential supplied.
+- A wrong VM UID failed peer SPIFFE authorization before an HTTP response.
+- OpenSSL clients from the actual dashboard Pod, with no client certificate,
+  were rejected with `certificate_required` on both8443 and8444.
+- An unauthenticated browser-bridge GET through a temporary authenticated
+  port-forward returned Redfish's `NoValidSession`401. BMC's actual upstream
+  configuration was `https://127.0.0.1:8444` with this VM's exact Redfish ID:
+  this verifies the second TLS hop without exporting any workload private key.
+- The guest agent remained connected after migration. Public dashboard HTTPS
+  returned200 with certificate/SNI verification through the observed ingress IP
+  (the admin host needed `--resolve` because its DNS did not answer this private
+  hostname).
+
+The diagnostic port-forward, disposable VM/migration and claims were removed;
+Retain semantics still preserve storage data. No fresh human OIDC login or
+privileged interactive console session was attempted in this live test. Source
+fixtures separately exercise actual user-auth/session behavior, the WSS binary
+roundtrip, both TLS bridge hops, wrong peers, missing credentials, TLS1.2 refusal,
+no plaintext fallback, redirects and resource bounds. This is transport/guest
+continuity evidence, not a packet recording or a claim that ingress backends,
+metrics, iSCSI or external guest application traffic have also been protected.

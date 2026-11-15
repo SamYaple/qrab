@@ -12,8 +12,8 @@ builds; source capability is not proof that a running image has it enabled.
 SPIFFE mTLS. The original platform snapshot predates this change; the
 [separate node rollout and live handoff proof](connections/platform-evidence.md#netd-peer-mtls-rollout-2026-11-15-22022209-utc)
 verify its subsequent deployment. Dashboard/BMC/Redfish management now has
-container-scoped mTLS service identities in source (M6–M8); release/enrollment
-evidence must be checked separately. See
+container-scoped mTLS service identities (M6–M8), with
+[separate rollout/live admission evidence](connections/platform-evidence.md#management-workload-mtls-rollout-2026-11-15-22562304-utc). See
 [netd peer enrollment](networking.md#conntrack-peer-spiffe-enrollment).
 
 Start here for endpoints, payloads and transport protection. Continue with:

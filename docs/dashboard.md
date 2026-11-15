@@ -936,3 +936,11 @@ other TLS clients are built. This restricts cipher suites even for preconfigured
 reqwest/rustls configs; an incompatible already-installed provider refuses
 startup, rather than silently allowing TLS1.2. Redirects and environment proxies
 are disabled, and per-service client scopes bind both the trusted VM ID and Pod IP.
+
+The first management mTLS rollout completed on 2026-11-15 from source `793d404`:
+operator0414a35b, dashboardf200cfe7 and manager2b845451. A fresh VM migrated
+between nodes and the deployed dashboard verified exact service identities,
+application401 without a user token, wrong-UID refusal and mandatory client
+certificates. See the [dated evidence](connections/platform-evidence.md#management-workload-mtls-rollout-2026-11-15-22562304-utc)
+for scope and verification limits. This does not disposition the separate
+plaintext ingress/metrics/storage/link work.
