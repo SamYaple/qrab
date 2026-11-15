@@ -240,10 +240,15 @@ fn vm_table(rows: &[Row]) -> Element {
                     let (cpu, mem) = model::usage_text(row.usage);
                     let cpu_size = cpu_size(row.cpus, row.max_cpus);
                     let memory_size = memory_size(row.memory_mib, row.max_memory_mib);
-                    let disks = match (row.disks, row.disk_bytes) {
-                        (0, _) => "none".to_string(),
-                        (n, 0) => format!("{n} static"),
-                        (n, bytes) => format!("{n} · {}", model::gib(bytes)),
+                    let disks = match row.disks {
+                        0 => "No disks".to_string(),
+                        1 => "1 disk".to_string(),
+                        n => format!("{n} disks"),
+                    };
+                    let capacity = match (row.disks, row.disk_bytes) {
+                        (0, _) => None,
+                        (_, 0) => Some("Capacity not reported".to_string()),
+                        (_, bytes) => Some(format!("{} reported", model::gib(bytes))),
                     };
                     rsx! { tr {
                         td { "data-label": "Name", div { a { class: "identity-link", href: row.path(), "{row.name}" } p { class: "muted", "{row.namespace}" } } }
@@ -252,7 +257,10 @@ fn vm_table(rows: &[Row]) -> Element {
                             span { "{cpu_size}" }
                             span { class: "cell-detail", "{memory_size} memory" }
                         } }
-                        td { "data-label": "Storage", "{disks}" }
+                        td { "data-label": "Storage", div {
+                            span { "{disks}" }
+                            if let Some(capacity) = capacity { span { class: "cell-detail", "{capacity}" } }
+                        } }
                         td { "data-label": "Usage snapshot", div {
                             span { "CPU {cpu}" }
                             span { class: "cell-detail", "Memory {mem}" }
@@ -1200,11 +1208,14 @@ fn images_page(images: &[BaseImage]) -> Element {
             } } }
         }
         section { class: "card wide", aria_labelledby: "how-title",
-            h2 { id: "how-title", "How images get here" }
-            ol {
+            h2 { id: "how-title", "A separate disk for each VM" }
+            p { "Launching from an image creates a writable root disk for that VM. Your changes stay with the VM; the image remains unchanged. A new image release is listed as a new generation." }
+            details { id: "image-staging", class: "inline-disclosure", summary { "Image verification and staging" }
+              ol {
                 li { "An administrator stages an image with " code { "contrib/images/stage-base-image.sh" } ": it downloads a known release, checks the upstream SHA-256 and converts it to a raw disk." }
                 li { "As root on the storage node, the import writes it to a ZFS volume and seals it as the read-only snapshot " code { "image-<name>-g<generation>@sealed" } ", checking the raw SHA-256. The script then records it here." }
                 li { "Each VM launched with it gets its own copy-on-write clone of that snapshot as its " code { "root" } " disk, exported over iSCSI and booted by UEFI. The image itself never changes; a new release is a new generation." }
+              }
             }
         }
     }

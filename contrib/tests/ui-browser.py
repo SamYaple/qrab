@@ -577,7 +577,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'list-long', 'detail', 'detail-long', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
+            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 no_overflow(page, name, width)
@@ -591,10 +591,27 @@ with sync_playwright() as playwright:
                 if name == 'launch-unavailable':
                     assert page.locator('form.launch').count() == 0
                     expect(page.locator('h1')).to_have_text('Launching is unavailable')
+                if name == 'images':
+                    staging = page.locator('#image-staging')
+                    assert not staging.evaluate('(e) => e.open')
+                    capture(page, args.output / f'images-collapsed-{theme}-{width}.png')
+                    staging.locator('summary').focus()
+                    page.keyboard.press('Enter')
+                    assert staging.evaluate('(e) => e.open')
+                    expect(staging).to_contain_text('stage-base-image.sh')
                 if name == 'list-long':
                     assert page.locator('.table-wrap').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1')
                     expect(page.locator('td[data-label=Compute]')).to_contain_text('16 GiB (max 1 TiB)')
                     expect(page.locator('td[data-label="Usage snapshot"]')).to_contain_text('8.125 cores')
+                if name == 'list-storage':
+                    for vm in ['pending-storage', 'static-media']:
+                        row = page.get_by_role('row').filter(has=page.get_by_role('link', name=vm, exact=True))
+                        expect(row.locator('td[data-label=Storage]')).to_contain_text('Capacity not reported')
+                        expect(row.locator('td[data-label=Storage]')).not_to_contain_text('static')
+                    row = page.get_by_role('row').filter(has=page.get_by_role('link', name='without-disks', exact=True))
+                    expect(row.locator('td[data-label=Storage]')).to_have_text('No disks')
+                    row = page.get_by_role('row').filter(has=page.get_by_role('link', name='reported-storage', exact=True))
+                    expect(row.locator('td[data-label=Storage]')).to_contain_text('8.0 GiB reported')
                 capture(page, args.output / f'{name}-{theme}-{width}.png')
                 if name.startswith('detail'):
                     for selector in ['#effective-configuration', '#pod-resources', '#recent-events']:

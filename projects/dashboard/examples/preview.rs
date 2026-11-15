@@ -262,6 +262,24 @@ fn main() {
         notice: None,
         body,
     };
+    let storage_rows = [
+        ("pending-storage", 1, 0, "Provisioning"),
+        ("static-media", 1, 0, "Running"),
+        ("without-disks", 0, 0, "Running"),
+        ("reported-storage", 3, 8 * 1024u64.pow(3), "Running"),
+    ]
+    .into_iter()
+    .map(|(name, disks, bytes, phase)| {
+        let mut row = rows[0].clone();
+        row.name = name.into();
+        row.disks = disks;
+        row.disk_bytes = bytes;
+        row.phase = phase.into();
+        row.ready = phase == "Running";
+        row
+    })
+    .collect();
+    write(dir, "list-storage", page(Body::List(storage_rows)), &css);
     write(dir, "list", page(Body::List(rows)), &css);
     let catalog = images::parse(CATALOG);
     write(dir, "images", page(Body::Images(catalog.clone())), &css);

@@ -227,6 +227,13 @@ Admin wins when both apply. Deleting additionally requires the VM to carry
 set, so qrab-redfish-poc and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
 BMC and Redfish at the next sign-in; sessions last at most 15 minutes.
 
+The VM directory shows configured disk counts separately from reported
+capacity. A missing capacity report says “Capacity not reported”; it does not
+classify a pending provisioned disk as static or count an unreported size as
+zero. Reported capacity may cover only some of a VM's configured disks.
+The images page explains the independent writable VM disks first. Detailed
+verification and staging instructions remain available in a native disclosure.
+
 ### Launching a VM
 
 The form shows the effective name limit for its namespace, including the generated
