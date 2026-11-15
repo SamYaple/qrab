@@ -1,0 +1,25 @@
+# Platform-owned SPIRE enrollment, staged through kubernetes-gitops before monitoring activation.
+# Enroll before activating the separate qrab telemetry sidecar.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: qrab-telemetry
+spec:
+  className: kubernetes-tpm
+  spiffeIDTemplate: spiffe://yapplesauce.com/kubernetes/monitoring/qrab-telemetry
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+      operator.prometheus.io/name: kube-prometheus-stack-prometheus
+  workloadSelectorTemplates:
+  - k8s:ns:monitoring
+  - k8s:sa:kube-prometheus-stack-prometheus
+  - k8s:container-name:qrab-telemetry
+  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:e8c7bd9815efccd8a0abddc62c3ec3ae23e583f1c6620361a071bffbd16e6bb1
+  - unix:uid:10001
+  ttl: 10m
+  admin: false
+  downstream: false
