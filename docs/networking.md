@@ -656,6 +656,20 @@ and the dashboard page).
   When Proton is unreachable or the session is gone it reports that and leaves
   existing Secrets alone, so tunnels keep running until their certificates
   lapse.
+- **Image pulls.** Zot authorizes pulls per ServiceAccount, so
+  `qrab-proton-broker` needs its pull identity in kubernetes-gitops
+  (`infrastructure/qrab-identity`, `infrastructure/pull-admission`) and the
+  node pull policies applied (`spiffe-node-pulls.py --apply` on each node)
+  before its Pod can start.
+- **Tests.** `cargo test -p qrab-proton --test broker` covers session
+  rotation and reconciliation against the fake API. With
+  `QRAB_LIVE_BROKER_KUBECONFIG` set to a kubeconfig that impersonates
+  `system:serviceaccount:qrab:qrab-proton-broker`, `--test live_broker` runs
+  full passes against the cluster (fake Proton API, real RBAC and admission
+  policy): profile Secret, status, stored session rotation, catalog
+  ConfigMap, a live server switch with the same key, and garbage collection
+  with the profile; it refuses to run when a real `proton-session` exists.
+  `contrib/kubernetes/proton/check-policy.sh` checks the write confinement.
 - **Least privilege.** The broker reads only `proton-session` and
   `proton-keys` (by name) and writes profile Secrets without reading them.
   `ValidatingAdmissionPolicy` `qrab-proton-broker-writes` limits its writes to

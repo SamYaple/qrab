@@ -209,6 +209,7 @@ pub struct Broker {
 fn blocking_reason(error: &Error) -> &'static str {
     match error {
         Error::SessionRevoked => "SessionRevoked",
+        Error::NoSession => "NoSession",
         Error::AppVersionRejected(_) => "AppVersionRejected",
         Error::RateLimited(_) => "RateLimited",
         _ => "ProtonUnavailable",

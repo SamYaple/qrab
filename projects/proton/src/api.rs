@@ -48,6 +48,8 @@ pub enum Error {
     Unauthorized,
     #[error("Proton revoked or expired the session; run `qrab-proton login` again")]
     SessionRevoked,
+    #[error("no Proton session is stored yet; run `qrab-proton login`")]
+    NoSession,
     #[error("Proton asks for human verification: open {} , complete it, then retry", .0.url())]
     HumanVerification(Challenge),
     #[error("Proton refused the email or password")]

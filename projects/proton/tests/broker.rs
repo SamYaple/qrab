@@ -176,9 +176,9 @@ async fn a_new_login_takes_over_and_a_revoked_session_is_reported() {
     fake.lock().unwrap().sessions.clear();
     keeper.expire();
     assert!(matches!(keeper.session().await, Err(Error::SessionRevoked)));
-    // No stored session at all reads the same.
+    // No stored session at all is its own case.
     store.0.lock().unwrap().session = None;
-    assert!(matches!(keeper.session().await, Err(Error::SessionRevoked)));
+    assert!(matches!(keeper.session().await, Err(Error::NoSession)));
 }
 
 fn profile(spec: ProtonSpec) -> VpnProfile {

@@ -61,7 +61,7 @@ impl<S: SessionStore> Keeper<S> {
         let stored = self.store.load().await.map_err(Error::Transport)?;
         let Some((stored, version)) = stored else {
             self.live = None;
-            return Err(Error::SessionRevoked);
+            return Err(Error::NoSession);
         };
         if let Some((live, live_version)) = &self.live {
             // Still the session we stored last: keep using it.
