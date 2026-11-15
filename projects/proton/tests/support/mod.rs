@@ -39,6 +39,10 @@ pub struct Fake {
     pub app_version: String,
     pub totp: bool,
     pub human_verification: bool,
+    /// Challenge every attempt, even with a completed token.
+    pub always_challenge: bool,
+    /// An account without a VPN plan: no `vpn` scope.
+    pub no_vpn_scope: bool,
     pub max_tier: u8,
     pub verifier: Option<SRPVerifierB64>,
     pub srp: HashMap<String, ServerInteraction>,
@@ -133,7 +137,9 @@ async fn handle(
     let full = authed && fake.sessions[&uid].second_factor_done;
     match (method.as_str(), path) {
         ("POST", "/auth/v4/info") => {
-            if fake.human_verification && header("x-pm-human-verification-token") != HV_TOKEN {
+            if fake.always_challenge
+                || (fake.human_verification && header("x-pm-human-verification-token") != HV_TOKEN)
+            {
                 return reply(
                     422,
                     json!({"Code": 9001, "Error": "Human verification required",
@@ -185,6 +191,8 @@ async fn handle(
             );
             let scopes = if totp {
                 json!(["twofactor"])
+            } else if fake.no_vpn_scope {
+                json!(["self", "mail"])
             } else {
                 json!(["self", "vpn"])
             };

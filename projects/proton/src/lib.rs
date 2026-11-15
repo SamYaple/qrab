@@ -4,6 +4,7 @@
 //!   rotating session refresh, the VPN plan, catalog and certificates.
 //! - [`catalog`]: logical and physical servers, and auto/manual selection.
 //! - [`keys`]: a profile's Ed25519 key and its WireGuard (X25519) form.
+//! - [`login`]: the workstation login that hands only the session over.
 //! - [`wg`]: connection features and the `wg.conf` a VPN NIC consumes.
 //!
 //! The account password and TOTP never leave the login command; the cluster
@@ -11,4 +12,5 @@
 pub mod api;
 pub mod catalog;
 pub mod keys;
+pub mod login;
 pub mod wg;

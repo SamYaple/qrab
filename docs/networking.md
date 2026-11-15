@@ -604,6 +604,12 @@ and the dashboard page).
   a workstation and stores only the session (UID and refresh token) in
   Secret `qrab/proton-session`. Proton rotates the refresh token on every
   refresh, so its holder writes the new one back before using it.
+  Run `qrab-proton login` (prompts for email, password, a TOTP code if the
+  account has two-factor, and a browser step if Proton asks for human
+  verification; `--print` writes the manifest instead of applying it). The
+  command never refreshes the session it handed over: two holders refreshing
+  one session would make Proton revoke it. `qrab-proton logout` revokes it;
+  stop the broker first.
 - **Keys.** Each profile has its own Ed25519 key; its X25519 form is the
   WireGuard key. Proton certifies the Ed25519 public key
   (`/vpn/v1/certificate`, at least a day, renewed with the same key), and the
