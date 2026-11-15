@@ -34,6 +34,11 @@ struct FakeCluster {
     /// ConfigMap qrab-base-images, key images.json.
     catalog: Mutex<Option<String>>,
     fail_catalog: std::sync::atomic::AtomicBool,
+    vpn_profiles: Mutex<Vec<qrab_proton::crd::VpnProfile>>,
+    /// ConfigMap proton-catalog, key catalog.json.gz.
+    vpn_catalog: Mutex<Option<Vec<u8>>>,
+    /// VPN profile writes: ("create" | "patch" | "delete", name, body).
+    vpn_writes: Mutex<Vec<(String, String, serde_json::Value)>>,
 }
 
 impl FakeCluster {
@@ -42,6 +47,7 @@ impl FakeCluster {
             + self.deleted.lock().unwrap().len()
             + self.running.lock().unwrap().len()
             + self.pvcs.lock().unwrap().len()
+            + self.vpn_writes.lock().unwrap().len()
     }
 }
 
@@ -113,6 +119,44 @@ impl cluster::Cluster for FakeCluster {
             .lock()
             .unwrap()
             .push((name.into(), uid.into(), running));
+        Ok(())
+    }
+    async fn vpn_profiles(&self) -> anyhow::Result<Vec<qrab_proton::crd::VpnProfile>> {
+        Ok(self.vpn_profiles.lock().unwrap().clone())
+    }
+    async fn vpn_catalog(&self) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.vpn_catalog.lock().unwrap().clone())
+    }
+    async fn create_vpn_profile(
+        &self,
+        profile: &qrab_proton::crd::VpnProfile,
+    ) -> anyhow::Result<()> {
+        self.vpn_writes.lock().unwrap().push((
+            "create".into(),
+            profile.metadata.name.clone().unwrap_or_default(),
+            serde_json::to_value(profile).unwrap(),
+        ));
+        Ok(())
+    }
+    async fn patch_vpn_profile(
+        &self,
+        name: &str,
+        uid: &str,
+        proton: &qrab_proton::crd::ProtonSpec,
+    ) -> anyhow::Result<()> {
+        self.vpn_writes.lock().unwrap().push((
+            "patch".into(),
+            name.into(),
+            cluster::vpn_patch(uid, proton),
+        ));
+        Ok(())
+    }
+    async fn delete_vpn_profile(&self, name: &str, uid: &str) -> anyhow::Result<()> {
+        self.vpn_writes.lock().unwrap().push((
+            "delete".into(),
+            name.into(),
+            serde_json::json!({"uid": uid}),
+        ));
         Ok(())
     }
 }
@@ -2666,4 +2710,246 @@ async fn vpn_network_summary_shows_routing_mode_without_secret_references() {
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("VPN tunnel only") && body.contains("direct guest traffic is blocked"));
     assert!(!body.contains("vpn-private-reference") && !body.contains("default-allow"));
+}
+
+fn vpn_profile(name: &str, uid: &str, status: serde_json::Value) -> qrab_proton::crd::VpnProfile {
+    serde_json::from_value(serde_json::json!({
+        "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VpnProfile",
+        "metadata": {"name": name, "namespace": "qrab", "uid": uid},
+        "spec": {"proton": {"portForwarding": true, "netShield": 2}},
+        "status": status,
+    }))
+    .unwrap()
+}
+
+fn vpn_catalog() -> Vec<u8> {
+    use qrab_proton::catalog::{CompactCatalog, CompactServer};
+    let server = |name: &str, country: &str, features: u32, status: u8, load: u8, score: f64| {
+        CompactServer {
+            name: name.into(),
+            entry_country: if features & 1 != 0 {
+                "IS".into()
+            } else {
+                country.into()
+            },
+            exit_country: country.into(),
+            city: Some("Zurich".into()),
+            tier: 2,
+            features,
+            status,
+            load,
+            score,
+        }
+    };
+    qrab_proton::catalog::encode(&CompactCatalog {
+        updated: 1_794_849_231,
+        max_tier: 2,
+        servers: vec![
+            server("CH#1", "CH", 4, 1, 40, 2.0),
+            server("CH#2", "CH", 0, 1, 10, 1.0),
+            server("CH#3", "CH", 0, 0, 5, 0.1),
+            server("IS-CH#1", "CH", 1, 1, 5, 0.5),
+            server("SE#7", "SE", 4, 1, 80, 1.5),
+        ],
+    })
+    .unwrap()
+}
+
+#[tokio::test]
+async fn the_vpn_page_is_for_launchers_and_shows_profiles_and_servers() {
+    let h = harness().await;
+    *h.cluster.vpn_profiles.lock().unwrap() = vec![vpn_profile(
+        "ch-p2p",
+        "uid-ch",
+        serde_json::json!({
+            "server": "CH#1", "exitCountry": "CH", "city": "Zurich", "load": 12, "entryIp": "203.0.113.1",
+            "forwardedPort": 41234, "publicKey": "xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=",
+            "attached": [{"vm": "web", "nic": "vpn", "anchor": "web-nic-vpn-kube01"}],
+            "certificateExpires": 1_794_849_231,
+            "conditions": [{"type": "Ready", "status": "True", "reason": "Configured", "message": "CH#1 (CH)"}],
+        }),
+    )];
+    *h.cluster.vpn_catalog.lock().unwrap() = Some(vpn_catalog());
+    // Not a launcher: the page and its nav link do not exist.
+    let viewer = session(&h.state.sessions, BOB, &[VM_USERS]).await;
+    let (status, _, _) = send(&h, get("/vpn", Some(&viewer))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, _, home) = send(&h, get("/images", Some(&viewer))).await;
+    assert!(!home.contains("href=\"/vpn\""));
+    let (status, _, _) = send(&h, get("/vpn", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (status, _, page) = send(&h, get("/vpn", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert!(page.contains("href=\"/vpn\""), "launchers get the nav link");
+    for text in [
+        "ch-p2p",
+        "CH#1",
+        "41234",
+        "web/vpn",
+        "Ready",
+        "2026-11-16 17:13 UTC",
+    ] {
+        assert!(page.contains(text), "{text}");
+    }
+    // The WireGuard public key is status, but not for the page.
+    assert!(!page.contains("xTIBA5rbo"));
+    // Servers: best score first; maintenance and Secure Core are hidden.
+    let servers = &page[page.find("id=\"servers-title\"").unwrap()..];
+    let at = |name: &str| servers.find(&format!("<code>{name}</code>")).unwrap();
+    assert!(at("CH#2") < at("SE#7") && at("SE#7") < at("CH#1"));
+    assert!(!servers.contains("<code>CH#3</code>") && !servers.contains("<code>IS-CH#1</code>"));
+    // Filters: country, feature (Secure Core only when asked), load.
+    let (_, _, page) = send(&h, get("/vpn?country=se", Some(&cookie))).await;
+    assert!(page.contains("<code>SE#7</code>") && !page.contains("<code>CH#2</code>"));
+    let (_, _, page) = send(&h, get("/vpn?feature=p2p&max_load=50", Some(&cookie))).await;
+    assert!(
+        page.contains("<code>CH#1</code>")
+            && !page.contains("<code>SE#7</code>")
+            && !page.contains("<code>CH#2</code>")
+    );
+    let (_, _, page) = send(&h, get("/vpn?feature=secureCore", Some(&cookie))).await;
+    assert!(page.contains("<code>IS-CH#1</code>") && page.contains("via IS"));
+    // No catalog yet: the page says what is missing.
+    *h.cluster.vpn_catalog.lock().unwrap() = None;
+    let (_, _, page) = send(&h, get("/vpn", Some(&cookie))).await;
+    assert!(page.contains("qrab-proton login"));
+}
+
+#[tokio::test]
+async fn vpn_profile_changes_are_checked_and_written_by_uid() {
+    let h = harness().await;
+    *h.cluster.vpn_profiles.lock().unwrap() = vec![
+        vpn_profile("ch-p2p", "uid-ch", serde_json::json!({})),
+        vpn_profile(
+            "used",
+            "uid-used",
+            serde_json::json!({"attached": [{"vm": "web", "nic": "vpn", "anchor": "a"}]}),
+        ),
+    ];
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let post_ok = |path: &str, body: &str| post(path, Some(&cookie), Some(ORIGIN), body);
+    // Every VPN form needs CSRF and the exact Origin, and a launcher.
+    for (path, body) in [
+        ("/vpn", "name=x"),
+        ("/vpn/use", "profile=ch-p2p&server=SE%237"),
+        ("/vpn/ch-p2p", "action=server&server=auto"),
+        ("/vpn/ch-p2p/delete", "confirm_name=ch-p2p"),
+    ] {
+        let (status, _, _) = send(
+            &h,
+            post(
+                path,
+                Some(&cookie),
+                Some(ORIGIN),
+                &format!("{body}&csrf=wrong"),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+        let (status, _, _) = send(
+            &h,
+            post(
+                path,
+                Some(&cookie),
+                Some("https://evil.example"),
+                &format!("{body}&csrf=correct"),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+    }
+    let viewer = session(&h.state.sessions, BOB, &[VM_USERS]).await;
+    let (status, _, _) = send(
+        &h,
+        post(
+            "/vpn/ch-p2p",
+            Some(&viewer),
+            Some(ORIGIN),
+            "csrf=correct&action=server&server=auto",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // Invalid input writes nothing.
+    for (path, body) in [
+        ("/vpn", "name=Bad_Name"),
+        ("/vpn", "name=ok&country=Switzerland"),
+        ("/vpn", "name=ok&net_shield=7"),
+        ("/vpn", "name=ok&feature=warp"),
+        ("/vpn/ch-p2p", "action=server&server=ch12; rm"),
+        ("/vpn/ch-p2p/delete", "confirm_name=wrong"),
+        ("/vpn/used/delete", "confirm_name=used"),
+        ("/vpn/missing", "action=server&server=auto"),
+    ] {
+        let (status, _, body_out) = send(&h, post_ok(path, &format!("{body}&csrf=correct"))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{path} {body}: {body_out}");
+    }
+    assert_eq!(h.cluster.mutations(), 0);
+
+    // Create, choose a server, back to auto, change settings, delete.
+    let ok = |status: StatusCode| assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, _, _) = send(&h, post_ok("/vpn", "csrf=correct&name=se-games&country=se&feature=p2p&net_shield=2&port_forwarding=on&moderate_nat=on")).await;
+    ok(status);
+    let (status, _, _) = send(
+        &h,
+        post_ok("/vpn/use", "csrf=correct&profile=ch-p2p&server=SE%237"),
+    )
+    .await;
+    ok(status);
+    let (status, _, _) = send(
+        &h,
+        post_ok("/vpn/ch-p2p", "csrf=correct&action=server&server=auto"),
+    )
+    .await;
+    ok(status);
+    let (status, _, _) = send(
+        &h,
+        post_ok(
+            "/vpn/ch-p2p",
+            "csrf=correct&action=settings&city=Zurich&net_shield=0&vpn_accelerator=on",
+        ),
+    )
+    .await;
+    ok(status);
+    let (status, _, _) = send(
+        &h,
+        post_ok("/vpn/ch-p2p/delete", "csrf=correct&confirm_name=ch-p2p"),
+    )
+    .await;
+    ok(status);
+    let writes = h.cluster.vpn_writes.lock().unwrap().clone();
+    assert_eq!(writes.len(), 5);
+    let (kind, name, created) = &writes[0];
+    assert_eq!((kind.as_str(), name.as_str()), ("create", "se-games"));
+    assert_eq!(created["metadata"]["namespace"], "qrab");
+    assert_eq!(
+        created["spec"]["proton"],
+        serde_json::json!({"country": "SE", "features": ["p2p"], "netShield": 2, "portForwarding": true, "moderateNat": true, "vpnAccelerator": false})
+    );
+    assert_eq!(writes[1].2["spec"]["proton"]["server"], "SE#7");
+    assert_eq!(writes[1].2["metadata"]["uid"], "uid-ch");
+    assert!(
+        writes[2].2["spec"]["proton"]["server"].is_null(),
+        "auto clears the server"
+    );
+    let settings = &writes[3].2["spec"]["proton"];
+    assert_eq!(
+        (
+            settings["city"].as_str(),
+            settings["netShield"].as_u64(),
+            settings["portForwarding"].as_bool()
+        ),
+        (Some("Zurich"), Some(0), Some(false))
+    );
+    assert!(settings["country"].is_null());
+    assert_eq!(
+        writes[4],
+        (
+            "delete".into(),
+            "ch-p2p".into(),
+            serde_json::json!({"uid": "uid-ch"})
+        )
+    );
 }

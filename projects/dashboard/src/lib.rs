@@ -19,6 +19,7 @@ pub mod session_store;
 #[cfg(test)]
 mod tests;
 pub mod ui;
+pub mod vpn_page;
 
 use access::Role;
 use axum::{
@@ -160,6 +161,10 @@ pub fn router(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::max(launch::LAUNCH_BODY_LIMIT)),
         )
         .route("/images", get(images_page))
+        .route("/vpn", get(vpn_page::page).post(vpn_page::create))
+        .route("/vpn/use", post(vpn_page::use_server))
+        .route("/vpn/{name}", post(vpn_page::update))
+        .route("/vpn/{name}/delete", post(vpn_page::delete))
         .route("/vms/{namespace}/{name}", get(detail))
         .route("/vms/{namespace}/{name}/action", post(action))
         .route("/vms/{namespace}/{name}/delete", post(delete))
@@ -300,7 +305,7 @@ fn user_view(app: &AppState, user: &auth::User) -> ui::UserView {
     }
 }
 
-async fn page(
+pub(crate) async fn page(
     app: &AppState,
     session: &Session,
     user: &auth::User,
@@ -317,7 +322,7 @@ async fn page(
     })))
 }
 
-async fn flash(session: &Session, message: String) -> Result<(), Failure> {
+pub(crate) async fn flash(session: &Session, message: String) -> Result<(), Failure> {
     session
         .insert("flash", message)
         .await
@@ -427,7 +432,7 @@ async fn detail(
 type Fields = Form<Vec<(String, String)>>;
 
 /// Session, then CSRF token and exact Origin, before anything else.
-async fn mutation(
+pub(crate) async fn mutation(
     app: &AppState,
     session: &Session,
     headers: &HeaderMap,

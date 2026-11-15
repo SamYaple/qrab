@@ -129,6 +129,7 @@ pub enum Body {
     Launched(Launched),
     Console(ConsolePage),
     Images(Vec<BaseImage>),
+    Vpn(Box<crate::vpn_page::VpnPage>),
 }
 
 #[derive(Clone)]
@@ -176,6 +177,7 @@ pub fn render(page: Page) -> String {
         }
         Body::Launched(_) => "VM launched · qrab VMs".into(),
         Body::Images(_) => "Base images · qrab VMs".into(),
+        Body::Vpn(_) => "VPN · qrab VMs".into(),
         Body::Error(error) => format!("{} · qrab VMs", error.title()),
         _ => "qrab VMs".into(),
     };
@@ -1521,6 +1523,7 @@ fn error_page(error: &ErrorPage) -> Element {
 fn app() -> Element {
     let page = consume_context::<Page>();
     let on_images = matches!(&page.body, Body::Images(_));
+    let on_vpn = matches!(&page.body, Body::Vpn(_));
     let on_vms = matches!(
         &page.body,
         Body::List(_) | Body::Detail(_) | Body::Console(_)
@@ -1530,7 +1533,7 @@ fn app() -> Element {
             a { class: "skip-link", href: "#main", "Skip to content" }
             header { div { class: "brand", a { href: "/", "qrab" } span { "Virtual machines" } }
                 if let Some(user) = &page.user { div { class: "operator",
-                    nav { class: "site-nav", aria_label: "Dashboard", a { href: "/", aria_current: on_vms.then_some("page"), "VMs" } a { href: "/images", aria_current: on_images.then_some("page"), "Images" } }
+                    nav { class: "site-nav", aria_label: "Dashboard", a { href: "/", aria_current: on_vms.then_some("page"), "VMs" } a { href: "/images", aria_current: on_images.then_some("page"), "Images" } if user.launcher { a { href: "/vpn", aria_current: on_vpn.then_some("page"), "VPN" } } }
                     if user.launcher { a { class: "button", href: "/launch", "Launch VM" } }
                     span { "{user.name}" }
                     form { method: "post", action: "/auth/logout", input { r#type: "hidden", name: "csrf", value: "{user.csrf}" } button { class: "quiet", r#type: "submit", "Sign out" } }
@@ -1559,6 +1562,7 @@ fn app() -> Element {
                     (Body::Launched(result), Some(_)) => launched(result),
                     (Body::Console(console), Some(_)) => console_page(console),
                     (Body::Images(images), Some(_)) => images_page(images),
+                    (Body::Vpn(vpn), Some(user)) => crate::vpn_page::view(vpn, user),
                     _ => rsx! { section { class: "welcome card", p { class: "eyebrow", "QRAB" } h1 { "Your virtual machines, in one place." }
                         p { "Launch VMs, check their state and usage, and open their consoles." }
                         a { class: "button", href: "/auth/login", "Sign in with Kanidm →" }

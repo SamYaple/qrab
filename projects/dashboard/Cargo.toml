@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 qrab-operator = { path = "../operator" }
+qrab-proton = { path = "../proton" }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

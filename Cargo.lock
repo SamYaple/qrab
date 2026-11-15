@@ -3820,6 +3820,7 @@ dependencies = [
  "kube",
  "openidconnect",
  "qrab-operator",
+ "qrab-proton",
  "reqwest 0.12.28",
  "rustls",
  "serde",

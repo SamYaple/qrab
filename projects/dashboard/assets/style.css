@@ -347,6 +347,14 @@ summary::marker { color: var(--accent); }
 .field-error p { margin: 4px 0 0; }
 input[aria-invalid=true], select[aria-invalid=true], textarea[aria-invalid=true] { border-color: var(--bad); }
 
+/* The VPN page: filters and settings forms. */
+.badge.warn { color: var(--bad); border-color: var(--bad); }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0; }
+div.field, fieldset.field { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; }
+fieldset.field { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+.filters div.field { margin: 0; }
+label.check { display: inline-flex; align-items: center; gap: 6px; margin: 0 16px 8px 0; }
+
 /* Tablets can have wide viewports. Size touch targets by input device as well
    as keeping the compact desktop controls for a precise pointer. */
 @media (pointer: coarse) {

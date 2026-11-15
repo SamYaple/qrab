@@ -99,6 +99,8 @@ Redfish admin actions offered on the full BMC page's Guest agent tab.
 | `GET /vms/{ns}/{name}/console/ws` | Console WebSocket proxy (admin, exact Origin) |
 | `GET`/`POST /launch` | Launch form (launchers) |
 | `GET /images` | Base-image catalog and how images are staged (any signed-in user) |
+| `GET /vpn` | ProtonVPN profiles and the server browser (launchers; [below](#vpn)) |
+| `POST /vpn`, `POST /vpn/{name}`, `POST /vpn/use`, `POST /vpn/{name}/delete` | Create a profile; change its server (`action=server`, a server name or `auto`) or settings (`action=settings`); use a listed server for a profile; delete an unused profile |
 | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | OIDC |
 | `GET /healthz`, `GET /readyz` | Probes |
 
@@ -525,6 +527,33 @@ bash contrib/images/stage-base-image.sh cirros 0.6.3 1
 after the import had to be retried. The script handles no credentials. Do
 not add a catalog entry for an image that has not been imported and sealed:
 VMs launched with it would wait for a snapshot that does not exist.
+
+## VPN
+
+`/vpn` manages ProtonVPN profiles (docs/networking.md, "ProtonVPN"). Profiles
+are cluster-wide, so the page, its forms and its nav link exist only for
+members of the launcher group; everyone else gets a 404.
+
+- **Profiles** list each profile's server (Auto or fixed), location, load,
+  entry IP, forwarded port (or why there is none), the VM NICs using it, the
+  broker's Ready condition and the certificate's expiry. Each has forms to
+  pick a server (`auto` or a name such as `CH#12`), change its settings
+  (country and city for Auto, server features, NetShield, port forwarding,
+  Moderate NAT, VPN Accelerator) and delete it, which is refused while a NIC
+  uses it.
+- **Servers** come from ConfigMap `proton-catalog`, which the broker
+  publishes (no addresses or keys). The list applies the broker's rules (up,
+  within the plan's tier, Secure Core and Tor only when that feature is
+  chosen), filters by country, feature, maximum load and name, and shows up
+  to 100, best score first; each row can be used for any profile.
+- A NIC uses a profile through `vpn: {secretName: vpn-<profile>}`. Changing a
+  profile's server moves its tunnel within a minute and changes the exit
+  address, so open connections drop.
+
+The dashboard writes only `VpnProfile` specs (patches carry the profile's
+UID, deletes a UID precondition). It cannot read the profile Secrets, the
+Proton session or the keys: its Role adds `vpnprofiles` get/list/create/patch/
+delete and `get` on ConfigMap `proton-catalog` only.
 
 ## Configuration
 

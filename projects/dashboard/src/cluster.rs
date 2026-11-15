@@ -9,6 +9,7 @@ use kube::{
     },
 };
 use qrab_operator::api::VirtualMachine;
+use qrab_proton::crd::{ProtonSpec, VpnProfile};
 use std::{collections::HashMap, net::IpAddr};
 
 pub const FIELD_MANAGER: &str = "qrab-dashboard";
@@ -36,6 +37,34 @@ pub trait Cluster: Send + Sync {
     async fn delete_vm(&self, name: &str, uid: &str) -> Result<()>;
     /// Sets `spec.running` on exactly the VM with this UID, and nothing else.
     async fn set_running(&self, name: &str, uid: &str, running: bool) -> Result<()>;
+    /// ProtonVPN profiles (docs/networking.md, "ProtonVPN").
+    async fn vpn_profiles(&self) -> Result<Vec<VpnProfile>>;
+    /// The broker's compressed server catalog (ConfigMap `proton-catalog`).
+    async fn vpn_catalog(&self) -> Result<Option<Vec<u8>>>;
+    async fn create_vpn_profile(&self, profile: &VpnProfile) -> Result<()>;
+    /// Replaces `spec.proton` of exactly the profile with this UID.
+    async fn patch_vpn_profile(&self, name: &str, uid: &str, proton: &ProtonSpec) -> Result<()>;
+    /// Deletes exactly the profile with this UID.
+    async fn delete_vpn_profile(&self, name: &str, uid: &str) -> Result<()>;
+}
+
+/// The merge patch for [`Cluster::patch_vpn_profile`]: every optional
+/// field is written, unset ones as null, so a cleared choice (Auto) clears.
+///
+/// ```
+/// let spec = qrab_proton::crd::ProtonSpec { net_shield: 1, ..Default::default() };
+/// let patch = qrab_dashboard::cluster::vpn_patch("uid-a", &spec);
+/// assert_eq!(patch["metadata"]["uid"], "uid-a");
+/// assert!(patch["spec"]["proton"]["server"].is_null() && patch["spec"]["proton"]["country"].is_null());
+/// assert_eq!(patch["spec"]["proton"]["netShield"], 1);
+/// ```
+pub fn vpn_patch(uid: &str, proton: &ProtonSpec) -> serde_json::Value {
+    let mut spec = serde_json::to_value(proton).unwrap_or_default();
+    for key in ["server", "country", "city", "features"] {
+        spec.as_object_mut()
+            .map(|o| o.entry(key).or_insert(serde_json::Value::Null));
+    }
+    serde_json::json!({"metadata": {"uid": uid}, "spec": {"proton": spec}})
 }
 
 /// The merge patch for [`Cluster::set_running`]. The API server refuses a
@@ -145,6 +174,7 @@ pub struct Kube {
     pvcs: Api<PersistentVolumeClaim>,
     metrics: Api<DynamicObject>,
     configs: Api<ConfigMap>,
+    vpn: Api<VpnProfile>,
 }
 
 impl Kube {
@@ -162,7 +192,8 @@ impl Kube {
             pods: Api::namespaced(client.clone(), namespace),
             pvcs: Api::namespaced(client.clone(), namespace),
             metrics: Api::namespaced_with(client.clone(), namespace, &metrics),
-            configs: Api::namespaced(client, namespace),
+            configs: Api::namespaced(client.clone(), namespace),
+            vpn: Api::namespaced(client, namespace),
         }
     }
 }
@@ -255,6 +286,47 @@ impl Cluster for Kube {
         self.vms
             .patch(name, &params, &Patch::Merge(running_patch(uid, running)))
             .await?;
+        Ok(())
+    }
+    async fn vpn_profiles(&self) -> Result<Vec<VpnProfile>> {
+        Ok(self.vpn.list(&ListParams::default()).await?.items)
+    }
+    async fn vpn_catalog(&self) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .configs
+            .get_opt(qrab_proton::broker::CATALOG_CONFIGMAP)
+            .await?
+            .and_then(|c| c.binary_data)
+            .and_then(|mut d| d.remove(qrab_proton::broker::CATALOG_KEY))
+            .map(|b| b.0))
+    }
+    async fn create_vpn_profile(&self, profile: &VpnProfile) -> Result<()> {
+        let params = PostParams {
+            field_manager: Some(FIELD_MANAGER.into()),
+            ..Default::default()
+        };
+        self.vpn.create(&params, profile).await?;
+        Ok(())
+    }
+    async fn patch_vpn_profile(&self, name: &str, uid: &str, proton: &ProtonSpec) -> Result<()> {
+        let params = PatchParams {
+            field_manager: Some(FIELD_MANAGER.into()),
+            ..Default::default()
+        };
+        self.vpn
+            .patch(name, &params, &Patch::Merge(vpn_patch(uid, proton)))
+            .await?;
+        Ok(())
+    }
+    async fn delete_vpn_profile(&self, name: &str, uid: &str) -> Result<()> {
+        let params = DeleteParams {
+            preconditions: Some(Preconditions {
+                uid: Some(uid.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        self.vpn.delete(name, &params).await?;
         Ok(())
     }
 }
