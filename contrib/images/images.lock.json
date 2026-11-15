@@ -43,5 +43,15 @@
   "dashboard": {
     "image": "zot.yapplesauce.com/qrab/dashboard@sha256:8403f4e157c803b8c17656e11d864019f7296fa0d536473f0633d43775adc709",
     "source_revision": "1af43d8f0df52e9066a3b2ad8a9023d09eed372d"
+  },
+  "netd": {
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:88818c3fb502a0e51c610bc934132ed72f201a457a5c8a50d62e7a4ac93dba2e",
+    "version": "0.1.0",
+    "source_revision": "b2022f5bb61210439bbd19fbff091642bd926fef"
+  },
+  "kvm_device_plugin": {
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:88818c3fb502a0e51c610bc934132ed72f201a457a5c8a50d62e7a4ac93dba2e",
+    "version": "0.1.0",
+    "source_revision": "b2022f5bb61210439bbd19fbff091642bd926fef"
   }
 }

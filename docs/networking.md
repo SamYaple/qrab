@@ -520,8 +520,10 @@ Source preparation and rollout are separate:
    UID selector. Do not give VM Pods or the KVM plugin the node identity.
 2. Release the operator image containing netd and pin the **same digest** in
    registration and DaemonSet. Stage the CSI Workload API mount/environment in
-   [daemonset.yaml](../contrib/kubernetes/netd/daemonset.yaml). These examples
-   contain `OPERATOR_DIGEST` placeholders and are not applied automatically.
+   [daemonset.yaml](../contrib/kubernetes/netd/daemonset.yaml). The current reviewed pins are recorded in `images.lock.json` under
+   `netd` and `kvm_device_plugin`; these artifacts share the operator image
+   repository but have a release lifecycle separate from the operator
+   Deployment. The examples are not applied automatically.
 3. Verify enrollment and `peer_identity_ready` on each node, then verify a
    controlled NIC migration and conntrack handoff. A mixed old/new peer period
    fails the best-effort conntrack copy, not TLS open; coordinate the node roll

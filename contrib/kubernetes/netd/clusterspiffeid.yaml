@@ -1,4 +1,4 @@
-# Enroll via kubernetes-gitops before updating qrab-netd's image. Substitute
+# Enroll via kubernetes-gitops before updating qrab-netd's image. Keep
 # the same reviewed immutable digest as daemonset.yaml; never grant the KVM
 # plugin or VM/anchor containers this identity. The controller adds Pod UID.
 apiVersion: spire.spiffe.io/v1alpha1
@@ -18,7 +18,7 @@ spec:
   - k8s:ns:qrab-node
   - k8s:sa:qrab-netd
   - k8s:container-name:netd
-  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:OPERATOR_DIGEST
+  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:88818c3fb502a0e51c610bc934132ed72f201a457a5c8a50d62e7a4ac93dba2e
   - unix:uid:0
   ttl: 10m
   admin: false
