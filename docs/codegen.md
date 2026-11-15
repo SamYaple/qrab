@@ -52,6 +52,10 @@ the original line and column. A differential lexical corpus checks
 acceptance against the parser in the pinned QEMU tree.
 Legacy comments naming a later definition in the same file follow that
 definition across intervening helpers; existing attached documentation wins.
+Formal symbol checks begin in 2.9; global member/feature links follow the 4.2
+validator. Earlier comments stay permissive, including inline double-hash
+comments. Returns sections belong to commands from 2.9. The 9.0 rules also
+reject Returns on void commands and Errors on non-command declarations.
 
 ## Regeneration
 

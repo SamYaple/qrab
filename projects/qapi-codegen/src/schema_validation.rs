@@ -343,6 +343,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                 _ => continue,
             };
             let check = || -> Result<()> {
+                crate::schema_docs::validate(token)?;
                 features(feature_list.as_ref())?;
                 match token {
                     QapiSchemaToken::Enum(value) => {

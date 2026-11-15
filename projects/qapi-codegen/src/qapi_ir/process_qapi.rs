@@ -71,6 +71,16 @@ fn member_documentation(lines: &[&str]) -> String {
         .join("\n")
 }
 
+fn member_wire_name<'a>(name: &'a str, meta: &'a Metadata) -> &'a str {
+    meta.attributes
+        .iter()
+        .find_map(|attr| match attr {
+            Attribute::Item { name, value } if name == "name" => Some(value.as_str()),
+            _ => None,
+        })
+        .unwrap_or(name)
+}
+
 macro_rules! add_docs {
     ($meta:expr, $docs:expr, $name:expr, $variants:expr) => {
         if let Some(doc) = $docs {
@@ -97,7 +107,7 @@ macro_rules! add_docs {
             'outer_loop: for (name, desc) in &doc.fields {
                 // Try exact match first
                 for value in &mut *$variants {
-                    if &value.name == name {
+                    if member_wire_name(&value.name, &value.meta) == *name {
                         let since = extract_since_from_comment(desc);
                         value.meta.doc = Some(member_documentation(desc));
                         if let Some(since) = since {
@@ -112,7 +122,7 @@ macro_rules! add_docs {
                 // Try dot-notation match: "bus.number" → match field "bus"
                 if let Some(prefix) = name.split('.').next() {
                     for value in &mut *$variants {
-                        if value.name == prefix {
+                        if member_wire_name(&value.name, &value.meta) == prefix {
                             // Append sub-field doc to the parent field
                             if let Some(ref mut doc) = value.meta.doc {
                                 doc.push('\n');

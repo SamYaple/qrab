@@ -1,12 +1,13 @@
 //! Resolve legacy comments written before an intervening helper definition.
-use crate::QapiSchema;
+use crate::{MembersOrRef, QapiFeatures, QapiMembers, QapiSchema, QapiSchemaToken};
+use anyhow::{Result, ensure};
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
 };
 
 pub(crate) fn resolve_legacy(schemas: &mut [(&Path, QapiSchema<'_>)]) {
-    if crate::parser_version() >= (2, 8, 0) {
+    if crate::parser_version() >= (2, 9, 0) {
         return;
     }
     for (_, schema) in schemas {
@@ -40,6 +41,122 @@ pub(crate) fn resolve_legacy(schemas: &mut [(&Path, QapiSchema<'_>)]) {
             }
         }
     }
+}
+
+fn add_features(features: Option<&QapiFeatures<'_>>, names: &mut HashSet<String>) {
+    if let Some(features) = features {
+        names.extend(features.iter().map(|feature| feature.name.to_string()));
+    }
+}
+
+fn add_members(
+    fields: &QapiMembers<'_>,
+    members: &mut HashSet<String>,
+    features: &mut HashSet<String>,
+) {
+    for field in fields.iter() {
+        members.insert(field.name.to_string());
+        add_features(field.features.as_ref(), features);
+    }
+}
+
+pub(crate) fn validate(token: &QapiSchemaToken<'_>) -> Result<()> {
+    let version = crate::parser_version();
+    if version < (2, 9, 0) {
+        return Ok(());
+    }
+    let Some(doc) = token.documentation() else {
+        return Ok(());
+    };
+    let name = token.definition_name().unwrap();
+    ensure!(
+        doc.name == name,
+        "Documentation symbol '{}' does not match '{name}'",
+        doc.name
+    );
+    let mut members = HashSet::new();
+    let mut features = HashSet::new();
+    let own_features = match token {
+        QapiSchemaToken::Struct(value) => {
+            add_members(&value.data, &mut members, &mut features);
+            &value.features
+        }
+        QapiSchemaToken::Enum(value) => {
+            for member in &value.data {
+                members.insert(member.name.to_string());
+                add_features(member.features.as_ref(), &mut features);
+            }
+            &value.features
+        }
+        QapiSchemaToken::Alternate(value) => {
+            members.extend(value.data.iter().map(|branch| branch.name.to_string()));
+            &value.features
+        }
+        QapiSchemaToken::Union(value) => {
+            if value.legacy_alternate {
+                members.extend(value.data.iter().map(|branch| branch.name.to_string()));
+            } else if let MembersOrRef::Members(fields) = &value.base {
+                add_members(fields, &mut members, &mut features);
+            } else if value.discriminator.is_none() {
+                members.insert("type".into());
+            }
+            &value.features
+        }
+        QapiSchemaToken::Command(value) => {
+            if let Some(MembersOrRef::Members(fields)) = &value.data {
+                add_members(fields, &mut members, &mut features);
+            }
+            ensure!(
+                version < (9, 0, 0) || value.returns.is_some() || doc.returns.is_empty(),
+                "Returns section, but command does not return anything"
+            );
+            &value.features
+        }
+        QapiSchemaToken::Event(value) => {
+            if let Some(MembersOrRef::Members(fields)) = &value.data {
+                add_members(fields, &mut members, &mut features);
+            }
+            &value.features
+        }
+        _ => return Ok(()),
+    };
+    add_features(own_features.as_ref(), &mut features);
+    if !matches!(token, QapiSchemaToken::Command(_)) {
+        ensure!(
+            doc.returns.is_empty(),
+            "Returns section is only valid for commands"
+        );
+        ensure!(
+            version < (9, 0, 0) || doc.errors.is_empty(),
+            "Errors section is only valid for commands"
+        );
+    }
+    // Global member/feature link checks arrived in 4.2; older callable docs
+    // can describe a named boxed payload with virtual parameter names.
+    if version < (4, 2, 0) {
+        return Ok(());
+    }
+    for (name, _) in &doc.fields {
+        ensure!(
+            members.contains(*name),
+            "Documented member '{name}' does not exist"
+        );
+    }
+    for (name, _) in &doc.features {
+        ensure!(
+            features.contains(*name),
+            "Documented feature '{name}' does not exist"
+        );
+    }
+    for name in features {
+        ensure!(
+            doc.features
+                .iter()
+                .any(|(documented, _)| *documented == name),
+            "Feature '{name}' lacks documentation"
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

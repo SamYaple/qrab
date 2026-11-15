@@ -10219,7 +10219,7 @@ static ENUM_InputButton: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_InputEvent: &[FieldMeta] = &[
-    FieldMeta { name: "r_type", wire_name: "type", ty: 383, optional: false, is_discriminator: true, recursive: false, since: (2u32, 0u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r_type", wire_name: "type", ty: 383, optional: false, is_discriminator: true, recursive: false, since: (2u32, 0u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "the input type, one of:\n\n- 'key': Input event of Keyboard\n- 'btn': Input event of pointer buttons\n- 'rel': Input event of relative pointer motion\n- 'abs': Input event of absolute pointer motion" },
     FieldMeta { name: "r#type", wire_name: "type", ty: 384, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the type of input event" },
 ];
 static STRUCT_InputEvent: StructMeta = StructMeta {
@@ -19396,7 +19396,7 @@ static ENUM_TpmType: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_TpmTypeOptions: &[FieldMeta] = &[
-    FieldMeta { name: "r_type", wire_name: "type", ty: 805, optional: false, is_discriminator: true, recursive: false, since: (1u32, 5u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "r_type", wire_name: "type", ty: 805, optional: false, is_discriminator: true, recursive: false, since: (1u32, 5u32, 0u32), until: Some((6u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "- 'passthrough' The configuration options for the TPM passthrough type\n- 'emulator' The configuration options for TPM emulator backend type" },
     FieldMeta { name: "r#type", wire_name: "type", ty: 694, optional: false, is_discriminator: true, recursive: false, since: (6u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "- 'passthrough' The configuration options for the TPM\n  passthrough type\n- 'emulator' The configuration options for TPM emulator backend\n  type" },
 ];
 static STRUCT_TpmTypeOptions: StructMeta = StructMeta {

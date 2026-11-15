@@ -10788,6 +10788,12 @@ pub enum InputButton {
 #[qapi(added = "2.0.0")]
 #[qapi(simple_union(removed = "6.2.0"))]
 pub struct InputEvent {
+    /// the input type, one of:
+    ///
+    /// - 'key': Input event of Keyboard
+    /// - 'btn': Input event of pointer buttons
+    /// - 'rel': Input event of relative pointer motion
+    /// - 'abs': Input event of absolute pointer motion
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]
@@ -20454,6 +20460,8 @@ pub enum TpmType {
 #[qapi(added = "1.5.0")]
 #[qapi(simple_union(removed = "6.2.0"))]
 pub struct TpmTypeOptions {
+    /// - 'passthrough' The configuration options for the TPM passthrough type
+    /// - 'emulator' The configuration options for TPM emulator backend type
     #[qapi(discriminator)]
     #[qapi(name = "type")]
     #[qapi(removed = "6.2.0")]

@@ -62,6 +62,18 @@ impl<'i> QapiSchemaToken<'i> {
             _ => None,
         }
     }
+
+    pub(crate) fn documentation(&self) -> Option<&QapiDocumentation<'i>> {
+        match self {
+            Self::Alternate(value) => value.doc.as_ref(),
+            Self::Command(value) => value.doc.as_ref(),
+            Self::Enum(value) => value.doc.as_ref(),
+            Self::Event(value) => value.doc.as_ref(),
+            Self::Struct(value) => value.doc.as_ref(),
+            Self::Union(value) => value.doc.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 // To preserve the token ordering at this stage, the parsers schema output is a
@@ -77,6 +89,10 @@ impl<'i> QapiSchema<'i> {
 
     pub fn parse_v1(input: &'i str) -> IResult<&'i str, Self> {
         let mut token_parser = alt((
+            whitespace1.map(|_| QapiSchemaToken::EmptyLines),
+            QapiSectionDocumentation::parse.map(QapiSchemaToken::Doc),
+            QapiFreeformDoc::parse.map(QapiSchemaToken::FreeformDoc),
+            qcomment.map(QapiSchemaToken::Comment),
             QapiAlternate::parse.map(QapiSchemaToken::Alternate),
             QapiCommand::parse.map(QapiSchemaToken::Command),
             QapiEnum::parse.map(QapiSchemaToken::Enum),
@@ -85,15 +101,12 @@ impl<'i> QapiSchema<'i> {
             QapiUnion::parse.map(QapiSchemaToken::Union),
             QapiInclude::parse.map(QapiSchemaToken::Include),
             QapiPragma::parse.map(QapiSchemaToken::Pragma),
-            QapiSectionDocumentation::parse.map(QapiSchemaToken::Doc),
-            QapiFreeformDoc::parse.map(QapiSchemaToken::FreeformDoc),
             invalid_documentation,
             // Bare ## separator (not followed by doc content, common in v2.x)
             bare_doc_separator.map(|_| QapiSchemaToken::EmptyLines),
-            qcomment.map(QapiSchemaToken::Comment),
-            whitespace1.map(|_| QapiSchemaToken::EmptyLines),
+            legacy_comment.map(QapiSchemaToken::Comment),
         ));
-        let strict = super::parser_version() >= (2, 8, 0);
+        let strict = super::parser_version() >= (2, 9, 0);
         // Free-form prose cannot replace a declaration's own documentation.
         let mut needs_definition_doc = false;
         many0(|input| {
@@ -133,6 +146,14 @@ impl<'i> QapiSchema<'i> {
     }
 }
 
+fn legacy_comment(input: &str) -> IResult<&str, &str> {
+    if super::parser_version() < (2, 9, 0) {
+        super::common::any_comment(input)
+    } else {
+        qcomment(input)
+    }
+}
+
 // Failed documentation must not fall back to ordinary comments and vanish.
 fn invalid_documentation(input: &str) -> IResult<&str, QapiSchemaToken<'_>> {
     let mut lines = lines(input);
@@ -151,7 +172,7 @@ fn invalid_documentation(input: &str) -> IResult<&str, QapiSchemaToken<'_>> {
     };
     let error = nom::error::Error::new(input, nom::error::ErrorKind::Verify);
     Err(
-        if super::parser_version() >= (2, 8, 0)
+        if super::parser_version() >= (2, 9, 0)
             && (shorthand || symbol || (super::parser_version() >= (5, 0, 0) && first == "##"))
         {
             nom::Err::Failure(error)

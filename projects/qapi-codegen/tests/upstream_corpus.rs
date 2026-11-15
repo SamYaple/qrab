@@ -26,8 +26,29 @@ fn freeform_documentation_cannot_replace_definition_documentation() {
             .replace('\n', ending);
         qapi_codegen::parse_schema(&input).unwrap();
     }
-    qapi_codegen::set_parser_version((2, 7, 0));
-    qapi_codegen::parse_schema(&format!("{section}{{'struct':'Example','data':{{}}}}")).unwrap();
+    for version in [(2, 7, 0), (2, 8, 0)] {
+        qapi_codegen::set_parser_version(version);
+        qapi_codegen::parse_schema(&format!("{section}{{'struct':'Example','data':{{}}}}"))
+            .unwrap();
+    }
+    qapi_codegen::set_parser_version((11, 1, 3));
+}
+
+#[test]
+fn pre_formal_docs_remain_comments_and_keep_recognized_sections() {
+    qapi_codegen::set_parser_version((2, 8, 0));
+    let input = "# ordinary\n##\n# = Section\n##\n## @Example\n# Description.\n##\n{'struct':'Example','data':{### inline comment\n'value':'str'}}\n### trailing comment";
+    let schema = qapi_codegen::parse_schema(input).unwrap();
+    assert!(
+        schema
+            .iter()
+            .any(|token| matches!(token, qapi_codegen::QapiSchemaToken::Doc(_)))
+    );
+    assert!(schema.iter().any(
+        |token| matches!(token, qapi_codegen::QapiSchemaToken::Struct(value) if value.doc.is_some())
+    ));
+    qapi_codegen::set_parser_version((2, 9, 0));
+    assert!(qapi_codegen::parse_schema(input).is_err());
     qapi_codegen::set_parser_version((11, 1, 3));
 }
 

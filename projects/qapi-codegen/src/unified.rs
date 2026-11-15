@@ -2585,6 +2585,43 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    fn documentation_links_follow_the_declared_symbol_and_members() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in [
+            "doc-bad-symbol",
+            "doc-bad-alternate-member",
+            "doc-bad-boxed-command-arg",
+            "doc-bad-command-arg",
+            "doc-bad-enum-member",
+            "doc-bad-event-arg",
+            "doc-bad-feature",
+            "doc-bad-union-member",
+            "doc-invalid-return",
+            "doc-invalid-return2",
+            "doc-undoc-feature",
+        ] {
+            let sources = crate::read_schema_with_version(
+                &root.join(format!("{name}.json")),
+                Some((11, 1, 3)),
+            )
+            .unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{error}");
+        }
+        crate::set_parser_version((2, 8, 0));
+        process_version_schema(&[(
+            "legacy.json".into(),
+            "##\n# @Other:\n##\n{'struct':'Example','data':{}}".into(),
+        )])
+        .unwrap();
+        crate::set_parser_version((2, 9, 0));
+        let (_, structs) = process_version_schema(&[("simple.json".into(), "{'struct':'Leaf','data':{}}\n##\n# @Simple:\n# @type: Select branch.\n##\n{'union':'Simple','data':{'leaf':'Leaf'}}".into())]).unwrap();
+        let field = structs["Simple"].fields.iter().find(|field| field.meta.attributes.iter().any(|attr| matches!(attr, Attribute::Item {name,value} if name == "name" && value == "type"))).unwrap();
+        assert_eq!(field.meta.doc.as_deref(), Some("Select branch."));
+    }
+
+    #[test]
     fn malformed_qapi_names_report_source_context() {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");

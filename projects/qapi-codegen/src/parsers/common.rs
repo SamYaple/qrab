@@ -23,6 +23,10 @@ pub fn qcomment(input: &str) -> IResult<&str, &str> {
     .parse(input)
 }
 
+pub(crate) fn any_comment(input: &str) -> IResult<&str, &str> {
+    delimited((tag("#"), space0), not_line_ending, alt((line_ending, eof))).parse(input)
+}
+
 // QEMU's Python lexer uses str.isspace(), including the four C0 separators.
 pub(crate) fn is_whitespace(c: char) -> bool {
     c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
@@ -63,9 +67,14 @@ pub fn whitespace1(input: &str) -> IResult<&str, &str> {
 }
 
 pub fn clean_lines(input: &str) -> IResult<&str, &str> {
+    let comment = if super::parser_version() < (2, 9, 0) {
+        any_comment
+    } else {
+        qcomment
+    };
     recognize((
         whitespace0,
-        opt((many1((whitespace0, qcomment)), whitespace0)),
+        opt((many1((whitespace0, comment)), whitespace0)),
     ))
     .parse(input)
 }
