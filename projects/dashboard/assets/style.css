@@ -272,13 +272,6 @@ td .muted { margin: 3px 0 0; }
     .detail-grid, .panel-grid { grid-template-columns: minmax(0,1fr); gap: 16px; }
     .identity-details { grid-template-columns: minmax(0,1fr); gap: 3px; }
     .identity-details dd { margin-bottom: 10px; }
-    .card .table-wrap { border: 0; }
-    .card table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-    .card table tr { display: block; border: 1px solid var(--border-subtle); border-radius: 7px; padding: 8px 0; margin-bottom: 12px; }
-    .card table tr:last-child { margin-bottom: 0; }
-    .card table td { display: grid; grid-template-columns: 7.5rem minmax(0,1fr); gap: 12px; border: 0; padding: 7px 12px; }
-    .card table td::before { content: attr(data-label); color: var(--muted); font-size: .8rem; }
-    .card table td > div { min-width: 0; }
     .launch fieldset { padding: 16px; }
     .welcome { padding: 28px; margin: 32px 0; }
     #screen { height: 50vh; min-height: 260px; }
@@ -319,6 +312,13 @@ summary::marker { color: var(--accent); }
 /* The VM directory becomes labelled cards before its seven columns squeeze
    identifiers and capacities into unreadable fragments. */
 @media (max-width: 1000px) {
+    .card .table-wrap { border: 0; }
+    .card table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .card table tr { display: block; border: 1px solid var(--border-subtle); border-radius: 7px; padding: 8px 0; margin-bottom: 12px; }
+    .card table tr:last-child { margin-bottom: 0; }
+    .card table td { display: grid; grid-template-columns: 7.5rem minmax(0,1fr); gap: 12px; border: 0; padding: 7px 12px; }
+    .card table td::before { content: attr(data-label); color: var(--muted); font-size: .8rem; }
+    .card table td > div { min-width: 0; }
     .vm-directory { padding: 12px; }
     .vm-directory table { display: block; }
     .vm-directory thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -329,7 +329,12 @@ summary::marker { color: var(--accent); }
     .vm-directory td > div { min-width: 0; }
     .vm-directory .badge { max-width: 100%; white-space: normal; }
 }
-.vm-directory td[data-label=Location] code { white-space: nowrap; overflow-wrap: normal; }
+
+/* Phone cards give identifiers the full row instead of splitting addresses
+   and checksums into a narrow value column. */
+@media (max-width: 480px) {
+    .card table td { grid-template-columns: minmax(0,1fr); gap: 3px; padding-top: 9px; padding-bottom: 9px; }
+}
 
 .form-errors { border-color: var(--bad-border); }
 .form-errors ul { margin-bottom: 0; padding-left: 22px; }

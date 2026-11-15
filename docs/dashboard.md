@@ -697,8 +697,10 @@ A dated record; the qrab-demo VM it mentions has since been retired.
 
 ### Interface checks without a cluster
 
-The VM directory becomes labelled cards below 1000px. Capacity maxima are
+Dashboard data tables become labelled cards below 1000px. Capacity maxima are
 labelled explicitly; exact whole memory capacities use GiB/TiB where applicable.
+At phone widths up to 480px, table cards stack labels above values so addresses,
+VM names and checksums can use the full row.
 CPU usage is shown in cores and larger memory snapshots in GiB/TiB. Positive
 sub-millicore samples remain distinct from zero, and invalid samples show no data.
 SSR usage is a page-load snapshot, not a poll; the BMC provides continuing updates.
