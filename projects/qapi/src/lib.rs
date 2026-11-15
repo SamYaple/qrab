@@ -60,9 +60,15 @@ pub trait QapiEvent: serde::de::DeserializeOwned {
     const NAME: &'static str;
 }
 
-/// Decode a QAPI union branch selected by its discriminator.
+/// Inspect and decode a QAPI union branch selected by its discriminator.
 /// Flat union payloads are objects; historical simple unions can carry any JSON value.
 pub trait QapiFlatUnion: Sized {
+    /// The branch's wire tag, when known. Serializers use it to check the
+    /// explicit discriminator; handwritten implementations may keep the default.
+    fn wire_tag(&self) -> Option<&'static str> {
+        None
+    }
+
     fn deserialize_variant(
         discriminator: &str,
         map: serde_json::Map<String, serde_json::Value>,
@@ -84,6 +90,10 @@ pub trait QapiFlatUnion: Sized {
 }
 
 impl<T: QapiFlatUnion> QapiFlatUnion for Box<T> {
+    fn wire_tag(&self) -> Option<&'static str> {
+        T::wire_tag(self.as_ref())
+    }
+
     fn deserialize_variant(
         discriminator: &str,
         map: serde_json::Map<String, serde_json::Value>,

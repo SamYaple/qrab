@@ -1064,6 +1064,18 @@ fn branch_decode(name: &syn::Ident, variant: &VariantInfo) -> TokenStream2 {
 
 /// Dispatch by wire tag and select changed payload shapes using the peer version.
 fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
+    let tag_arms: Vec<_> = variants
+        .iter()
+        .map(|variant| {
+            let ident = &variant.ident;
+            let wire = wire_name(&variant.attrs.name, ident);
+            let pattern = match variant.kind {
+                VariantKind::Tuple(_) => quote! { #name::#ident(..) },
+                VariantKind::Unit => quote! { #name::#ident },
+            };
+            quote! { #pattern => Some(#wire), }
+        })
+        .collect();
     let mut groups = std::collections::BTreeMap::<String, Vec<&VariantInfo>>::new();
     for variant in variants {
         groups
@@ -1094,6 +1106,9 @@ fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStre
     quote! {
         #[allow(deprecated)]
         impl qapi::QapiFlatUnion for #name {
+            fn wire_tag(&self) -> Option<&'static str> {
+                match *self { #(#tag_arms)* }
+            }
             fn deserialize_variant(discriminator: &str, _map: serde_json::Map<String, serde_json::Value>) -> Result<Self, serde_json::Error> {
                 <Self as qapi::QapiFlatUnion>::deserialize_variant_value(discriminator, serde_json::Value::Object(_map))
             }
@@ -1408,10 +1423,66 @@ fn gen_struct_ser(
     }
 }
 
+fn union_discriminator_checks(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
+    let mut helpers = HelperNames::new(name, fields);
+    let mut checks = Vec::new();
+    for branch in fields.iter().filter(|field| field.attrs.union_field) {
+        let ident = &branch.ident;
+        let payload = helpers.ident("union_payload");
+        let tag = helpers.ident("union_tag");
+        let active =
+            version_range_check(branch.attrs.since.as_deref(), branch.attrs.until.as_deref())
+                .unwrap_or_else(|| quote! { true });
+        let mut discriminators = Vec::new();
+        for field in fields.iter().filter(|field| field.attrs.discriminator) {
+            let disc = &field.ident;
+            let wire = wire_name(&field.attrs.name, disc);
+            let value = helpers.ident("discriminator_value");
+            let available =
+                version_range_check(field.attrs.since.as_deref(), field.attrs.until.as_deref())
+                    .unwrap_or_else(|| quote! { true });
+            let present = if is_option_type(&field.ty) {
+                quote! { self.#disc.is_some() }
+            } else {
+                quote! { true }
+            };
+            discriminators.push(quote! {
+                if (#available) && (#present) {
+                    let #value = serde_json::to_value(&self.#disc).map_err(serde::ser::Error::custom)?;
+                    if #value.as_str() != Some(#tag) {
+                        return Err(serde::ser::Error::custom(format!(
+                            "{}: discriminator '{}' is {}, but payload selects '{}'",
+                            stringify!(#name), #wire, #value, #tag
+                        )));
+                    }
+                }
+            });
+        }
+        let reference = if is_option_type(&branch.ty) {
+            quote! { #payload }
+        } else {
+            quote! { &self.#ident }
+        };
+        let check = quote! {
+            if let Some(#tag) = qapi::QapiFlatUnion::wire_tag(#reference) {
+                #(#discriminators)*
+            }
+        };
+        let check = if is_option_type(&branch.ty) {
+            quote! { if let Some(ref #payload) = self.#ident { #check } }
+        } else {
+            check
+        };
+        checks.push(quote! { if #active { #check } });
+    }
+    quote! { #(#checks)* }
+}
+
 fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttrs) -> TokenStream2 {
     let serializer_ty = HelperNames::new(name, fields).ty("Serializer");
     let shared_validation = validate_shared_fields(name, fields);
     let required = required_field_checks(name, fields, false);
+    let union_tags = union_discriminator_checks(name, fields);
     let type_name_str = name.to_string();
     let ser_fields: Vec<TokenStream2> = fields.iter().map(|f| {
         let ident = &f.ident;
@@ -1495,6 +1566,7 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
     let body = quote! {
         #shared_validation
         #required
+        #union_tags
         use serde::ser::SerializeMap;
         let mut map = serializer.serialize_map(None)?;
         #(#ser_fields)*
