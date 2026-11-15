@@ -1285,6 +1285,29 @@ pub fn render_booted(
     render_attached(vm, settings, provisioned, boot, &[])
 }
 
+/// The part of a VM config (vm.json) whose change needs a new QEMU. The NIC
+/// list and the seed's network-config are left out: the manager plugs and
+/// unplugs NICs while the guest runs and takes the seed at its next start.
+///
+/// ```
+/// use qrab_operator::resources::boot_identity;
+/// let one = r#"{"cpus":2,"nics":[{"id":"lan","mac":"02:00:00:00:00:01"}],"seed":{"meta_data":"m","network_config":"a"}}"#;
+/// let two = r#"{"cpus":2,"nic_slots":4,"seed":{"meta_data":"m","network_config":"b"}}"#;
+/// assert_eq!(boot_identity(one).unwrap()["seed"], boot_identity(two).unwrap()["seed"]);
+/// assert!(boot_identity(one).unwrap().get("nics").is_none());
+/// assert_ne!(boot_identity(one).unwrap(), boot_identity(two).unwrap(), "nic_slots still counts");
+/// ```
+pub fn boot_identity(config_data: &str) -> Result<Value> {
+    let mut config: Value = serde_json::from_str(config_data)?;
+    if let Some(config) = config.as_object_mut() {
+        config.remove("nics");
+        if let Some(seed) = config.get_mut("seed").and_then(Value::as_object_mut) {
+            seed.remove("network_config");
+        }
+    }
+    Ok(config)
+}
+
 /// The manager's live-migration listener port (qrab-manager `migration.port`).
 pub const MIGRATION_PORT: u16 = 7800;
 /// Names the exact VM Pod incarnation, so a migration's source and target can
@@ -1407,6 +1430,11 @@ pub fn render_incarnation(
             .iter()
             .map(|n| json!({"id":n.name,"mac":nic_mac(&uid, &n.name)}))
             .collect::<Vec<_>>());
+    }
+    // Root ports for NICs added or removed while the guest runs: every VM
+    // that may have NICs (KVM with stable NIC addresses) gets them.
+    if vm.spec.accelerator == Accelerator::Kvm && settings.nic_addresses.is_some() {
+        config["nic_slots"] = json!(NIC_LIMIT);
     }
     // Absent without spec.cloudInit or NICs, so existing template hashes are unchanged.
     if let Some(seed) = seed(vm, &uid, nics) {
@@ -1574,8 +1602,7 @@ pub fn render_incarnation(
         .as_object_mut()
         .expect("container")
         .remove("resources");
-    let mut identity =
-        json!({"pod":template,"config":config_data,"restartNonce":vm.spec.restart_nonce});
+    let mut identity = json!({"pod":template,"config":boot_identity(&config_data)?,"restartNonce":vm.spec.restart_nonce});
     // A rotated credential needs a fresh QEMU: libiscsi does not reload
     // secrets. Capacity grows online through DISK_CAPACITY instead. Absent for
     // legacy VMs, so their template hash is unchanged.

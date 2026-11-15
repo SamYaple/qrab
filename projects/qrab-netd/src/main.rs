@@ -89,12 +89,22 @@ impl Agent {
             pods.iter().map(|p| p.as_ref()),
         )
         .map_err(|r| r.to_string())?;
+        let anchor_uid = anchor.uid().unwrap_or_default();
+        if request.op == wire::Op::Probe {
+            if !self.plumbed.lock().unwrap().contains_key(&anchor_uid) {
+                return Err(format!("NIC {:?} is not plumbed yet", request.nic));
+            }
+            wire::send_probe(stream, &anchor_uid).map_err(|e| e.to_string())?;
+            return Ok(format!(
+                "pid {pid}: NIC {:?} is served by anchor {anchor_uid}",
+                request.nic
+            ));
+        }
         if request.op != wire::Op::Fds {
             let summary = self.control(anchor, &request)?;
             wire::send_ok(stream).map_err(|e| e.to_string())?;
             return Ok(format!("pid {pid}: {summary}"));
         }
-        let anchor_uid = anchor.uid().unwrap_or_default();
         if !self.plumbed.lock().unwrap().contains_key(&anchor_uid) {
             return Err(format!("NIC {:?} is not plumbed yet", request.nic));
         }
@@ -112,7 +122,8 @@ impl Agent {
         let taps = sys::in_netns(&ns, move || sys::open_tap_queues(&tap, queues))
             .map_err(|e| e.to_string())?;
         let vhosts = sys::open_vhost(queues).map_err(|e| e.to_string())?;
-        wire::send_grant(stream, &plan.tap, &taps, &vhosts).map_err(|e| e.to_string())?;
+        wire::send_grant(stream, &plan.tap, &anchor_uid, &taps, &vhosts)
+            .map_err(|e| e.to_string())?;
         Ok(format!(
             "pid {pid} received {queues} queue(s) of {} for NIC {:?}",
             plan.tap, request.nic

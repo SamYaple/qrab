@@ -10,9 +10,10 @@
 //! let file = |_| OwnedFd::from(tempfile::tempfile().unwrap());
 //! let taps: Vec<OwnedFd> = (0..2).map(file).collect();
 //! let vhosts: Vec<OwnedFd> = (0..2).map(file).collect();
-//! send_grant(&agent, "qt0123456789ab", &taps, &vhosts).unwrap();
+//! send_grant(&agent, "qt0123456789ab", "anchor-uid", &taps, &vhosts).unwrap();
 //! let grant = receive_grant(&manager).unwrap();
 //! assert_eq!((grant.tap.as_str(), grant.taps.len(), grant.vhosts.len()), ("qt0123456789ab", 2, 2));
+//! assert_eq!(grant.anchor.as_deref(), Some("anchor-uid"));
 //! send_refusal(&agent, "no").unwrap();
 //! assert_eq!(receive_grant(&manager).unwrap_err().to_string(), "qrab-netd refused: no");
 //! ```
@@ -66,6 +67,10 @@ pub enum Op {
     Forward,
     /// Remove that route.
     Unforward,
+    /// Name the anchor Pod (UID) now serving the NIC on this node, once it
+    /// is plumbed. A manager compares it with the anchor its QEMU's queues
+    /// came from and re-attaches the NIC when the anchor was replaced.
+    Probe,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,12 +98,17 @@ struct Reply {
     tap: Option<String>,
     #[serde(default)]
     queues: u8,
+    /// UID of the anchor Pod whose tap a grant or probe refers to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    anchor: Option<String>,
 }
 
 /// A NIC's descriptors, ready for `-netdev tap,fds=…,vhostfds=…`.
 #[derive(Debug)]
 pub struct Grant {
     pub tap: String,
+    /// UID of the anchor Pod the queues belong to (absent from an older agent).
+    pub anchor: Option<String>,
     pub taps: Vec<OwnedFd>,
     pub vhosts: Vec<OwnedFd>,
 }
@@ -198,6 +208,7 @@ fn send(stream: &UnixStream, reply: &Reply, fds: &[RawFd]) -> io::Result<()> {
 pub fn send_grant(
     stream: &UnixStream,
     tap: &str,
+    anchor: &str,
     taps: &[OwnedFd],
     vhosts: &[OwnedFd],
 ) -> io::Result<()> {
@@ -215,8 +226,24 @@ pub fn send_grant(
             error: None,
             tap: Some(tap.to_owned()),
             queues,
+            anchor: Some(anchor.to_owned()),
         },
         &fds,
+    )
+}
+
+/// Answer a `probe` with the serving anchor's UID.
+pub fn send_probe(stream: &UnixStream, anchor: &str) -> io::Result<()> {
+    send(
+        stream,
+        &Reply {
+            ok: true,
+            error: None,
+            tap: None,
+            queues: 0,
+            anchor: Some(anchor.to_owned()),
+        },
+        &[],
     )
 }
 
@@ -229,6 +256,7 @@ pub fn send_ok(stream: &UnixStream) -> io::Result<()> {
             error: None,
             tap: None,
             queues: 0,
+            anchor: None,
         },
         &[],
     )
@@ -242,6 +270,7 @@ pub fn send_refusal(stream: &UnixStream, error: &str) -> io::Result<()> {
             error: Some(error.to_owned()),
             tap: None,
             queues: 0,
+            anchor: None,
         },
         &[],
     )
@@ -291,6 +320,7 @@ pub fn receive_grant(stream: &UnixStream) -> io::Result<Grant> {
     let vhosts = fds.split_off(queues);
     Ok(Grant {
         tap: reply.tap.unwrap_or_default(),
+        anchor: reply.anchor,
         taps: fds,
         vhosts,
     })
@@ -342,6 +372,37 @@ pub fn control(
             "qrab-netd refused: {}",
             reply.error.unwrap_or_default()
         )))
+    }
+}
+
+/// Ask which anchor Pod (UID) serves `nic` on this node now (the manager's
+/// side). Refused while that anchor is not plumbed.
+pub fn probe(socket: &Path, nic: &str) -> io::Result<String> {
+    let request = Request {
+        nic: nic.to_owned(),
+        queues: 0,
+        op: Op::Probe,
+        via: None,
+    };
+    let stream = connect(socket, &request, Duration::from_secs(10))?;
+    let mut body = vec![0u8; MAX_MESSAGE];
+    let n = io::Read::read(&mut &stream, &mut body)?;
+    let reply: Reply = serde_json::from_slice(&body[..n])
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
+    match reply {
+        Reply {
+            ok: true,
+            anchor: Some(anchor),
+            ..
+        } => Ok(anchor),
+        Reply { ok: true, .. } => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "probe reply names no anchor",
+        )),
+        Reply { error, .. } => Err(io::Error::other(format!(
+            "qrab-netd refused: {}",
+            error.unwrap_or_default()
+        ))),
     }
 }
 

@@ -650,9 +650,21 @@ async fn ensure_config(
                 "ConfigMap {name} belongs to another owner"
             )));
         }
-        let boot_changed = resources::data(&actual).get("vm.json")
-            != resources::data(&desired.config).get("vm.json");
-        if !boot_changed
+        let (actual_json, desired_json) = (
+            resources::data(&actual).get("vm.json").cloned(),
+            resources::data(&desired.config).get("vm.json").cloned(),
+        );
+        let changed = actual_json != desired_json;
+        // A NIC change reaches the running manager through the refreshed
+        // ConfigMap; only the rest of the config needs a new VM Pod.
+        let boot_changed = changed
+            && match (&actual_json, &desired_json) {
+                (Some(actual), Some(desired)) => {
+                    resources::boot_identity(actual).ok() != resources::boot_identity(desired).ok()
+                }
+                _ => true,
+            };
+        if !changed
             && desired
                 .config
                 .labels()

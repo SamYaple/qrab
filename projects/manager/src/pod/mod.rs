@@ -12,6 +12,7 @@ mod hotplug;
 mod iscsi;
 mod media;
 mod metrics;
+mod nics;
 pub use media::{MediaOperation, MediaPolicy, MediaStatus, MEDIA_DEVICE};
 mod firmware;
 pub use firmware::{

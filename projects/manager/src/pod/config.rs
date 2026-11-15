@@ -134,6 +134,12 @@ pub struct Nic {
     pub id: String,
     /// Unicast, locally administered guest MAC, e.g. `02:00:00:00:00:01`.
     pub mac: String,
+    /// Root port `nicport<slot>` the device sits on (with
+    /// [`Config::nic_slots`]). The operator leaves it out and the manager
+    /// assigns slots ([`Config::slotted_nics`]); a migration target takes the
+    /// source's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<u8>,
 }
 
 impl Nic {
@@ -141,6 +147,18 @@ impl Nic {
     pub fn qemu_id(&self) -> String {
         format!("nic-{}", self.id)
     }
+
+    /// QEMU id of root port `slot`.
+    pub fn port(slot: u8) -> String {
+        format!("nicport{slot}")
+    }
+}
+
+/// Chassis number of `nicport0`; each further port adds one.
+pub const NIC_CHASSIS: u32 = 16;
+
+fn is_zero(value: &u8) -> bool {
+    *value == 0
 }
 
 /// First descriptor number QEMU inherits for tap NICs; see
@@ -180,11 +198,29 @@ pub fn parse_guest_mac(value: &str) -> Option<[u8; 6]> {
     (parts.next().is_none() && mac[0] & 0b01 == 0 && mac[0] & 0b10 != 0).then_some(mac)
 }
 
-fn validate_nics(nics: &[Nic]) -> Result<()> {
+fn validate_nics(nics: &[Nic], slots: u8) -> Result<()> {
     if nics.len() > NIC_LIMIT {
         return Err(Error::Config(format!(
             "at most {NIC_LIMIT} guest NICs are supported"
         )));
+    }
+    if slots > 0 {
+        if nics.len() > usize::from(slots) {
+            return Err(Error::Config(format!(
+                "{} guest NICs need more than the {slots} NIC root ports",
+                nics.len()
+            )));
+        }
+        let mut taken = std::collections::BTreeSet::new();
+        for slot in nics.iter().filter_map(|n| n.slot) {
+            if slot >= slots || !taken.insert(slot) {
+                return Err(Error::Config(
+                    "NIC slots must be unique and below nic_slots".into(),
+                ));
+            }
+        }
+    } else if nics.iter().any(|n| n.slot.is_some()) {
+        return Err(Error::Config("NIC slots need nic_slots".into()));
     }
     let mut ids = std::collections::BTreeSet::new();
     let mut macs = std::collections::BTreeSet::new();
@@ -309,6 +345,15 @@ pub struct Config {
     /// Guest NICs. Empty means QEMU runs with `-nic none`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nics: Vec<Nic>,
+    /// PCIe root ports reserved for guest NICs (`nicport0..`), so NICs can be
+    /// hot-attached and detached while the guest runs. 0 keeps the legacy
+    /// layout: NICs on the root bus, fixed for the QEMU run.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub nic_slots: u8,
+    /// The file this config was read from; the manager re-reads it for
+    /// live NIC changes.
+    #[serde(skip)]
+    pub source: Option<PathBuf>,
     /// cloud-init NoCloud files, attached as a read-only `cidata` disk.
     #[serde(default)]
     pub seed: Option<Seed>,
@@ -344,7 +389,30 @@ impl Config {
     }
 
     pub fn read(path: &Path) -> Result<Self> {
-        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+        let mut config: Self = serde_json::from_slice(&std::fs::read(path)?)?;
+        config.source = Some(path.to_owned());
+        Ok(config)
+    }
+
+    /// The NICs with their root-port slots: explicit slots kept, the rest
+    /// given the lowest free ones in order. Without [`Self::nic_slots`] every
+    /// slot is `None`.
+    pub fn slotted_nics(&self) -> Vec<Nic> {
+        if self.nic_slots == 0 {
+            return self.nics.clone();
+        }
+        let mut taken: std::collections::BTreeSet<u8> =
+            self.nics.iter().filter_map(|n| n.slot).collect();
+        self.nics
+            .iter()
+            .map(|nic| {
+                let mut nic = nic.clone();
+                if nic.slot.is_none() {
+                    nic.slot = (0..self.nic_slots).find(|s| taken.insert(*s));
+                }
+                nic
+            })
+            .collect()
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -471,7 +539,7 @@ impl Config {
             }
         }
         super::iscsi::validate(&self.iscsi_disks)?;
-        validate_nics(&self.nics)?;
+        validate_nics(&self.nics, self.nic_slots)?;
         if let Some(seed) = &self.seed {
             seed.validate()?;
         }
@@ -565,8 +633,19 @@ impl Config {
         if self.nics.is_empty() {
             args.extend(["-nic".into(), "none".into()]);
         }
+        // Hot-pluggable ports for guest NICs; the root bus is not.
+        for slot in 0..self.nic_slots {
+            args.extend([
+                "-device".into(),
+                format!(
+                    "pcie-root-port,id={},bus=pcie.0,chassis={}",
+                    Nic::port(slot),
+                    NIC_CHASSIS + u32::from(slot)
+                ),
+            ]);
+        }
         let joined = |fds: &[i32]| fds.iter().map(i32::to_string).collect::<Vec<_>>().join(":");
-        for (nic, fds) in self.nics.iter().zip(self.tap_fds()) {
+        for (nic, fds) in self.slotted_nics().iter().zip(self.tap_fds()) {
             let queues = fds.taps.len();
             let multiqueue = if queues > 1 {
                 format!(",mq=on,vectors={}", 2 * queues + 2)
@@ -584,10 +663,13 @@ impl Config {
                 ),
                 "-device".into(),
                 format!(
-                    "virtio-net-pci,id={0},netdev={0},mac={1},romfile={2}",
+                    "virtio-net-pci,id={0},netdev={0},mac={1},romfile={2}{3}",
                     nic.qemu_id(),
                     nic.mac,
-                    multiqueue
+                    multiqueue,
+                    nic.slot
+                        .map(|slot| format!(",bus={}", Nic::port(slot)))
+                        .unwrap_or_default()
                 ),
             ]);
         }

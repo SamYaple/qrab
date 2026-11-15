@@ -222,6 +222,7 @@ fn guest_nics_need_unique_labels_and_local_unicast_macs() {
     let nic = |id: &str, mac: &str| pod::Nic {
         id: id.into(),
         mac: mac.into(),
+        slot: None,
     };
     for (nics, problem) in [
         (vec![nic("Lan", "02:00:00:00:00:01")], "id"),

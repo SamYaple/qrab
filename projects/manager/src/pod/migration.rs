@@ -155,6 +155,10 @@ pub(super) struct Offer {
     pub machine: String,
     /// Every iSCSI binding the source ever recorded, including removed IDs.
     pub iscsi_disks: BTreeMap<String, Binding>,
+    /// The guest NICs the source's QEMU has, with their root-port slots
+    /// (absent from an older source: the target uses its own config's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nics: Option<Vec<super::config::Nic>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -547,6 +551,7 @@ where
             &Reply::Offer(Offer {
                 machine,
                 iscsi_disks: retained,
+                nics: (config.nic_slots > 0).then(|| config.slotted_nics()),
             }),
         )
         .await?;
@@ -943,6 +948,7 @@ mod tests {
         let offer = Offer {
             machine: "pc-q35-11.1".into(),
             iscsi_disks: BTreeMap::new(),
+            nics: None,
         };
         write_frame(&mut stream, &Reply::Offer(offer))
             .await
