@@ -3308,3 +3308,47 @@ mod field_history_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod flag_timeline_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "compares every pinned QMP/QGA flag against its source release"]
+    fn boolean_flag_ranges_match_each_source_release() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu");
+        let pins =
+            crate::versions::parse_pinned_versions(crate::versions::PINNED_VERSIONS).unwrap();
+        let tags: Vec<_> = pins.iter().map(|pin| pin.tag.as_str()).collect();
+        let mut mismatches = Vec::new();
+        for qga in [false, true] {
+            let (sources, _) = load_versions(&repo, &tags, qga).unwrap();
+            let registry = if qga {
+                build_qga_registry(&repo, &tags).unwrap()
+            } else {
+                build_unified_registry(&repo, &tags).unwrap()
+            };
+            for source in sources {
+                for (name, value) in source.structs {
+                    let UnifiedType::Struct(merged) = &registry.types[&name] else {
+                        panic!()
+                    };
+                    for flag in TRACKED_BOOL_ATTRS {
+                        let expected = value.meta.attributes.contains(&Attribute::new(flag));
+                        let actual = merged.attr_versions.get(*flag).is_some_and(|range| {
+                            source.version >= range.since
+                                && range.until.is_none_or(|until| source.version < until)
+                        });
+                        if expected != actual {
+                            mismatches.push(format!(
+                                "{} {name}.{flag}: source={expected}, merged={actual}",
+                                source.tag
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+    }
+}
