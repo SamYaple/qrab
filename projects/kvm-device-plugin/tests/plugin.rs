@@ -94,6 +94,10 @@ async fn registers_serves_cdi_kvm_tracks_health_and_survives_kubelet_restart() {
         spec["devices"][0]["containerEdits"]["deviceNodes"][0],
         serde_json::json!({"path":"/dev/kvm","type":"c","major":10,"minor":232,"fileMode":0o666,"permissions":"rw"})
     );
+    assert_eq!(
+        spec["devices"][0]["containerEdits"]["mounts"],
+        serde_json::json!([{"hostPath":"/run/qrab-netd","containerPath":"/run/qrab-netd","options":["rbind","ro","nosuid","nodev","noexec"]}])
+    );
 
     let mut client = connect(plugins.join("qrab-kvm.sock")).await;
     let mut watch = client.list_and_watch(Empty {}).await.unwrap().into_inner();

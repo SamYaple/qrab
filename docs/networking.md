@@ -344,6 +344,59 @@ survive the NIC moving to another node. Beyond the cluster:
   `192.168.0.251` and is the only NAT, towards the internet. LAN hosts see
   guests by their own addresses.
 
+## Tap datapath
+
+The kernel datapath replacing passt is being built (container
+`nic-kernel-datapath` in towl). Its first piece, `qrab-netd`, is running; the
+operator and manager do not use it yet, so every NIC still runs on passt.
+
+`qrab-netd` (`projects/qrab-netd`) is a privileged per-node agent with host
+PIDs. It runs as a DaemonSet in `qrab-node` (`contrib/kubernetes/netd/`) and
+ships in the operator image with `ip` and `nft`. It watches the `qrab` Pods on
+its node and handles only NIC anchors annotated
+`qrab.yapplesauce.com/nic-datapath: tap`, so it never touches a passt NIC Pod.
+For each such anchor it finds a process of the Pod by its cgroup and enters
+the Pod's network namespace. There it:
+
+- creates a persistent multiqueue tap (`IFF_TAP|IFF_NO_PI|IFF_MULTI_QUEUE|IFF_VNET_HDR`)
+  named `qt` plus 12 hex digits, with a MAC derived from the VM UID and NIC
+  name. Both are the same on every node;
+- gives the tap `169.254.1.1/32` and `eth0`'s MTU, routes the guest's /32 to
+  it, and installs a permanent neighbour entry for the guest's MAC (the
+  operator's `nic::mac`);
+- enables forwarding, turns off reverse-path filtering, and redirects the
+  guest's DNS (`169.254.1.1:53`) to the anchor's own resolver with nftables;
+- removes the /32 from `eth0` last, so Cilium still delivers the address to
+  the anchor and the anchor forwards it to the tap.
+
+It reports the result as the Pod condition `qrab.yapplesauce.com/nic-plumbed`,
+which anchors are meant to list as a readiness gate. The
+`qrab-netd-anchor-status` ValidatingAdmissionPolicy confines that write to
+this one condition on tap anchors of the agent's own node.
+
+A VM's manager connects to `/run/qrab-netd/netd.sock` and sends
+`{"nic":"lan","queues":N}` (`qrab_netd::wire::request`). The KVM device
+plugin's CDI spec mounts that directory into VM Pods read-only. The agent
+resolves the peer (`SO_PEERCRED` pid → cgroup → Pod) and refuses anything
+but a qrab VM Pod asking for its own tap-mode NIC on this node. It also
+refuses while any process still holds a queue of that tap. Otherwise it
+attaches N fresh queues and opens N vhost-net descriptors, then sends both
+sets with `SCM_RIGHTS`, ready for `-netdev tap,fds=…,vhost=on,vhostfds=…`.
+The agent keeps no descriptors. Restarting it re-applies every plan, which
+changes nothing, and leaves QEMU's queues alone. `qrab-netd request NIC [N]`
+runs the client side for diagnosis.
+
+At start it opens `/dev/net/tun` and `/dev/vhost-net`, which also loads
+`vhost_net`. If either fails it exits with a message naming the device.
+Checks:
+
+- `cargo test -p qrab-netd`: unit tests and doctests.
+- Its `tests/netns.rs` builds a plan in throwaway namespaces and passes a
+  working queue to another namespace; it needs root and skips without it.
+  It passed as root on kube03 (kernel 7.0).
+- `contrib/kubernetes/netd/check-status-policy.sh` checks the status policy
+  with dry runs.
+
 ## Limits
 
 - passt is a userspace stack: every packet is copied through the NIC Pod's

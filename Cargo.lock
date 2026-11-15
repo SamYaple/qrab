@@ -3084,6 +3084,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrab-netd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "libc",
+ "nix 0.29.0",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "qrab-operator"
 version = "0.1.0"
 dependencies = [

@@ -15,6 +15,7 @@ default-members = [
     "projects/iscsi-target",
     "projects/qrab-guest-agent",
     "projects/kvm-device-plugin",
+    "projects/qrab-netd",
     "projects/qrab-spiffe",
 ]
 members = [
@@ -31,6 +32,7 @@ members = [
     "projects/iscsi-target",
     "projects/qrab-guest-agent",
     "projects/kvm-device-plugin",
+    "projects/qrab-netd",
     "projects/qrab-spiffe",
 ]
 

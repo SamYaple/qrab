@@ -62,16 +62,29 @@ pub fn kvm_device(sysfs_dev: &Path) -> Option<(u32, u32)> {
     Some((major.parse().ok()?, minor.parse().ok()?))
 }
 
-/// CDI spec for the device node. Mode 0666 applies inside the allocated
-/// container only, so the unprivileged VM user needs no host group.
+/// Directory of qrab-netd's socket (the tap datapath's per-node agent, a
+/// sibling container of this plugin). Restricted VM Pods cannot mount host
+/// paths, so the CDI spec brings it in read-only; connecting to a socket
+/// needs no write access to the mount, and the agent authenticates peers.
+pub const NETD_SOCKET_DIR: &str = "/run/qrab-netd";
+
+/// CDI spec for the device node and qrab-netd's socket directory. Mode 0666
+/// applies inside the allocated container only, so the unprivileged VM user
+/// needs no host group.
 pub fn cdi_spec(major: u32, minor: u32) -> serde_json::Value {
     serde_json::json!({
         "cdiVersion": "0.6.0",
         "kind": RESOURCE,
-        "devices": [{"name": "kvm", "containerEdits": {"deviceNodes": [{
-            "path": "/dev/kvm", "type": "c", "major": major, "minor": minor,
-            "fileMode": 0o666, "permissions": "rw"
-        }]}}]
+        "devices": [{"name": "kvm", "containerEdits": {
+            "deviceNodes": [{
+                "path": "/dev/kvm", "type": "c", "major": major, "minor": minor,
+                "fileMode": 0o666, "permissions": "rw"
+            }],
+            "mounts": [{
+                "hostPath": NETD_SOCKET_DIR, "containerPath": NETD_SOCKET_DIR,
+                "options": ["rbind", "ro", "nosuid", "nodev", "noexec"]
+            }]
+        }}]
     })
 }
 

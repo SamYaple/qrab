@@ -1,0 +1,68 @@
+# qrab-netd, the tap datapath's per-node agent (docs/networking.md, "Tap
+# datapath"). Lands through kubernetes-gitops infrastructure/qrab-node beside
+# the KVM device plugin. Unlike the plugin it is privileged with host PIDs: it
+# enters NIC anchor Pods' network namespaces to build their taps and hands tap
+# and vhost-net descriptors to VM managers over /run/qrab-netd/netd.sock,
+# which the plugin's CDI spec mounts into VM Pods.
+#
+# It runs as the plugin's ServiceAccount because the nodes' pull policy for
+# zot.yapplesauce.com/qrab/operator is bound to that account's UID; a
+# dedicated account needs a node pull-policy apply first. The plugin's Pods
+# mount no token, so only this DaemonSet uses the API rights in rbac.yaml.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: qrab-netd
+  namespace: qrab-node
+  labels:
+    app.kubernetes.io/name: qrab-netd
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-netd
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qrab-netd
+    spec:
+      serviceAccountName: qrab-kvm-device-plugin
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      hostPID: true
+      terminationGracePeriodSeconds: 5
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: netd
+        # The operator image ships this binary with ip and nft. Pin the
+        # published digest.
+        image: zot.yapplesauce.com/qrab/operator@sha256:OPERATOR_DIGEST
+        imagePullPolicy: Always
+        command: [/usr/local/bin/qrab-netd]
+        env:
+        - name: NODE_NAME
+          valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+        - {name: QRAB_NAMESPACE, value: qrab}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {cpu: 500m, memory: 128Mi}
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - {name: socket, mountPath: /run/qrab-netd}
+        - {name: api, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+      volumes:
+      - name: socket
+        hostPath: {path: /run/qrab-netd, type: DirectoryOrCreate}
+      - name: api
+        projected:
+          sources:
+          - serviceAccountToken: {path: token, expirationSeconds: 3600}
+          - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+          - downwardAPI: {items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]}

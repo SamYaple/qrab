@@ -4,14 +4,14 @@ FROM ${RUST_IMAGE} AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY projects ./projects
-RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-operator-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-operator --bin qrab-operator -p qrab-kvm-device-plugin --bin qrab-kvm-device-plugin && mkdir -p /out && cp /src/target/release/qrab-operator /src/target/release/qrab-kvm-device-plugin /out/
+RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-operator-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-operator --bin qrab-operator -p qrab-kvm-device-plugin --bin qrab-kvm-device-plugin -p qrab-netd --bin qrab-netd && mkdir -p /out && cp /src/target/release/qrab-operator /src/target/release/qrab-kvm-device-plugin /src/target/release/qrab-netd /out/
 
 FROM ${DEBIAN_IMAGE}
 ARG QRAB_REVISION=unknown
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.revision="${QRAB_REVISION}" \
       org.opencontainers.image.description="Minimal namespaced qrab VirtualMachine operator"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=build /out/qrab-operator /out/qrab-kvm-device-plugin /usr/local/bin/
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/qrab-operator /out/qrab-kvm-device-plugin /out/qrab-netd /usr/local/bin/
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/qrab-operator"]

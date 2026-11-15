@@ -1,0 +1,72 @@
+# qrab-netd's API rights (see daemonset.yaml): watch qrab Pods, and write its
+# nic-plumbed condition on tap-mode anchors of its own node only. The node
+# comes from the Pod-bound token (authentication.kubernetes.io/node-name).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qrab-netd
+  namespace: qrab
+rules:
+- apiGroups: ['']
+  resources: [pods]
+  verbs: [get, list, watch]
+- apiGroups: ['']
+  resources: [pods/status]
+  verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qrab-netd
+  namespace: qrab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: qrab-netd
+subjects:
+- {kind: ServiceAccount, name: qrab-kvm-device-plugin, namespace: qrab-node}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: qrab-netd-anchor-status
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: qrab
+    resourceRules:
+    - apiGroups: ['']
+      apiVersions: [v1]
+      operations: [UPDATE]
+      resources: [pods/status]
+  matchConditions:
+  - name: qrab-netd
+    expression: "request.userInfo.username == 'system:serviceaccount:qrab-node:qrab-kvm-device-plugin'"
+  variables:
+  - name: condition
+    expression: "'qrab.yapplesauce.com/nic-plumbed'"
+  - name: node
+    expression: "request.userInfo.extra[?'authentication.kubernetes.io/node-name'].orValue([''])[0]"
+  validations:
+  - expression: "variables.node != '' && object.spec.nodeName == variables.node"
+    message: qrab-netd writes only Pods on its own node
+  - expression: >-
+      object.metadata.?labels['app.kubernetes.io/component'].orValue('') == 'vm-nic' &&
+      object.metadata.?annotations['qrab.yapplesauce.com/nic-datapath'].orValue('') == 'tap'
+    message: qrab-netd writes only tap-mode NIC anchors
+  - expression: >-
+      object.status.?conditions.orValue([]).filter(c, c.type != variables.condition) ==
+        oldObject.status.?conditions.orValue([]).filter(c, c.type != variables.condition) &&
+      object.status.all(k, k == 'conditions' || (k in oldObject.status && object.status[k] == oldObject.status[k])) &&
+      oldObject.status.all(k, k == 'conditions' || k in object.status)
+    message: qrab-netd changes only its own nic-plumbed condition
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: qrab-netd-anchor-status
+spec:
+  policyName: qrab-netd-anchor-status
+  validationActions: [Deny]

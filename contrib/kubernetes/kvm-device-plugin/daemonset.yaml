@@ -64,8 +64,14 @@ spec:
         volumeMounts:
         - {name: device-plugins, mountPath: /var/lib/kubelet/device-plugins}
         - {name: cdi, mountPath: /var/run/cdi}
+        - {name: netd-socket, mountPath: /run/qrab-netd, readOnly: true}
       volumes:
       - name: device-plugins
         hostPath: {path: /var/lib/kubelet/device-plugins, type: Directory}
       - name: cdi
         hostPath: {path: /var/run/cdi, type: DirectoryOrCreate}
+      # Mounted read-only only so the kubelet creates it (it skips unused
+      # volumes): the CDI spec mounts this directory into VM Pods, which must
+      # start even while qrab-netd (serving the socket in it) is not running.
+      - name: netd-socket
+        hostPath: {path: /run/qrab-netd, type: DirectoryOrCreate}
