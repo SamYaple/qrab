@@ -2083,6 +2083,22 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    fn invalid_historical_inline_positions_return_contextual_errors() {
+        crate::set_parser_version((2, 3, 0));
+        for input in [
+            "{'event':'BAD','data':{'object':{'value':'str'}}}",
+            "{'command':'bad','data':{'object':{'value':'str'}}}",
+            "{'command':'bad','returns':{'value':'str'}}",
+            "{'union':'Bad','discriminator':{},'data':{'object':{'value':'str'}}}",
+        ] {
+            let error = process_version_schema(&[("old.json".into(), input.into())]).unwrap_err();
+            let error = format!("{error:#}");
+            assert!(error.contains("old.json"), "{error}");
+            assert!(error.contains("Anonymous struct"), "{error}");
+        }
+    }
+
+    #[test]
     fn legacy_alternate_lowers_to_a_bare_value_enum_and_keeps_features() {
         crate::set_parser_version((1, 7, 0));
         let input = "{ 'union': 'Ref', 'discriminator': {}, 'data': {'reference':'str'}, 'features':['deprecated'] }";

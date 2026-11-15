@@ -32,17 +32,23 @@ fn known_type(name: &str, types: &HashSet<&str>) -> Result<()> {
     Ok(())
 }
 
-fn type_ref(value: &QapiTypeRef<'_>, types: &HashSet<&str>) -> Result<()> {
+fn type_ref(value: &QapiTypeRef<'_>, types: &HashSet<&str>, inline: bool) -> Result<()> {
     match value {
         QapiTypeRef::Ref(name) | QapiTypeRef::ArrayRef(name) => known_type(name, types),
-        QapiTypeRef::InlineStruct(fields) => members(fields, types),
+        QapiTypeRef::InlineStruct(fields) => {
+            ensure!(
+                inline,
+                "Anonymous struct is only valid inside a struct definition"
+            );
+            members(fields, types, true)
+        }
         QapiTypeRef::Unset => anyhow::bail!("Missing QAPI type reference"),
     }
 }
 
-fn members(fields: &QapiMembers<'_>, types: &HashSet<&str>) -> Result<()> {
+fn members(fields: &QapiMembers<'_>, types: &HashSet<&str>, inline: bool) -> Result<()> {
     for field in &fields.0 {
-        type_ref(&field.r#type, types)
+        type_ref(&field.r#type, types, inline)
             .with_context(|| format!("Invalid member '{}'", field.name))?;
     }
     Ok(())
@@ -51,7 +57,7 @@ fn members(fields: &QapiMembers<'_>, types: &HashSet<&str>) -> Result<()> {
 fn members_or_ref(value: &MembersOrRef<'_>, types: &HashSet<&str>) -> Result<()> {
     match value {
         MembersOrRef::Ref(name) => known_type(name, types),
-        MembersOrRef::Members(fields) => members(fields, types),
+        MembersOrRef::Members(fields) => members(fields, types, false),
         MembersOrRef::Unset => Ok(()),
     }
 }
@@ -85,18 +91,18 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         if let Some(base) = value.base {
                             known_type(base, &types).context("Invalid base")?;
                         }
-                        members(&value.data, &types)?;
+                        members(&value.data, &types, true)?;
                     }
                     QapiSchemaToken::Union(value) => {
                         members_or_ref(&value.base, &types).context("Invalid base")?;
                         for branch in &value.data.0 {
-                            type_ref(&branch.r#type, &types)
+                            type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;
                         }
                     }
                     QapiSchemaToken::Alternate(value) => {
                         for branch in &value.data.0 {
-                            type_ref(&branch.r#type, &types)
+                            type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;
                         }
                     }
@@ -105,7 +111,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                             members_or_ref(data, &types).context("Invalid arguments")?;
                         }
                         if let Some(returns) = &value.returns {
-                            type_ref(returns, &types).context("Invalid return type")?;
+                            type_ref(returns, &types, false).context("Invalid return type")?;
                         }
                     }
                     QapiSchemaToken::Event(value) => {
