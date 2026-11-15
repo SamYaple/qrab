@@ -11,10 +11,12 @@
 #      ping gap and the stream must stay within RESTART_GAP_S, without a reset.
 #
 #   MOVES=20 bash contrib/check-nic-soak.sh
+#   PHASES=2 bash contrib/check-nic-soak.sh    # the restarts only
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 ns=qrab
 moves=${MOVES:-20}
+phases=${PHASES:-1 2}
 host_ip=${HOST_IP:-10.203.0.1}
 host_port=${HOST_PORT:-18191}
 restart_gap=${RESTART_GAP_S:-3}
@@ -39,12 +41,13 @@ wait_for() {
 }
 node_ip_routes() { # node: proto-252 forward routes in its host namespace
   local netd
-  netd=$(kubectl -n qrab-node get pods -o wide | awk -v n="$1" '/qrab-netd/ && $7 == n {print $1}')
+  netd=$(kubectl -n qrab-node get pods -l app.kubernetes.io/name=qrab-netd --field-selector "spec.nodeName=$1" -o name | head -1)
   kubectl -n qrab-node exec "$netd" -- nsenter -t 1 -n ip -4 route show proto 252
 }
 summary=()
 
 # 1. Repeated migrations, then the leftover audit.
+if [[ " $phases " == *" 1 "* ]]; then
 log "phase 1: $moves migrations"
 MOVES=$moves bash "$here/check-nic-migration.sh" "$vm" | tee "$work/migration.log"
 grep -q 'PASS: tap NIC live migration' "$work/migration.log" || fail "the migrations failed"
@@ -54,6 +57,7 @@ log "auditing what $vm ($address) left behind"
 # Retirement and the forward-route sweep each wait 20 s: allow two minutes.
 wait_for 120 "pool $pool to go" sh -c "! kubectl get ciliumpodippool $pool"
 wait_for 120 "route $pool to go" sh -c "! kubectl -n frr-k8s-system get frrconfiguration $pool"
+wait_for 120 "route $pool-prev to go" sh -c "! kubectl -n frr-k8s-system get frrconfiguration $pool-prev"
 wait_for 120 "Pods of $vm to go" sh -c "[ -z \"\$(kubectl -n $ns get pods -l app.kubernetes.io/instance=$vm -o name)\" ]"
 wait_for 120 "CiliumEndpoints of $vm to go" sh -c "! kubectl -n $ns get ciliumendpoints -o name | grep -q /$vm"
 for n in kube01 kube02 kube03; do
@@ -64,6 +68,8 @@ done
 summary+=("$moves migrations passed; no pool, route, Pod, endpoint, CiliumNode entry or forward route left")
 summary+=("$(grep -c '^  move ' "$work/migration.log" || true) per-move lines:")
 while read -r line; do summary+=("  $line"); done < <(grep '^  move ' "$work/migration.log")
+fi
+[[ " $phases " == *" 2 "* ]] || { log "summary:"; printf '  %s\n' "${summary[@]}"; log "PASS: NIC soak (phase 1)"; exit 0; }
 
 # 2. Agent restarts under traffic.
 log "phase 2: qrab-netd and Cilium agent restarts under traffic"
@@ -130,17 +136,17 @@ gap_since() { # start-time: longest ping and stream gaps after it
 }
 for component in qrab-netd cilium; do
   case $component in
-    qrab-netd) pod=$(kubectl -n qrab-node get pods -o wide | awk -v n="$node" '/qrab-netd/ && $7 == n {print $1}'); pns=qrab-node; label=qrab-netd ;;
-    cilium) pod=$(kubectl -n kube-system get pods -l k8s-app=cilium -o wide | awk -v n="$node" '$7 == n {print $1}'); pns=kube-system; label=k8s-app=cilium ;;
+    qrab-netd) pns=qrab-node; label=app.kubernetes.io/name=qrab-netd ;;
+    cilium) pns=kube-system; label=k8s-app=cilium ;;
   esac
+  # A node's agent Pod, and whether a Ready one other than $pod runs there.
+  on_node() { kubectl -n "$pns" get pods -l "$label" --field-selector "spec.nodeName=$node" -o jsonpath='{range .items[*]}{.metadata.name} {.status.containerStatuses[0].ready}{"\n"}{end}'; }
+  pod=$(on_node | awk 'NR == 1 {print $1}')
   start=$(date +%s.%N)
   log "restarting $pns/$pod on $node"
   kubectl -n "$pns" delete pod "$pod" --wait=true >/dev/null
-  if [ "$component" = qrab-netd ]; then
-    wait_for 180 "a new qrab-netd on $node" sh -c "kubectl -n qrab-node get pods -o wide | awk -v n=$node '/qrab-netd/ && \$7 == n && \$2 == \"1/1\"' | grep -q ."
-  else
-    wait_for 300 "a new Cilium agent on $node" sh -c "kubectl -n kube-system get pods -l $label -o wide | awk -v n=$node '\$7 == n && \$2 == \"1/1\"' | grep -q ."
-  fi
+  for _ in $(seq 1 300); do on_node | awk -v old="$pod" '$1 != old && $2 == "true"' | grep -q . && break; sleep 1; done
+  on_node | awk -v old="$pod" '$1 != old && $2 == "true"' | grep -q . || fail "no new Ready $component on $node within 300s"
   sleep 20
   read -r ping_gap stream_gap < <(gap_since "$start")
   grep -q ' 1 closed$' "$work/stream.log" && fail "the guest's TCP stream was reset by the $component restart"
