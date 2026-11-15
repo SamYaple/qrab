@@ -699,6 +699,8 @@ it does not cover the useful panel area.
 The dashboard and BMC follow the system light/dark preference. Dashboard pages
 remain server-rendered; the BMC uses the shared interface assets. Keyboard users
 can skip the header, and the navigation identifies the current dashboard page.
+Coarse-pointer devices get larger controls, navigation links and disclosure
+targets, including tablets with wide viewports.
 
 For a visual check, generate representative pages and run the isolated browser
 checks. The Python environment needs `playwright`; use an existing Chromium

@@ -337,3 +337,14 @@ summary::marker { color: var(--accent); }
 .field-error { color: var(--bad); font-size: .875rem; line-height: 1.6; }
 .field-error p { margin: 4px 0 0; }
 input[aria-invalid=true], select[aria-invalid=true], textarea[aria-invalid=true] { border-color: var(--bad); }
+
+/* Tablets can have wide viewports. Size touch targets by input device as well
+   as keeping the compact desktop controls for a precise pointer. */
+@media (pointer: coarse) {
+    button, .button, .quiet, .operator .button { min-height: 44px; min-width: 44px; }
+    input:not([type=checkbox]):not([type=radio]), select { min-height: 44px; }
+    .site-nav a, .back, .section-nav a { display: inline-flex; align-items: center; min-height: 44px; }
+    summary { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+    .disclosure > summary, .inline-disclosure > summary, .console-power-more > summary { min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+    .choices label { min-height: 44px; }
+}

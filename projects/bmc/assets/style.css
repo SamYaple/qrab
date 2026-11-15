@@ -267,6 +267,12 @@ svg.chart .hit { fill: transparent; }
 #events li.gap b { color: var(--warn); }
 .panel-help { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0 0 12px; }
 
+@media (pointer: coarse) {
+    button, .button { min-height: 44px; min-width: 44px; }
+    .power-advanced > summary, .event-details > summary, #events-filter { min-height: 44px; }
+    .vm-navigation a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+
 /* ── Responsive ── */
 @media (max-width: 1000px) {
     .panel-jump { display: inline-block; }
