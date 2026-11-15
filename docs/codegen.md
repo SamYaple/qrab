@@ -183,6 +183,9 @@ with schema-defined names. Discriminator dispatch selects the representation
 for the scoped peer version; unscoped inspection uses the newest shape and
 does not fall back to an obsolete permissive shape after a decoding error.
 Generated metadata carries each representation's original wire tag and lifetime.
+Fields and enum members that disappear and later return retain separate
+lifetimes, so the intervening releases do not inherit the restored member.
+String enum decoding selects the active representation of a shared wire tag.
 
 Field payload changes, optionality changes and wire renames retain `_legacy`
 representations with separate lifetimes. Shared wire names populate only the

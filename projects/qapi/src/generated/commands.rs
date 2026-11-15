@@ -4929,8 +4929,14 @@ pub struct NetdevDel {
 pub struct ObjectAdd {
     /// Additional command arguments not modeled by this schema.
     #[qapi(flatten)]
+    #[qapi(added = "5.0.0")]
     #[qapi(removed = "6.0.0")]
     pub arguments: Option<HashMap<String, serde_json::Value>>,
+    /// Additional command arguments not modeled by this schema.
+    #[qapi(flatten)]
+    #[qapi(name = "arguments")]
+    #[qapi(removed = "2.5.0")]
+    pub arguments_legacy: Option<HashMap<String, serde_json::Value>>,
     /// the name of the new object
     pub id: String,
     /// a dictionary of properties to be passed to the backend. Deprecated

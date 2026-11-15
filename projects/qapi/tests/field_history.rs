@@ -2,6 +2,47 @@
 use serde_json::json;
 
 #[test]
+fn stable_branch_backports_do_not_enable_missing_fields_in_other_series() {
+    for version in [(10, 0, 10), (10, 2, 3), (11, 0, 1), (11, 1, 3)] {
+        qapi::with_version(version, || {
+            let wire = json!({"event":"read_aio","delay-ns":7});
+            let value: qapi::BlkdebugInjectErrorOptions =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    for version in [(10, 0, 9), (10, 1, 0), (10, 2, 2), (11, 0, 0)] {
+        qapi::with_version(version, || {
+            assert!(serde_json::from_value::<qapi::BlkdebugInjectErrorOptions>(
+                json!({"event":"read_aio","delay-ns":7})
+            )
+            .is_err());
+            let wire = json!({"event":"read_aio"});
+            let value: qapi::BlkdebugInjectErrorOptions =
+                serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+}
+
+#[test]
+fn object_add_catchall_maps_keep_their_separate_lifetimes() {
+    for version in [(2, 4, 0), (5, 0, 0)] {
+        qapi::with_version(version, || {
+            let wire = json!({"id":"rng","qom-type":"rng-random","filename":"/dev/urandom"});
+            let value: qapi::commands::ObjectAdd = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    qapi::with_version((3, 0, 0), || {
+        let wire = json!({"id":"rng","qom-type":"rng-random","props":{"filename":"/dev/urandom"}});
+        let value: qapi::commands::ObjectAdd = serde_json::from_value(wire.clone()).unwrap();
+        assert!(value.arguments.is_none() && value.arguments_legacy.is_none());
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    });
+}
+
+#[test]
 fn schema_introspection_keeps_the_historical_required_oob_flag() {
     let minimal = json!({"arg-type":"q_empty","ret-type":"q_empty"});
     qapi::with_version((2, 12, 0), || {

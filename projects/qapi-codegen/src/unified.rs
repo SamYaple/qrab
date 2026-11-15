@@ -1186,7 +1186,9 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     .iter()
                     .find(|old| old.name == variant.name)
                     .unwrap();
-                if !same_variant_shape(old, variant) {
+                if !same_variant_shape(old, variant)
+                    || existing.variant_versions[&variant.name].until.is_some()
+                {
                     let mut old_versions = existing.variant_versions[&variant.name].clone();
                     old_versions.until = old_versions.until.or(Some(version));
                     existing.variant_history.push((old.clone(), old_versions));
@@ -1389,7 +1391,9 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                     .iter()
                     .find(|old| old.name == field.name)
                     .unwrap();
-                if !same_field_shape(old, field) {
+                if !same_field_shape(old, field)
+                    || existing.field_versions[&field.name].until.is_some()
+                {
                     let mut old_versions = existing.field_versions[&field.name].clone();
                     old_versions.until = old_versions.until.or(Some(version));
                     existing.field_history.push((old.clone(), old_versions));
@@ -2871,6 +2875,24 @@ mod enum_history_tests {
     }
 
     #[test]
+    fn reintroduced_variants_keep_the_gap_between_lifetimes() {
+        let mut registry = UnifiedRegistry::default();
+        let present = enumeration("returning", EnumVariantKind::Unit, false);
+        let mut absent = present.clone();
+        absent.variants.clear();
+        for (major, value) in [(1, &present), (2, &absent), (3, &present)] {
+            merge_enum(&mut registry, "Example", value, (major, 0, 0));
+        }
+        materialize_variant_history(&mut registry);
+        let UnifiedType::Enum(value) = &registry.types["Example"] else {
+            panic!()
+        };
+        assert_eq!(value.variant_versions["returning"].since, (3, 0, 0));
+        assert_eq!(value.variant_history.len(), 1);
+        assert_eq!(value.variant_history[0].1.until, Some((2, 0, 0)));
+    }
+
+    #[test]
     fn payload_history_keeps_each_shape_and_avoids_real_variant_name_collisions() {
         let mut registry = UnifiedRegistry::default();
         for (major, payload, array) in [
@@ -2983,6 +3005,23 @@ mod field_history_tests {
             fields,
             meta: Metadata::default(),
         }
+    }
+
+    #[test]
+    fn reintroduced_fields_keep_the_gap_between_lifetimes() {
+        let mut registry = UnifiedRegistry::default();
+        let present = record(vec![field("returning", "str", false)]);
+        let absent = record(vec![]);
+        for (major, value) in [(1, &present), (2, &absent), (3, &present)] {
+            merge_struct(&mut registry, "Record", value, (major, 0, 0));
+        }
+        materialize_field_history(&mut registry);
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert_eq!(value.field_versions["returning"].since, (3, 0, 0));
+        assert_eq!(value.field_history.len(), 1);
+        assert_eq!(value.field_history[0].1.until, Some((2, 0, 0)));
     }
 
     #[test]

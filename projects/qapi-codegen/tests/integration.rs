@@ -1375,8 +1375,26 @@ fn test_generated_code_inlines_boxed_command_data() {
                 })
             };
             if marker("flatten") {
-                let argument_map = field.ident.as_ref().is_some_and(|i| i == "arguments")
-                    && matches!(&field.ty, syn::Type::Path(p) if p.path.segments.last().is_some_and(|s| s.ident == "Option" || s.ident == "HashMap"));
+                fn argument_map_type(ty: &syn::Type) -> bool {
+                    let syn::Type::Path(path) = ty else {
+                        return false;
+                    };
+                    let Some(segment) = path.path.segments.last() else {
+                        return false;
+                    };
+                    if segment.ident == "HashMap" {
+                        return true;
+                    }
+                    if segment.ident == "Option" {
+                        if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                            if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                                return argument_map_type(inner);
+                            }
+                        }
+                    }
+                    false
+                }
+                let argument_map = argument_map_type(&field.ty);
                 assert!(
                     marker("union") || argument_map,
                     "Unexpected flatten field in {}: {:?}",

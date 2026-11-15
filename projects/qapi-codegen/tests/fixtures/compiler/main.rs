@@ -5,6 +5,28 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    for version in [(2, 3, 0), (6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            let tag: PresenceKind = serde_json::from_value(serde_json::json!("returning")).unwrap();
+            assert_eq!(
+                serde_json::to_value(tag).unwrap(),
+                serde_json::json!("returning")
+            );
+            assert!(serde_json::from_value::<PresenceRecord>(serde_json::json!({})).is_err());
+            let wire = serde_json::json!({"returning":"present"});
+            let value: PresenceRecord = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    for version in [(2, 9, 0), (2, 10, 0)] {
+        with_version(version, || {
+            assert!(
+                serde_json::from_value::<PresenceKind>(serde_json::json!("returning")).is_err()
+            );
+            let value: PresenceRecord = serde_json::from_value(serde_json::json!({})).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!({}));
+        });
+    }
     for (version, wire) in [
         ((6, 1, 0), serde_json::json!({"optional-now":"old"})),
         ((11, 1, 3), serde_json::json!({"required-now":"new"})),

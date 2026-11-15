@@ -805,16 +805,19 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
         .map(|v| {
             let ident = &v.ident;
             let wn = wire_name(&v.attrs.name, &v.ident);
+            let selected = payload_history_selection(v, variants);
             quote! {
-                #wn => Ok(#name::#ident),
+                #wn if #selected => Ok(#name::#ident),
             }
         })
         .collect();
 
-    let wn_strs: Vec<String> = variants
+    let mut wn_strs: Vec<String> = variants
         .iter()
         .map(|v| wire_name(&v.attrs.name, &v.ident))
         .collect();
+    wn_strs.sort();
+    wn_strs.dedup();
 
     quote! {
         #[allow(deprecated)]

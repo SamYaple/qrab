@@ -1283,8 +1283,20 @@ pub struct BlkdebugInjectErrorOptions {
     /// request delay before completion in nanoseconds
     /// (default: 0, since: 11.1)
     #[qapi(name = "delay-ns")]
-    #[qapi(added = "10.0.10")]
+    #[qapi(added = "11.0.1")]
     pub delay_ns: Option<i64>,
+    /// request delay before completion in nanoseconds
+    /// (default: 0, since: 11.1)
+    #[qapi(name = "delay-ns")]
+    #[qapi(added = "10.0.10")]
+    #[qapi(removed = "10.1.0")]
+    pub delay_ns_legacy: Option<i64>,
+    /// request delay before completion in nanoseconds
+    /// (default: 0, since: 11.1)
+    #[qapi(name = "delay-ns")]
+    #[qapi(added = "10.2.3")]
+    #[qapi(removed = "11.0.0")]
+    pub delay_ns_legacy2: Option<i64>,
     /// error identifier (errno) to be returned; defaults to EIO
     pub errno: Option<i64>,
     /// trigger event
