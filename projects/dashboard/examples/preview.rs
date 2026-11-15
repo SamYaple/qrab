@@ -410,6 +410,20 @@ fn main() {
                 update.error = None;
             }
         }
+        if name == "detail-network" {
+            let mut redfish_only = detail.clone();
+            redfish_only.bmc_enabled = false;
+            write(
+                dir,
+                "detail-redfish-only",
+                page(Body::Detail(Box::new(DetailPage {
+                    detail: redfish_only,
+                    panel: PanelState::Loaded(Box::new(live_panel.clone())),
+                    deletable: true,
+                }))),
+                &css,
+            );
+        }
         let body = Body::Detail(Box::new(DetailPage {
             detail,
             panel: PanelState::Loaded(Box::new(live_panel)),

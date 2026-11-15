@@ -683,7 +683,7 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
                         input { r#type: "hidden", name: "csrf", value: "{csrf}" }
                         input { r#type: "hidden", name: "action", value: a.key() }
                         if a.needs_confirmation() {
-                            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true } "Confirm" }
+                            label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, aria_label: "Confirm {a.label()} for {detail.row.name}" } "Confirm" }
                         }
                         button { class: if a.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {a.label()} }
                     }
@@ -698,7 +698,7 @@ fn power_controls(detail: &Detail, csrf: &str, panel: &PanelState) -> Element {
                             input { r#type: "hidden", name: "csrf", value: "{csrf}" }
                             input { r#type: "hidden", name: "action", value: a.name() }
                             if a.needs_confirmation() {
-                                label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true } "Confirm" }
+                                label { class: "confirm", input { r#type: "checkbox", name: "confirm", value: "yes", required: true, aria_label: "Confirm {a.label()} for {detail.row.name}" } "Confirm" }
                             }
                             button { class: if a.needs_confirmation() { "danger" } else { "quiet" }, r#type: "submit", {a.label()} }
                         }
@@ -714,12 +714,13 @@ fn delete_form(detail: &Detail, csrf: &str) -> Element {
     rsx! {
         section { class: "card danger-zone", aria_labelledby: "delete-title",
             h2 { id: "delete-title", "Delete this VM" }
-            p { class: "muted", "Deletes the VirtualMachine; its Pod and ConfigMap go with it. The state PVC "
-                code { "{detail.state_pvc}" } " is kept: it holds the VM's firmware variables and TPM identity. Ask an administrator to delete it deliberately." }
-            form { class: "add-member", method: "post", action: "{action}",
+            p { class: "muted prose", "Removes this VM, its Pod and ConfigMap. The state PVC "
+                code { "{detail.state_pvc}" } " is kept: it holds the VM's firmware variables and TPM identity." }
+            p { class: "muted prose", "Provisioned guest disks keep their data; their connections are closed as the VM is removed. Access groups are kept too. Ask an administrator to clean up retained resources before reusing this VM name." }
+            form { class: "delete-confirmation", method: "post", action: "{action}",
                 input { r#type: "hidden", name: "csrf", value: "{csrf}" }
-                label { r#for: "confirm-name", "Type the VM name to confirm" }
-                input { id: "confirm-name", name: "confirm_name", required: true, autocomplete: "off" }
+                label { r#for: "confirm-name", "Type " code { "{detail.row.name}" } " to confirm deletion" }
+                input { id: "confirm-name", name: "confirm_name", required: true, autocomplete: "off", autocapitalize: "none", spellcheck: "false" }
                 button { class: "danger", r#type: "submit", "Delete VM" }
             }
         }
@@ -1209,9 +1210,9 @@ fn images_page(images: &[BaseImage]) -> Element {
         }
         section { class: "card wide", aria_labelledby: "how-title",
             h2 { id: "how-title", "A separate disk for each VM" }
-            p { "Launching from an image creates a writable root disk for that VM. Your changes stay with the VM; the image remains unchanged. A new image release is listed as a new generation." }
+            p { class: "prose", "Launching from an image creates a writable root disk for that VM. Your changes stay with the VM; the image remains unchanged. A new image release is listed as a new generation." }
             details { id: "image-staging", class: "inline-disclosure", summary { "Image verification and staging" }
-              ol {
+              ol { class: "prose",
                 li { "An administrator stages an image with " code { "contrib/images/stage-base-image.sh" } ": it downloads a known release, checks the upstream SHA-256 and converts it to a raw disk." }
                 li { "As root on the storage node, the import writes it to a ZFS volume and seals it as the read-only snapshot " code { "image-<name>-g<generation>@sealed" } ", checking the raw SHA-256. The script then records it here." }
                 li { "Each VM launched with it gets its own copy-on-write clone of that snapshot as its " code { "root" } " disk, exported over iSCSI and booted by UEFI. The image itself never changes; a new release is a new generation." }

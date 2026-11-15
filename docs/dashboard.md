@@ -330,7 +330,14 @@ Deleting a VM (console admin of a dashboard-launched VM, type its name to
 confirm) deletes the VirtualMachine
 with a UID precondition. Its Pod, ConfigMap and disk Secrets follow. The
 state PVC stays: it holds the firmware variables and TPM identity, and an
-administrator deletes it deliberately. The Kanidm groups stay too.
+administrator deletes it deliberately. Provisioned guest disks retain their data
+after their connections are closed (see [retained storage](iscsi.md#destroying-retained-data)).
+The Kanidm groups stay too. The confirmation form repeats the exact VM name and
+explains these retained resources; an administrator must clean up the existing
+PVC and groups before the dashboard can reuse the name. Power confirmation
+checkboxes identify both their action and VM to assistive technology, and their
+click targets include the full label height. These changes do not alter the
+server's exact-name and explicit-confirmation requirements.
 
 ### The detail page
 

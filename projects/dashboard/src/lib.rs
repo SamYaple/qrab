@@ -487,7 +487,7 @@ async fn delete(
     flash(
         &session,
         format!(
-            "Deleted VM {name}. Its state PVC {} was kept: it holds the TPM identity and firmware variables. An administrator deletes it deliberately.",
+            "Deleted VM {name}. Its state PVC {} was kept: it holds the TPM identity and firmware variables. Provisioned guest disks and access groups are retained too. Ask an administrator to clean up retained resources before reusing this VM name.",
             vm.spec.state_volume_claim
         ),
     )

@@ -577,7 +577,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser.new_context(viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
+            for name in ['list', 'list-long', 'list-storage', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'images', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 no_overflow(page, name, width)
@@ -619,6 +619,25 @@ with sync_playwright() as playwright:
                     expect(row.locator('td[data-label=Storage]')).to_contain_text('8.0 GiB reported')
                 capture(page, args.output / f'{name}-{theme}-{width}.png')
                 if name.startswith('detail'):
+                    confirmations = page.get_by_role('checkbox')
+                    if confirmations.count():
+                        names = [box.get_attribute('aria-label') for box in confirmations.all()]
+                        assert all(label and label.startswith('Confirm ') and ' for ' in label for label in names)
+                        assert len(set(names)) == len(names), 'Power confirmations must identify their action'
+                        box = confirmations.first
+                        label = box.locator('..')
+                        assert label.bounding_box()['height'] >= 44
+                        form = box.locator('xpath=ancestor::form')
+                        assert not form.evaluate('(e) => e.checkValidity()')
+                        box.focus()
+                        page.keyboard.press('Space')
+                        expect(box).to_be_checked()
+                        assert form.evaluate('(e) => e.checkValidity()')
+                        page.keyboard.press('Space')
+                    if page.locator('#confirm-name').count():
+                        expect(page.locator('label[for=confirm-name] code')).to_have_text(page.locator('h1').inner_text())
+                        expect(page.locator('#confirm-name')).to_have_attribute('autocapitalize', 'none')
+                        expect(page.locator('.danger-zone')).to_contain_text('Access groups are kept')
                     for selector in ['#effective-configuration', '#pod-resources', '#recent-events']:
                         disclosure = page.locator(selector)
                         assert not disclosure.evaluate('(e) => e.open')
