@@ -264,6 +264,17 @@ impl Agent {
             let agent = self.clone();
             std::thread::spawn(move || {
                 let peer = *from.ip();
+                // Only another node (on a host link) may ask; anything else
+                // is dropped before it costs an API call.
+                let host = sys::host_netns(&agent.proc_root);
+                if !sys::in_netns(&host, move || Ok(sys::is_link_peer(peer))).unwrap_or(false) {
+                    log(
+                        "conntrack_refused",
+                        serde_json::json!({"to": peer, "error": "not a node on a host link"}),
+                    );
+                    agent.peers_busy.fetch_sub(1, Ordering::SeqCst);
+                    return;
+                }
                 let mut outcome = None;
                 let served = peer::serve_one(&stream, |address| {
                     let result = agent.answer_peer(peer, address);
