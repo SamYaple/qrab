@@ -94,6 +94,8 @@ pub struct UnifiedEnum {
     pub versions: VersionRange,
     /// Per-variant version ranges (keyed by variant name)
     pub variant_versions: BTreeMap<String, VersionRange>,
+    /// Earlier payload shapes, retained before synthetic legacy variants are emitted.
+    pub variant_history: Vec<(EnumVariant, VersionRange)>,
 }
 
 /// A struct with version-annotated fields.
@@ -672,6 +674,7 @@ pub fn build_unified_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result
     }
     eprintln!("  Merge loop: {:.1}s", merge_start.elapsed().as_secs_f64());
     let fix_start = Instant::now();
+    materialize_variant_history(&mut registry);
     fix_recursive_types(&mut registry);
     eprintln!(
         "  fix_recursive_types: {:.1}s",
@@ -780,6 +783,56 @@ fn variant_rust_name(v: &EnumVariant) -> String {
     crate::qapi_ir::rustify_name(&v.name)
 }
 
+fn same_variant_shape(left: &EnumVariant, right: &EnumVariant) -> bool {
+    left.array == right.array
+        && match (&left.kind, &right.kind) {
+            (EnumVariantKind::Tuple(left), EnumVariantKind::Tuple(right)) => {
+                rustify_type(left) == rustify_type(right)
+            }
+            (left, right) => left == right,
+        }
+}
+
+/// Materialize old payloads only after merging, so synthetic names never look like schema renames.
+fn materialize_variant_history(registry: &mut UnifiedRegistry) {
+    for value in registry.types.values_mut() {
+        let UnifiedType::Enum(value) = value else {
+            continue;
+        };
+        let mut used: BTreeSet<_> = value.ir.variants.iter().map(variant_rust_name).collect();
+        for (historical, versions) in &value.variant_history {
+            let mut variant = historical.clone();
+            let wire = variant
+                .meta
+                .attributes
+                .iter()
+                .find_map(|attr| match attr {
+                    Attribute::Item { name, value } if name == "name" => Some(value.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| variant.name.clone());
+            let base = format!("{}Legacy", variant_rust_name(&variant));
+            let mut name = base.clone();
+            let mut suffix = 2;
+            while !used.insert(name.clone()) {
+                name = format!("{base}{suffix}");
+                suffix += 1;
+            }
+            variant.name = name.clone();
+            variant
+                .meta
+                .attributes
+                .retain(|attr| !matches!(attr, Attribute::Item { name, .. } if name == "name"));
+            variant
+                .meta
+                .attributes
+                .push(Attribute::with_value("name", wire));
+            value.variant_versions.insert(name, versions.clone());
+            value.ir.variants.push(variant);
+        }
+    }
+}
+
 fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Version) {
     if let Some(UnifiedType::Enum(existing)) = registry.types.get_mut(name) {
         existing.versions.until = None;
@@ -810,6 +863,20 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         for variant in &e.variants {
             seen_variants.insert(variant.name.clone());
             if existing.variant_versions.contains_key(&variant.name) {
+                let old = existing
+                    .ir
+                    .variants
+                    .iter()
+                    .find(|old| old.name == variant.name)
+                    .unwrap();
+                if !same_variant_shape(old, variant) {
+                    let mut old_versions = existing.variant_versions[&variant.name].clone();
+                    old_versions.until = old_versions.until.or(Some(version));
+                    existing.variant_history.push((old.clone(), old_versions));
+                    existing
+                        .variant_versions
+                        .insert(variant.name.clone(), VersionRange::new(version));
+                }
                 // Variant still exists — clear until, track deprecation.
                 let vr = existing.variant_versions.get_mut(&variant.name).unwrap();
                 vr.until = None;
@@ -850,18 +917,16 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     .position(|v| variant_rust_name(v) == rust_name && v.name != variant.name);
 
                 if let Some(old_idx) = renamed_from {
-                    // It's a rename: update the old variant's wire name to the new one
-                    let old_name = existing.ir.variants[old_idx].name.clone();
-                    let old_vr = existing.variant_versions.remove(&old_name).unwrap();
-                    // Replace old variant IR with new one, keeping the old version range
-                    let mut v = variant.clone();
-                    clean_doc_in_place(&mut v.meta.doc);
-                    existing.ir.variants[old_idx] = v;
+                    let old = existing.ir.variants[old_idx].clone();
+                    let mut old_versions = existing.variant_versions.remove(&old.name).unwrap();
+                    old_versions.until = old_versions.until.or(Some(version));
+                    existing.variant_history.push((old, old_versions));
+                    let mut value = variant.clone();
+                    clean_doc_in_place(&mut value.meta.doc);
+                    existing.ir.variants[old_idx] = value;
                     existing
                         .variant_versions
-                        .insert(variant.name.clone(), old_vr);
-                    // Also mark the old QAPI name as seen so it doesn't get marked as removed
-                    seen_variants.insert(old_name);
+                        .insert(variant.name.clone(), VersionRange::new(version));
                 } else {
                     // Genuinely new variant
                     existing
@@ -906,6 +971,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 ir,
                 versions,
                 variant_versions,
+                variant_history: Vec::new(),
             }),
         );
     }
@@ -1736,6 +1802,7 @@ pub fn build_qga_registry(qemu_repo: &Path, version_tags: &[&str]) -> Result<Uni
     if skipped > 0 {
         eprintln!("  QGA skipped {} identical schemas", skipped);
     }
+    materialize_variant_history(&mut registry);
     fix_recursive_types(&mut registry);
     eprintln!(
         "  QGA merge: {:.1}s — {} types",
@@ -1885,5 +1952,116 @@ mod schema_resolution_tests {
             let error = process(input).unwrap_err().to_string();
             assert!(error.contains(message), "{error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod enum_history_tests {
+    use super::*;
+
+    fn enumeration(wire: &str, payload: EnumVariantKind, array: bool) -> Enum {
+        Enum {
+            name: "Example".into(),
+            meta: Metadata::default(),
+            variants: vec![EnumVariant {
+                name: wire.into(),
+                kind: payload,
+                array,
+                meta: Metadata {
+                    doc: None,
+                    attributes: vec![Attribute::with_value("name", wire)],
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn payload_history_keeps_each_shape_and_avoids_real_variant_name_collisions() {
+        let mut registry = UnifiedRegistry::default();
+        for (major, payload, array) in [
+            (1, "int", false),
+            (2, "str", false),
+            (3, "int", true),
+            (4, "int64", true),
+        ] {
+            let mut input = enumeration("value", EnumVariantKind::Tuple(payload.into()), array);
+            input.variants.push(EnumVariant {
+                name: "value-legacy".into(),
+                kind: EnumVariantKind::Unit,
+                array: false,
+                meta: Metadata {
+                    doc: None,
+                    attributes: vec![Attribute::with_value("name", "value-legacy")],
+                },
+            });
+            merge_enum(&mut registry, "Example", &input, (major, 0, 0));
+        }
+        materialize_variant_history(&mut registry);
+        let UnifiedType::Enum(value) = &registry.types["Example"] else {
+            panic!()
+        };
+        assert_eq!(
+            value.variant_history.len(),
+            2,
+            "Rust-equivalent int/int64 must not create another representation"
+        );
+        assert_eq!(value.ir.variants.len(), 4);
+        assert_eq!(value.variant_versions["value"].since, (3, 0, 0));
+        assert_eq!(
+            value.variant_versions["ValueLegacy2"].until,
+            Some((2, 0, 0))
+        );
+        assert_eq!(
+            value.variant_versions["ValueLegacy3"].until,
+            Some((3, 0, 0))
+        );
+        assert!(
+            value
+                .ir
+                .variants
+                .iter()
+                .filter(|variant| variant.name.starts_with("ValueLegacy"))
+                .all(|variant| variant
+                    .meta
+                    .attributes
+                    .contains(&Attribute::with_value("name", "value")))
+        );
+    }
+
+    #[test]
+    fn wire_renames_with_the_same_rust_name_keep_both_spellings() {
+        let mut registry = UnifiedRegistry::default();
+        merge_enum(
+            &mut registry,
+            "Example",
+            &enumeration("foo-bar", EnumVariantKind::Unit, false),
+            (1, 0, 0),
+        );
+        merge_enum(
+            &mut registry,
+            "Example",
+            &enumeration("foo_bar", EnumVariantKind::Unit, false),
+            (2, 0, 0),
+        );
+        materialize_variant_history(&mut registry);
+        let UnifiedType::Enum(value) = &registry.types["Example"] else {
+            panic!()
+        };
+        assert_eq!(value.variant_versions["foo_bar"].since, (2, 0, 0));
+        assert_eq!(
+            value.variant_versions["FooBarLegacy"].until,
+            Some((2, 0, 0))
+        );
+        let old = value
+            .ir
+            .variants
+            .iter()
+            .find(|variant| variant.name == "FooBarLegacy")
+            .unwrap();
+        assert!(
+            old.meta
+                .attributes
+                .contains(&Attribute::with_value("name", "foo-bar"))
+        );
     }
 }

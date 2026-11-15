@@ -314,8 +314,13 @@ pub enum AudiodevBranch {
     Coreaudio(AudiodevCoreaudioOptions),
     #[qapi(name = "dbus")]
     #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
-    #[qapi(added = "7.0.0")]
+    #[qapi(added = "10.0.0")]
     Dbus(AudiodevDBusOptions),
+    #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
+    #[qapi(name = "dbus")]
+    #[qapi(added = "7.0.0")]
+    #[qapi(removed = "10.0.0")]
+    DbusLegacy(AudiodevGenericOptions),
     #[qapi(name = "dsound")]
     #[qapi(condition = "CONFIG_AUDIO_DSOUND")]
     Dsound(AudiodevDsoundOptions),
@@ -337,7 +342,11 @@ pub enum AudiodevBranch {
     Pipewire(AudiodevPipewireOptions),
     #[qapi(name = "sdl")]
     #[qapi(condition = "CONFIG_AUDIO_SDL")]
+    #[qapi(added = "6.0.0")]
     Sdl(AudiodevSdlOptions),
+    #[qapi(name = "sdl")]
+    #[qapi(removed = "6.0.0")]
+    SdlLegacy(AudiodevGenericOptions),
     #[qapi(name = "sndio")]
     #[qapi(condition = "CONFIG_AUDIO_SNDIO")]
     #[qapi(added = "7.2.0")]
@@ -1119,10 +1128,13 @@ pub enum BlkdebugEvent {
     #[qapi(name = "flush_to_os")]
     FlushToOs,
     #[qapi(name = "l1_grow_activate_table")]
+    #[qapi(added = "2.6.0")]
     L1GrowActivateTable,
     #[qapi(name = "l1_grow_alloc_table")]
+    #[qapi(added = "2.6.0")]
     L1GrowAllocTable,
     #[qapi(name = "l1_grow_write_table")]
+    #[qapi(added = "2.6.0")]
     L1GrowWriteTable,
     /// discard the l2 tables.  (since 2.11)
     #[qapi(name = "l1_shrink_free_l2_clusters")]
@@ -1135,9 +1147,20 @@ pub enum BlkdebugEvent {
     L1ShrinkWriteTable,
     #[qapi(name = "l1_update")]
     L1Update,
+    #[qapi(name = "l1_grow.activate_table")]
+    #[qapi(removed = "2.6.0")]
+    L1GrowActivateTableLegacy,
+    #[qapi(name = "l1_grow.alloc_table")]
+    #[qapi(removed = "2.6.0")]
+    L1GrowAllocTableLegacy,
+    #[qapi(name = "l1_grow.write_table")]
+    #[qapi(removed = "2.6.0")]
+    L1GrowWriteTableLegacy,
     #[qapi(name = "l2_alloc_cow_read")]
+    #[qapi(added = "2.6.0")]
     L2AllocCowRead,
     #[qapi(name = "l2_alloc_write")]
+    #[qapi(added = "2.6.0")]
     L2AllocWrite,
     #[qapi(name = "l2_load")]
     L2Load,
@@ -1145,6 +1168,12 @@ pub enum BlkdebugEvent {
     L2Update,
     #[qapi(name = "l2_update_compressed")]
     L2UpdateCompressed,
+    #[qapi(name = "l2_alloc.cow_read")]
+    #[qapi(removed = "2.6.0")]
+    L2AllocCowReadLegacy,
+    #[qapi(name = "l2_alloc.write")]
+    #[qapi(removed = "2.6.0")]
+    L2AllocWriteLegacy,
     /// triggers once at creation of the blkdebug node (since 4.1)
     #[qapi(name = "none")]
     #[qapi(added = "4.1.0")]
@@ -1156,20 +1185,36 @@ pub enum BlkdebugEvent {
     #[qapi(added = "2.2.0")]
     PwritevDone,
     #[qapi(name = "pwritev_rmw_after_head")]
-    #[qapi(added = "2.2.0")]
+    #[qapi(added = "2.6.0")]
     PwritevRmwAfterHead,
     #[qapi(name = "pwritev_rmw_after_tail")]
-    #[qapi(added = "2.2.0")]
+    #[qapi(added = "2.6.0")]
     PwritevRmwAfterTail,
     #[qapi(name = "pwritev_rmw_head")]
-    #[qapi(added = "2.2.0")]
+    #[qapi(added = "2.6.0")]
     PwritevRmwHead,
     #[qapi(name = "pwritev_rmw_tail")]
-    #[qapi(added = "2.2.0")]
+    #[qapi(added = "2.6.0")]
     PwritevRmwTail,
     #[qapi(name = "pwritev_zero")]
     #[qapi(added = "2.2.0")]
     PwritevZero,
+    #[qapi(name = "pwritev_rmw.after_head")]
+    #[qapi(added = "2.2.0")]
+    #[qapi(removed = "2.6.0")]
+    PwritevRmwAfterHeadLegacy,
+    #[qapi(name = "pwritev_rmw.after_tail")]
+    #[qapi(added = "2.2.0")]
+    #[qapi(removed = "2.6.0")]
+    PwritevRmwAfterTailLegacy,
+    #[qapi(name = "pwritev_rmw.head")]
+    #[qapi(added = "2.2.0")]
+    #[qapi(removed = "2.6.0")]
+    PwritevRmwHeadLegacy,
+    #[qapi(name = "pwritev_rmw.tail")]
+    #[qapi(added = "2.2.0")]
+    #[qapi(removed = "2.6.0")]
+    PwritevRmwTailLegacy,
     #[qapi(name = "read_aio")]
     ReadAio,
     #[qapi(name = "read_backing_aio")]
@@ -1179,14 +1224,19 @@ pub enum BlkdebugEvent {
     #[qapi(name = "refblock_alloc")]
     RefblockAlloc,
     #[qapi(name = "refblock_alloc_hookup")]
+    #[qapi(added = "2.6.0")]
     RefblockAllocHookup,
     #[qapi(name = "refblock_alloc_switch_table")]
+    #[qapi(added = "2.6.0")]
     RefblockAllocSwitchTable,
     #[qapi(name = "refblock_alloc_write")]
+    #[qapi(added = "2.6.0")]
     RefblockAllocWrite,
     #[qapi(name = "refblock_alloc_write_blocks")]
+    #[qapi(added = "2.6.0")]
     RefblockAllocWriteBlocks,
     #[qapi(name = "refblock_alloc_write_table")]
+    #[qapi(added = "2.6.0")]
     RefblockAllocWriteTable,
     #[qapi(name = "refblock_load")]
     RefblockLoad,
@@ -1194,6 +1244,21 @@ pub enum BlkdebugEvent {
     RefblockUpdate,
     #[qapi(name = "refblock_update_part")]
     RefblockUpdatePart,
+    #[qapi(name = "refblock_alloc.hookup")]
+    #[qapi(removed = "2.6.0")]
+    RefblockAllocHookupLegacy,
+    #[qapi(name = "refblock_alloc.switch_table")]
+    #[qapi(removed = "2.6.0")]
+    RefblockAllocSwitchTableLegacy,
+    #[qapi(name = "refblock_alloc.write_blocks")]
+    #[qapi(removed = "2.6.0")]
+    RefblockAllocWriteBlocksLegacy,
+    #[qapi(name = "refblock_alloc.write")]
+    #[qapi(removed = "2.6.0")]
+    RefblockAllocWriteLegacy,
+    #[qapi(name = "refblock_alloc.write_table")]
+    #[qapi(removed = "2.6.0")]
+    RefblockAllocWriteTableLegacy,
     #[qapi(name = "reftable_grow")]
     ReftableGrow,
     #[qapi(name = "reftable_load")]
@@ -1702,7 +1767,11 @@ pub struct BlockdevCreateOptions {
 #[qapi(added = "2.12.0")]
 pub enum BlockdevCreateOptionsBranch {
     #[qapi(name = "blkdebug")]
+    #[qapi(added = "3.0.0")]
     Blkdebug,
+    #[qapi(name = "blkdebug")]
+    #[qapi(removed = "3.0.0")]
+    BlkdebugLegacy(BlockdevCreateNotSupported),
     /// Since 3.0
     #[qapi(name = "blklogwrites")]
     #[qapi(added = "3.0.0")]
@@ -1712,11 +1781,23 @@ pub enum BlockdevCreateOptionsBranch {
     #[qapi(added = "4.2.0")]
     Blkreplay,
     #[qapi(name = "blkverify")]
+    #[qapi(added = "3.0.0")]
     Blkverify,
+    #[qapi(name = "blkverify")]
+    #[qapi(removed = "3.0.0")]
+    BlkverifyLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "bochs")]
+    #[qapi(added = "3.0.0")]
     Bochs,
+    #[qapi(name = "bochs")]
+    #[qapi(removed = "3.0.0")]
+    BochsLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "cloop")]
+    #[qapi(added = "3.0.0")]
     Cloop,
+    #[qapi(name = "cloop")]
+    #[qapi(removed = "3.0.0")]
+    CloopLegacy(BlockdevCreateNotSupported),
     /// Since 5.0
     #[qapi(name = "compress")]
     #[qapi(added = "5.0.0")]
@@ -1730,49 +1811,97 @@ pub enum BlockdevCreateOptionsBranch {
     #[qapi(added = "3.0.0")]
     CopyOnRead,
     #[qapi(name = "dmg")]
+    #[qapi(added = "3.0.0")]
     Dmg,
+    #[qapi(name = "dmg")]
+    #[qapi(removed = "3.0.0")]
+    DmgLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "file")]
     File(BlockdevCreateOptionsFile),
     #[qapi(name = "ftp")]
+    #[qapi(added = "3.0.0")]
     Ftp,
+    #[qapi(name = "ftp")]
+    #[qapi(removed = "3.0.0")]
+    FtpLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "ftps")]
+    #[qapi(added = "3.0.0")]
     Ftps,
+    #[qapi(name = "ftps")]
+    #[qapi(removed = "3.0.0")]
+    FtpsLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "gluster")]
     #[qapi(removed = "11.1.0")]
     Gluster(BlockdevCreateOptionsGluster),
     #[qapi(name = "host_cdrom")]
     #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
+    #[qapi(added = "3.0.0")]
     HostCdrom,
     #[qapi(name = "host_device")]
     #[qapi(condition = "defined(HAVE_HOST_BLOCK_DEVICE)")]
+    #[qapi(added = "3.0.0")]
     HostDevice,
+    #[qapi(name = "host_cdrom")]
+    #[qapi(removed = "3.0.0")]
+    HostCdromLegacy(BlockdevCreateNotSupported),
+    #[qapi(name = "host_device")]
+    #[qapi(removed = "3.0.0")]
+    HostDeviceLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "http")]
+    #[qapi(added = "3.0.0")]
     Http,
+    #[qapi(name = "http")]
+    #[qapi(removed = "3.0.0")]
+    HttpLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "https")]
+    #[qapi(added = "3.0.0")]
     Https,
+    #[qapi(name = "https")]
+    #[qapi(removed = "3.0.0")]
+    HttpsLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "io_uring")]
     #[qapi(condition = "CONFIG_BLKIO")]
     #[qapi(added = "7.2.0")]
     IoUring,
     #[qapi(name = "iscsi")]
+    #[qapi(added = "3.0.0")]
     Iscsi,
+    #[qapi(name = "iscsi")]
+    #[qapi(removed = "3.0.0")]
+    IscsiLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "luks")]
     Luks(BlockdevCreateOptionsLuks),
     #[qapi(name = "nbd")]
+    #[qapi(added = "3.0.0")]
     Nbd,
+    #[qapi(name = "nbd")]
+    #[qapi(removed = "3.0.0")]
+    NbdLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "nfs")]
     Nfs(BlockdevCreateOptionsNfs),
     #[qapi(name = "null-aio")]
+    #[qapi(added = "3.0.0")]
     NullAio,
     #[qapi(name = "null-co")]
+    #[qapi(added = "3.0.0")]
     NullCo,
+    #[qapi(name = "null-aio")]
+    #[qapi(removed = "3.0.0")]
+    NullAioLegacy(BlockdevCreateNotSupported),
+    #[qapi(name = "null-co")]
+    #[qapi(removed = "3.0.0")]
+    NullCoLegacy(BlockdevCreateNotSupported),
     /// Since 2.12
     #[qapi(name = "nvme")]
+    #[qapi(added = "3.0.0")]
     Nvme,
     #[qapi(name = "nvme-io_uring")]
     #[qapi(condition = "CONFIG_BLKIO")]
     #[qapi(added = "7.2.0")]
     NvmeIoUring,
+    #[qapi(name = "nvme")]
+    #[qapi(removed = "3.0.0")]
+    NvmeLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "parallels")]
     Parallels(BlockdevCreateOptionsParallels),
     #[qapi(name = "preallocate")]
@@ -1785,14 +1914,26 @@ pub enum BlockdevCreateOptionsBranch {
     #[qapi(name = "qed")]
     Qed(BlockdevCreateOptionsQed),
     #[qapi(name = "quorum")]
+    #[qapi(added = "3.0.0")]
     Quorum,
+    #[qapi(name = "quorum")]
+    #[qapi(removed = "3.0.0")]
+    QuorumLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "raw")]
+    #[qapi(added = "3.0.0")]
     Raw,
+    #[qapi(name = "raw")]
+    #[qapi(removed = "3.0.0")]
+    RawLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "rbd")]
     Rbd(BlockdevCreateOptionsRbd),
     #[qapi(name = "replication")]
     #[qapi(condition = "defined(CONFIG_REPLICATION)")]
+    #[qapi(added = "3.0.0")]
     Replication,
+    #[qapi(name = "replication")]
+    #[qapi(removed = "3.0.0")]
+    ReplicationLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "sheepdog")]
     #[qapi(removed = "6.1.0")]
     Sheepdog(BlockdevCreateOptionsSheepdog),
@@ -1804,7 +1945,11 @@ pub enum BlockdevCreateOptionsBranch {
     Ssh(BlockdevCreateOptionsSsh),
     /// Since 2.11
     #[qapi(name = "throttle")]
+    #[qapi(added = "3.0.0")]
     Throttle,
+    #[qapi(name = "throttle")]
+    #[qapi(removed = "3.0.0")]
+    ThrottleLegacy(BlockdevCreateNotSupported),
     #[qapi(name = "vdi")]
     Vdi(BlockdevCreateOptionsVdi),
     #[qapi(name = "vhdx")]
@@ -1822,15 +1967,31 @@ pub enum BlockdevCreateOptionsBranch {
     #[qapi(added = "7.2.0")]
     VirtioBlkVhostVdpa,
     #[qapi(name = "vmdk")]
+    #[qapi(added = "4.0.0")]
     Vmdk(BlockdevCreateOptionsVmdk),
+    #[qapi(name = "vmdk")]
+    #[qapi(removed = "3.0.0")]
+    VmdkLegacy(BlockdevCreateNotSupported),
+    #[qapi(name = "vmdk")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "4.0.0")]
+    VmdkLegacy2,
     #[qapi(name = "vpc")]
     Vpc(BlockdevCreateOptionsVpc),
     #[qapi(name = "vvfat")]
+    #[qapi(added = "3.0.0")]
     Vvfat,
+    #[qapi(name = "vvfat")]
+    #[qapi(removed = "3.0.0")]
+    VvfatLegacy(BlockdevCreateNotSupported),
     /// Since 2.10
     #[qapi(name = "vxhs")]
+    #[qapi(added = "3.0.0")]
     #[qapi(removed = "5.1.0")]
     Vxhs,
+    #[qapi(name = "vxhs")]
+    #[qapi(removed = "3.0.0")]
+    VxhsLegacy(BlockdevCreateNotSupported),
 }
 
 /// Driver specific image creation options for file.
@@ -3093,8 +3254,12 @@ pub enum BlockdevOptionsBranch {
     #[qapi(added = "6.2.0")]
     CopyBeforeWrite(BlockdevOptionsCbw),
     #[qapi(name = "copy-on-read")]
-    #[qapi(added = "3.0.0")]
+    #[qapi(added = "6.0.0")]
     CopyOnRead(BlockdevOptionsCor),
+    #[qapi(name = "copy-on-read")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "6.0.0")]
+    CopyOnReadLegacy(BlockdevOptionsGenericFormat),
     #[qapi(name = "cow")]
     #[qapi(removed = "2.2.0")]
     Cow(BlockdevOptionsGenericCowFormat),
@@ -3103,9 +3268,25 @@ pub enum BlockdevOptionsBranch {
     #[qapi(name = "file")]
     File(BlockdevOptionsFile),
     #[qapi(name = "ftp")]
+    #[qapi(added = "2.9.0")]
     Ftp(BlockdevOptionsCurlFtp),
+    #[qapi(name = "ftp")]
+    #[qapi(removed = "2.8.0")]
+    FtpLegacy(BlockdevOptionsFile),
+    #[qapi(name = "ftp")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.9.0")]
+    FtpLegacy2(BlockdevOptionsCurl),
     #[qapi(name = "ftps")]
+    #[qapi(added = "2.9.0")]
     Ftps(BlockdevOptionsCurlFtps),
+    #[qapi(name = "ftps")]
+    #[qapi(removed = "2.8.0")]
+    FtpsLegacy(BlockdevOptionsFile),
+    #[qapi(name = "ftps")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.9.0")]
+    FtpsLegacy2(BlockdevOptionsCurl),
     #[qapi(name = "gluster")]
     #[qapi(added = "2.7.0")]
     #[qapi(removed = "11.1.0")]
@@ -3123,9 +3304,25 @@ pub enum BlockdevOptionsBranch {
     #[qapi(removed = "2.5.0")]
     HostFloppy(BlockdevOptionsFile),
     #[qapi(name = "http")]
+    #[qapi(added = "2.9.0")]
     Http(BlockdevOptionsCurlHttp),
+    #[qapi(name = "http")]
+    #[qapi(removed = "2.8.0")]
+    HttpLegacy(BlockdevOptionsFile),
+    #[qapi(name = "http")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.9.0")]
+    HttpLegacy2(BlockdevOptionsCurl),
     #[qapi(name = "https")]
+    #[qapi(added = "2.9.0")]
     Https(BlockdevOptionsCurlHttps),
+    #[qapi(name = "https")]
+    #[qapi(removed = "2.8.0")]
+    HttpsLegacy(BlockdevOptionsFile),
+    #[qapi(name = "https")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.9.0")]
+    HttpsLegacy2(BlockdevOptionsCurl),
     #[qapi(name = "io_uring")]
     #[qapi(condition = "CONFIG_BLKIO")]
     #[qapi(added = "7.2.0")]
@@ -3161,16 +3358,24 @@ pub enum BlockdevOptionsBranch {
     #[qapi(added = "6.0.0")]
     Preallocate(BlockdevOptionsPreallocate),
     #[qapi(name = "qcow")]
+    #[qapi(added = "2.10.0")]
     Qcow(BlockdevOptionsQcow),
     #[qapi(name = "qcow2")]
     Qcow2(BlockdevOptionsQcow2),
+    #[qapi(name = "qcow")]
+    #[qapi(removed = "2.10.0")]
+    QcowLegacy(BlockdevOptionsGenericCowFormat),
     #[qapi(name = "qed")]
     Qed(BlockdevOptionsGenericCowFormat),
     #[qapi(name = "quorum")]
     #[qapi(added = "2.0.0")]
     Quorum(BlockdevOptionsQuorum),
     #[qapi(name = "raw")]
+    #[qapi(added = "2.8.0")]
     Raw(BlockdevOptionsRaw),
+    #[qapi(name = "raw")]
+    #[qapi(removed = "2.8.0")]
+    RawLegacy(BlockdevOptionsGenericFormat),
     #[qapi(name = "rbd")]
     #[qapi(added = "2.9.0")]
     Rbd(BlockdevOptionsRbd),
@@ -5619,11 +5824,16 @@ pub enum BlockStatsSpecificBranch {
     NullCo,
     /// Since 2.12
     #[qapi(name = "nvme")]
+    #[qapi(added = "5.2.0")]
     Nvme(BlockStatsSpecificNvme),
     #[qapi(name = "nvme-io_uring")]
     #[qapi(condition = "CONFIG_BLKIO")]
     #[qapi(added = "7.2.0")]
     NvmeIoUring,
+    /// Since 2.12
+    #[qapi(name = "nvme")]
+    #[qapi(removed = "5.2.0")]
+    NvmeLegacy,
     #[qapi(name = "parallels")]
     Parallels,
     #[qapi(name = "preallocate")]
@@ -5790,75 +6000,190 @@ pub struct ChardevBackend {
 pub enum ChardevBackendBranch {
     #[qapi(name = "braille")]
     #[qapi(condition = "CONFIG_BRLAPI")]
-    #[qapi(added = "1.5.0")]
+    #[qapi(added = "6.2.0")]
     Braille(ChardevCommonWrapper),
+    #[qapi(name = "braille")]
+    #[qapi(added = "1.5.0")]
+    #[qapi(removed = "2.6.0")]
+    BrailleLegacy(ChardevDummy),
+    #[qapi(name = "braille")]
+    #[qapi(added = "2.6.0")]
+    #[qapi(removed = "6.2.0")]
+    BrailleLegacy2(ChardevCommon),
     #[qapi(name = "console")]
     #[qapi(condition = "CONFIG_WIN32")]
-    #[qapi(added = "1.5.0")]
+    #[qapi(added = "6.2.0")]
     Console(ChardevCommonWrapper),
+    #[qapi(name = "console")]
+    #[qapi(added = "1.5.0")]
+    #[qapi(removed = "2.6.0")]
+    ConsoleLegacy(ChardevDummy),
+    #[qapi(name = "console")]
+    #[qapi(added = "2.6.0")]
+    #[qapi(removed = "6.2.0")]
+    ConsoleLegacy2(ChardevCommon),
     #[qapi(name = "dbus")]
     #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
     #[qapi(added = "7.0.0")]
     Dbus(ChardevDBusWrapper),
     #[qapi(name = "file")]
+    #[qapi(added = "6.2.0")]
     File(ChardevFileWrapper),
+    #[qapi(name = "file")]
+    #[qapi(removed = "6.2.0")]
+    FileLegacy(ChardevFile),
     #[qapi(name = "hub")]
     #[qapi(added = "10.0.0")]
     Hub(ChardevHubWrapper),
     #[qapi(name = "memory")]
-    #[qapi(added = "1.5.0")]
+    #[qapi(added = "6.2.0")]
     Memory(ChardevRingbufWrapper),
+    #[qapi(name = "memory")]
+    #[qapi(added = "1.5.0")]
+    #[qapi(removed = "6.2.0")]
+    MemoryLegacy(ChardevRingbuf),
+    #[qapi(name = "msmouse")]
+    #[qapi(added = "6.2.0")]
+    Msmouse(ChardevCommonWrapper),
     #[qapi(name = "msmouse")]
     #[qapi(added = "1.5.0")]
-    Msmouse(ChardevCommonWrapper),
+    #[qapi(removed = "2.6.0")]
+    MsmouseLegacy(ChardevDummy),
+    #[qapi(name = "msmouse")]
+    #[qapi(added = "2.6.0")]
+    #[qapi(removed = "6.2.0")]
+    MsmouseLegacy2(ChardevCommon),
+    #[qapi(name = "mux")]
+    #[qapi(added = "6.2.0")]
+    Mux(ChardevMuxWrapper),
     #[qapi(name = "mux")]
     #[qapi(added = "1.5.0")]
-    Mux(ChardevMuxWrapper),
+    #[qapi(removed = "6.2.0")]
+    MuxLegacy(ChardevMux),
     #[qapi(name = "null")]
+    #[qapi(added = "6.2.0")]
     Null(ChardevCommonWrapper),
+    #[qapi(name = "null")]
+    #[qapi(removed = "2.6.0")]
+    NullLegacy(ChardevDummy),
+    #[qapi(name = "null")]
+    #[qapi(added = "2.6.0")]
+    #[qapi(removed = "6.2.0")]
+    NullLegacy2(ChardevCommon),
     #[qapi(name = "parallel")]
     #[qapi(condition = "HAVE_CHARDEV_PARALLEL")]
+    #[qapi(added = "6.2.0")]
     Parallel(ChardevHostdevWrapper),
+    #[qapi(name = "parallel")]
+    #[qapi(removed = "6.2.0")]
+    ParallelLegacy(ChardevHostdev),
+    #[qapi(name = "pipe")]
+    #[qapi(added = "6.2.0")]
+    Pipe(ChardevHostdevWrapper),
     #[qapi(name = "pipe")]
     #[qapi(added = "1.5.0")]
-    Pipe(ChardevHostdevWrapper),
+    #[qapi(removed = "6.2.0")]
+    PipeLegacy(ChardevHostdev),
     #[qapi(name = "pty")]
+    #[qapi(added = "9.2.0")]
     Pty(ChardevPtyWrapper),
+    #[qapi(name = "pty")]
+    #[qapi(removed = "2.6.0")]
+    PtyLegacy(ChardevDummy),
+    #[qapi(name = "pty")]
+    #[qapi(added = "2.6.0")]
+    #[qapi(removed = "6.2.0")]
+    PtyLegacy2(ChardevCommon),
+    #[qapi(name = "pty")]
+    #[qapi(added = "6.2.0")]
+    #[qapi(removed = "9.2.0")]
+    PtyLegacy3(ChardevCommonWrapper),
     #[qapi(name = "qemu-vdagent")]
     #[qapi(condition = "defined(CONFIG_SPICE_PROTOCOL)")]
-    #[qapi(added = "6.1.0")]
+    #[qapi(added = "6.2.0")]
     QemuVdagent(ChardevQemuVdAgentWrapper),
+    #[qapi(condition = "defined(CONFIG_SPICE_PROTOCOL)")]
+    #[qapi(name = "qemu-vdagent")]
+    #[qapi(added = "6.1.0")]
+    #[qapi(removed = "6.2.0")]
+    QemuVdagentLegacy(ChardevQemuVdAgent),
+    #[qapi(name = "ringbuf")]
+    #[qapi(added = "6.2.0")]
+    Ringbuf(ChardevRingbufWrapper),
     #[qapi(name = "ringbuf")]
     #[qapi(added = "1.5.3")]
-    Ringbuf(ChardevRingbufWrapper),
+    #[qapi(removed = "6.2.0")]
+    RingbufLegacy(ChardevRingbuf),
     #[qapi(name = "serial")]
     #[qapi(condition = "HAVE_CHARDEV_SERIAL")]
+    #[qapi(added = "6.2.0")]
     Serial(ChardevHostdevWrapper),
+    #[qapi(name = "serial")]
+    #[qapi(removed = "6.2.0")]
+    SerialLegacy(ChardevHostdev),
     #[qapi(name = "socket")]
+    #[qapi(added = "6.2.0")]
     Socket(ChardevSocketWrapper),
+    #[qapi(name = "socket")]
+    #[qapi(removed = "6.2.0")]
+    SocketLegacy(ChardevSocket),
     #[qapi(name = "spiceport")]
     #[qapi(condition = "defined(CONFIG_SPICE)")]
-    #[qapi(added = "1.5.0")]
+    #[qapi(added = "6.2.0")]
     Spiceport(ChardevSpicePortWrapper),
+    #[qapi(condition = "defined(CONFIG_SPICE)")]
+    #[qapi(name = "spiceport")]
+    #[qapi(added = "1.5.0")]
+    #[qapi(removed = "6.2.0")]
+    SpiceportLegacy(ChardevSpicePort),
     #[qapi(name = "spicevmc")]
     #[qapi(condition = "defined(CONFIG_SPICE)")]
-    #[qapi(added = "1.5.0")]
+    #[qapi(added = "6.2.0")]
     Spicevmc(ChardevSpiceChannelWrapper),
+    #[qapi(condition = "defined(CONFIG_SPICE)")]
+    #[qapi(name = "spicevmc")]
+    #[qapi(added = "1.5.0")]
+    #[qapi(removed = "6.2.0")]
+    SpicevmcLegacy(ChardevSpiceChannel),
+    #[qapi(name = "stdio")]
+    #[qapi(added = "6.2.0")]
+    Stdio(ChardevStdioWrapper),
     #[qapi(name = "stdio")]
     #[qapi(added = "1.5.0")]
-    Stdio(ChardevStdioWrapper),
+    #[qapi(removed = "6.2.0")]
+    StdioLegacy(ChardevStdio),
+    #[qapi(name = "testdev")]
+    #[qapi(added = "6.2.0")]
+    Testdev(ChardevCommonWrapper),
     #[qapi(name = "testdev")]
     #[qapi(added = "2.2.0")]
-    Testdev(ChardevCommonWrapper),
+    #[qapi(removed = "2.6.0")]
+    TestdevLegacy(ChardevDummy),
+    #[qapi(name = "testdev")]
+    #[qapi(added = "2.6.0")]
+    #[qapi(removed = "6.2.0")]
+    TestdevLegacy2(ChardevCommon),
+    #[qapi(name = "udp")]
+    #[qapi(added = "6.2.0")]
+    Udp(ChardevUdpWrapper),
     #[qapi(name = "udp")]
     #[qapi(added = "1.5.0")]
-    Udp(ChardevUdpWrapper),
+    #[qapi(removed = "6.2.0")]
+    UdpLegacy(ChardevUdp),
+    #[qapi(name = "vc")]
+    #[qapi(added = "6.2.0")]
+    Vc(ChardevVcWrapper),
     #[qapi(name = "vc")]
     #[qapi(added = "1.5.0")]
-    Vc(ChardevVcWrapper),
+    #[qapi(removed = "6.2.0")]
+    VcLegacy(ChardevVc),
+    #[qapi(name = "wctablet")]
+    #[qapi(added = "6.2.0")]
+    Wctablet(ChardevCommonWrapper),
     #[qapi(name = "wctablet")]
     #[qapi(added = "2.9.0")]
-    Wctablet(ChardevCommonWrapper),
+    #[qapi(removed = "6.2.0")]
+    WctabletLegacy(ChardevCommon),
 }
 
 /// Information about a character device backend
@@ -6925,7 +7250,11 @@ pub enum CpuInfoBranch {
     #[qapi(name = "mips")]
     Mips(CpuInfoMips),
     #[qapi(name = "other")]
+    #[qapi(added = "3.0.0")]
     Other,
+    #[qapi(name = "other")]
+    #[qapi(removed = "3.0.0")]
+    OtherLegacy(CpuInfoOther),
     #[qapi(name = "ppc")]
     Ppc(CpuInfoPpc),
     #[qapi(name = "riscv")]
@@ -7025,6 +7354,7 @@ pub enum CpuInfoFastBranch {
     #[qapi(removed = "11.0.0")]
     Microblazeel,
     #[qapi(name = "mips")]
+    #[qapi(added = "3.0.0")]
     Mips,
     #[qapi(name = "mips64")]
     #[qapi(added = "3.0.0")]
@@ -7035,6 +7365,9 @@ pub enum CpuInfoFastBranch {
     #[qapi(name = "mipsel")]
     #[qapi(added = "3.0.0")]
     Mipsel,
+    #[qapi(name = "mips")]
+    #[qapi(removed = "3.0.0")]
+    MipsLegacy(CpuInfoOther),
     #[qapi(name = "moxie")]
     #[qapi(added = "3.0.0")]
     #[qapi(removed = "6.1.0")]
@@ -7050,6 +7383,7 @@ pub enum CpuInfoFastBranch {
     #[qapi(removed = "3.0.0")]
     Other(CpuInfoOther),
     #[qapi(name = "ppc")]
+    #[qapi(added = "3.0.0")]
     Ppc,
     #[qapi(name = "ppc64")]
     #[qapi(added = "3.0.0")]
@@ -7058,7 +7392,11 @@ pub enum CpuInfoFastBranch {
     #[qapi(added = "3.0.0")]
     #[qapi(removed = "3.1.0")]
     Ppcemb,
+    #[qapi(name = "ppc")]
+    #[qapi(removed = "3.0.0")]
+    PpcLegacy(CpuInfoOther),
     #[qapi(name = "riscv")]
+    #[qapi(added = "2.12.1")]
     #[qapi(removed = "3.0.0")]
     Riscv(CpuInfoOther),
     #[qapi(name = "riscv32")]
@@ -7067,6 +7405,9 @@ pub enum CpuInfoFastBranch {
     #[qapi(name = "riscv64")]
     #[qapi(added = "3.0.0")]
     Riscv64,
+    #[qapi(name = "riscv")]
+    #[qapi(removed = "2.12.1")]
+    RiscvLegacy(CpuInfoRiscv),
     /// since 5.0
     #[qapi(name = "rx")]
     #[qapi(added = "5.0.0")]
@@ -7084,12 +7425,20 @@ pub enum CpuInfoFastBranch {
     #[qapi(added = "3.0.0")]
     Sh4eb,
     #[qapi(name = "sparc")]
+    #[qapi(added = "3.0.0")]
     Sparc,
     #[qapi(name = "sparc64")]
     #[qapi(added = "3.0.0")]
     Sparc64,
+    #[qapi(name = "sparc")]
+    #[qapi(removed = "3.0.0")]
+    SparcLegacy(CpuInfoOther),
     #[qapi(name = "tricore")]
+    #[qapi(added = "3.0.0")]
     Tricore,
+    #[qapi(name = "tricore")]
+    #[qapi(removed = "3.0.0")]
+    TricoreLegacy(CpuInfoOther),
     #[qapi(name = "unicore32")]
     #[qapi(added = "3.0.0")]
     #[qapi(removed = "6.1.0")]
@@ -8290,10 +8639,28 @@ pub enum DisplayOptionsBranch {
     /// The Cocoa user interface.
     #[qapi(name = "cocoa")]
     #[qapi(condition = "defined(CONFIG_COCOA)")]
+    #[qapi(added = "7.0.0")]
     Cocoa(DisplayCocoa),
+    #[qapi(name = "cocoa")]
+    #[qapi(removed = "3.0.0")]
+    CocoaLegacy(DisplayNoOpts),
+    /// The Cocoa user interface.
+    #[qapi(condition = "defined(CONFIG_COCOA)")]
+    #[qapi(name = "cocoa")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "7.0.0")]
+    CocoaLegacy2,
     #[qapi(name = "curses")]
     #[qapi(condition = "defined(CONFIG_CURSES)")]
+    #[qapi(added = "4.0.0")]
     Curses(DisplayCurses),
+    #[qapi(name = "curses")]
+    #[qapi(removed = "3.0.0")]
+    CursesLegacy(DisplayNoOpts),
+    #[qapi(name = "curses")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "4.0.0")]
+    CursesLegacy2,
     #[qapi(name = "dbus")]
     #[qapi(condition = "CONFIG_DBUS_DISPLAY")]
     #[qapi(added = "7.0.0")]
@@ -8301,10 +8668,22 @@ pub enum DisplayOptionsBranch {
     /// The default user interface, selecting from the first
     /// available of gtk, sdl, cocoa, and vnc.
     #[qapi(name = "default")]
+    #[qapi(added = "3.0.0")]
     Default,
+    #[qapi(name = "default")]
+    #[qapi(removed = "3.0.0")]
+    DefaultLegacy(DisplayNoOpts),
     #[qapi(name = "egl-headless")]
     #[qapi(condition = "defined(CONFIG_OPENGL) && defined(CONFIG_GBM)")]
+    #[qapi(added = "3.1.0")]
     EglHeadless(DisplayEglHeadless),
+    #[qapi(name = "egl-headless")]
+    #[qapi(removed = "3.0.0")]
+    EglHeadlessLegacy(DisplayNoOpts),
+    #[qapi(name = "egl-headless")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "3.1.0")]
+    EglHeadlessLegacy2,
     #[qapi(name = "gtk")]
     #[qapi(condition = "defined(CONFIG_GTK)")]
     Gtk(DisplayGtk),
@@ -8312,11 +8691,25 @@ pub enum DisplayOptionsBranch {
     /// still see an emulated graphics card, but its output will not be
     /// displayed to the QEMU user.
     #[qapi(name = "none")]
+    #[qapi(added = "3.0.0")]
     None,
+    #[qapi(name = "none")]
+    #[qapi(removed = "3.0.0")]
+    NoneLegacy(DisplayNoOpts),
     /// The SDL user interface.
     #[qapi(name = "sdl")]
     #[qapi(condition = "defined(CONFIG_SDL)")]
+    #[qapi(added = "7.1.0")]
     Sdl(DisplaySdl),
+    #[qapi(name = "sdl")]
+    #[qapi(removed = "3.0.0")]
+    SdlLegacy(DisplayNoOpts),
+    /// The SDL user interface.
+    #[qapi(condition = "defined(CONFIG_SDL)")]
+    #[qapi(name = "sdl")]
+    #[qapi(added = "3.0.0")]
+    #[qapi(removed = "7.1.0")]
+    SdlLegacy2,
     /// Set up a Spice server and run the default associated
     /// application to connect to it.  The server will redirect the
     /// serial console and QEMU monitors.  (Since 4.0)
@@ -9700,15 +10093,31 @@ pub enum ImageInfoSpecificBranch {
     #[qapi(added = "8.0.0")]
     File(ImageInfoSpecificFileWrapper),
     #[qapi(name = "luks")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "6.2.0")]
     Luks(ImageInfoSpecificLuksWrapper),
+    #[qapi(name = "luks")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "6.2.0")]
+    LuksLegacy(QCryptoBlockInfoLuks),
     #[qapi(name = "qcow2")]
+    #[qapi(added = "6.2.0")]
     Qcow2(ImageInfoSpecificQCow2Wrapper),
+    #[qapi(name = "qcow2")]
+    #[qapi(removed = "6.2.0")]
+    Qcow2Legacy(ImageInfoSpecificQCow2),
+    #[qapi(name = "rbd")]
+    #[qapi(added = "6.2.0")]
+    Rbd(ImageInfoSpecificRbdWrapper),
     #[qapi(name = "rbd")]
     #[qapi(added = "6.1.0")]
-    Rbd(ImageInfoSpecificRbdWrapper),
+    #[qapi(removed = "6.2.0")]
+    RbdLegacy(ImageInfoSpecificRbd),
     #[qapi(name = "vmdk")]
+    #[qapi(added = "6.2.0")]
     Vmdk(ImageInfoSpecificVmdkWrapper),
+    #[qapi(name = "vmdk")]
+    #[qapi(removed = "6.2.0")]
+    VmdkLegacy(ImageInfoSpecificVmdk),
 }
 
 #[qapi(added = "8.0.0")]
@@ -9815,7 +10224,11 @@ pub struct ImageInfoSpecificQCow2EncryptionBase {
 pub enum ImageInfoSpecificQCow2EncryptionBranch {
     /// AES-CBC with plain64 initialization vectors
     #[qapi(name = "aes")]
+    #[qapi(added = "3.0.0")]
     Aes,
+    #[qapi(name = "aes")]
+    #[qapi(removed = "3.0.0")]
+    AesLegacy(QCryptoBlockInfoQCow),
     #[qapi(name = "luks")]
     Luks(QCryptoBlockInfoLuks),
 }
@@ -9960,9 +10373,17 @@ pub struct InetSocketAddressWrapper {
 #[qapi(added = "2.0.0")]
 pub enum InputAxis {
     #[qapi(name = "x")]
+    #[qapi(added = "2.6.0")]
     X,
+    #[qapi(name = "X")]
+    #[qapi(removed = "2.6.0")]
+    XLegacy,
     #[qapi(name = "y")]
+    #[qapi(added = "2.6.0")]
     Y,
+    #[qapi(name = "Y")]
+    #[qapi(removed = "2.6.0")]
+    YLegacy,
 }
 
 /// Properties for input-barrier objects.
@@ -10012,11 +10433,23 @@ pub enum InputButton {
     #[qapi(added = "2.9.0")]
     Extra,
     #[qapi(name = "left")]
+    #[qapi(added = "2.6.0")]
     Left,
+    #[qapi(name = "Left")]
+    #[qapi(removed = "2.6.0")]
+    LeftLegacy,
     #[qapi(name = "middle")]
+    #[qapi(added = "2.6.0")]
     Middle,
+    #[qapi(name = "Middle")]
+    #[qapi(removed = "2.6.0")]
+    MiddleLegacy,
     #[qapi(name = "right")]
+    #[qapi(added = "2.6.0")]
     Right,
+    #[qapi(name = "Right")]
+    #[qapi(removed = "2.6.0")]
+    RightLegacy,
     /// front side button of a 5-button mouse (since 2.9)
     #[qapi(name = "side")]
     #[qapi(added = "2.9.0")]
@@ -10026,6 +10459,7 @@ pub enum InputButton {
     #[qapi(added = "8.1.0")]
     Touch,
     #[qapi(name = "wheel-down")]
+    #[qapi(added = "2.6.0")]
     WheelDown,
     #[qapi(name = "wheel-left")]
     #[qapi(added = "7.0.0")]
@@ -10034,7 +10468,14 @@ pub enum InputButton {
     #[qapi(added = "7.0.0")]
     WheelRight,
     #[qapi(name = "wheel-up")]
+    #[qapi(added = "2.6.0")]
     WheelUp,
+    #[qapi(name = "WheelDown")]
+    #[qapi(removed = "2.6.0")]
+    WheelDownLegacy,
+    #[qapi(name = "WheelUp")]
+    #[qapi(removed = "2.6.0")]
+    WheelUpLegacy,
 }
 
 /// Input event union.
@@ -10058,16 +10499,32 @@ pub struct InputEvent {
 #[qapi(added = "2.0.0")]
 pub enum InputEventBranch {
     #[qapi(name = "abs")]
+    #[qapi(added = "6.2.0")]
     Abs(InputMoveEventWrapper),
+    #[qapi(name = "abs")]
+    #[qapi(removed = "6.2.0")]
+    AbsLegacy(InputMoveEvent),
     #[qapi(name = "btn")]
+    #[qapi(added = "6.2.0")]
     Btn(InputBtnEventWrapper),
+    #[qapi(name = "btn")]
+    #[qapi(removed = "6.2.0")]
+    BtnLegacy(InputBtnEvent),
     #[qapi(name = "key")]
+    #[qapi(added = "6.2.0")]
     Key(InputKeyEventWrapper),
+    #[qapi(name = "key")]
+    #[qapi(removed = "6.2.0")]
+    KeyLegacy(InputKeyEvent),
     #[qapi(name = "mtt")]
     #[qapi(added = "8.1.0")]
     Mtt(InputMultiTouchEventWrapper),
     #[qapi(name = "rel")]
+    #[qapi(added = "6.2.0")]
     Rel(InputMoveEventWrapper),
+    #[qapi(name = "rel")]
+    #[qapi(removed = "6.2.0")]
+    RelLegacy(InputMoveEvent),
 }
 
 #[qapi(added = "6.2.0")]
@@ -10550,9 +11007,17 @@ pub struct KeyValue {
 #[qapi(added = "1.3.0")]
 pub enum KeyValueBranch {
     #[qapi(name = "number")]
+    #[qapi(added = "6.2.0")]
     Number(IntWrapper),
+    #[qapi(name = "number")]
+    #[qapi(removed = "6.2.0")]
+    NumberLegacy(i64),
     #[qapi(name = "qcode")]
+    #[qapi(added = "6.2.0")]
     Qcode(QKeyCodeWrapper),
+    #[qapi(name = "qcode")]
+    #[qapi(removed = "6.2.0")]
+    QcodeLegacy(QKeyCode),
 }
 
 #[qapi(added = "6.2.0")]
@@ -11069,13 +11534,21 @@ pub struct MemoryDeviceInfo {
 #[qapi(added = "2.1.0")]
 pub enum MemoryDeviceInfoBranch {
     #[qapi(name = "dimm")]
+    #[qapi(added = "6.2.0")]
     Dimm(PcdimmDeviceInfoWrapper),
+    #[qapi(name = "dimm")]
+    #[qapi(removed = "6.2.0")]
+    DimmLegacy(PcdimmDeviceInfo),
     #[qapi(name = "hv-balloon")]
     #[qapi(added = "8.2.0")]
     HvBalloon(HvBalloonDeviceInfoWrapper),
     #[qapi(name = "nvdimm")]
-    #[qapi(added = "2.12.0")]
+    #[qapi(added = "6.2.0")]
     Nvdimm(PcdimmDeviceInfoWrapper),
+    #[qapi(name = "nvdimm")]
+    #[qapi(added = "2.12.0")]
+    #[qapi(removed = "6.2.0")]
+    NvdimmLegacy(PcdimmDeviceInfo),
     #[qapi(name = "sgx-epc")]
     #[qapi(added = "6.2.0")]
     SgxEpc(SgxEpcDeviceInfoWrapper),
@@ -11083,11 +11556,19 @@ pub enum MemoryDeviceInfoBranch {
     #[qapi(added = "11.1.0")]
     SpMem(SpMemDeviceInfoWrapper),
     #[qapi(name = "virtio-mem")]
-    #[qapi(added = "5.1.0")]
+    #[qapi(added = "6.2.0")]
     VirtioMem(VirtioMemDeviceInfoWrapper),
     #[qapi(name = "virtio-pmem")]
-    #[qapi(added = "4.1.0")]
+    #[qapi(added = "6.2.0")]
     VirtioPmem(VirtioPmemDeviceInfoWrapper),
+    #[qapi(name = "virtio-mem")]
+    #[qapi(added = "5.1.0")]
+    #[qapi(removed = "6.2.0")]
+    VirtioMemLegacy(VirtioMemDeviceInfo),
+    #[qapi(name = "virtio-pmem")]
+    #[qapi(added = "4.1.0")]
+    #[qapi(removed = "6.2.0")]
+    VirtioPmemLegacy(VirtioPmemDeviceInfo),
 }
 
 #[qapi(added = "6.2.0")]
@@ -13129,11 +13610,20 @@ pub enum NetdevBranch {
     #[qapi(name = "nic")]
     Nic(NetLegacyNicOptions),
     #[qapi(name = "none")]
+    #[qapi(added = "3.0.0")]
     None,
+    #[qapi(name = "none")]
+    #[qapi(removed = "3.0.0")]
+    NoneLegacy(NetdevNoneOptions),
     #[qapi(name = "passt")]
     #[qapi(condition = "CONFIG_PASST")]
-    #[qapi(added = "10.1.0")]
+    #[qapi(added = "11.1.0")]
     Passt(NetdevPasstOptions),
+    #[qapi(condition = "CONFIG_PASST")]
+    #[qapi(name = "passt")]
+    #[qapi(added = "10.1.0")]
+    #[qapi(removed = "11.1.0")]
+    PasstLegacy(NetDevPasstOptions),
     #[qapi(name = "socket")]
     Socket(NetdevSocketOptions),
     #[qapi(name = "stream")]
@@ -13910,7 +14400,11 @@ pub enum NetLegacyOptionsBranch {
     #[qapi(name = "nic")]
     Nic(NetLegacyNicOptions),
     #[qapi(name = "none")]
+    #[qapi(added = "3.0.0")]
     None,
+    #[qapi(name = "none")]
+    #[qapi(removed = "3.0.0")]
+    NoneLegacy(NetdevNoneOptions),
     #[qapi(name = "socket")]
     Socket(NetdevSocketOptions),
     #[qapi(name = "tap")]
@@ -15441,7 +15935,11 @@ pub enum QCryptoBlockInfoBranch {
     /// QCow/QCow2 built-in AES-CBC encryption.  Use only for
     /// liberating data from old images.
     #[qapi(name = "qcow")]
+    #[qapi(added = "3.0.0")]
     Qcow,
+    #[qapi(name = "qcow")]
+    #[qapi(removed = "3.0.0")]
+    QcowLegacy(QCryptoBlockInfoQCow),
 }
 
 /// Information about the LUKS block encryption options
@@ -18029,7 +18527,11 @@ pub struct SocketAddress {
 #[qapi(added = "1.3.0")]
 pub enum SocketAddressBranch {
     #[qapi(name = "fd")]
+    #[qapi(added = "9.0.0")]
     Fd(FdSocketAddress),
+    #[qapi(name = "fd")]
+    #[qapi(removed = "9.0.0")]
+    FdLegacy(QapiString),
     #[qapi(name = "inet")]
     Inet(InetSocketAddress),
     #[qapi(name = "unix")]
@@ -18107,13 +18609,33 @@ pub struct SocketAddressLegacy {
 #[qapi(added = "2.10.0")]
 pub enum SocketAddressLegacyBranch {
     #[qapi(name = "fd")]
+    #[qapi(added = "9.0.0")]
     Fd(FdSocketAddressWrapper),
+    #[qapi(name = "fd")]
+    #[qapi(removed = "6.2.0")]
+    FdLegacy(QapiString),
+    #[qapi(name = "fd")]
+    #[qapi(added = "6.2.0")]
+    #[qapi(removed = "9.0.0")]
+    FdLegacy2(StringWrapper),
     #[qapi(name = "inet")]
+    #[qapi(added = "6.2.0")]
     Inet(InetSocketAddressWrapper),
+    #[qapi(name = "inet")]
+    #[qapi(removed = "6.2.0")]
+    InetLegacy(InetSocketAddress),
     #[qapi(name = "unix")]
+    #[qapi(added = "6.2.0")]
     Unix(UnixSocketAddressWrapper),
+    #[qapi(name = "unix")]
+    #[qapi(removed = "6.2.0")]
+    UnixLegacy(UnixSocketAddress),
     #[qapi(name = "vsock")]
+    #[qapi(added = "6.2.0")]
     Vsock(VsockSocketAddressWrapper),
+    #[qapi(name = "vsock")]
+    #[qapi(removed = "6.2.0")]
+    VsockLegacy(VsockSocketAddress),
 }
 
 #[qapi(added = "2.10.0")]
@@ -18293,10 +18815,18 @@ pub enum SshHostKeyCheckBranch {
     Hash(SshHostKeyHash),
     /// Check the host key against the known_hosts file
     #[qapi(name = "known_hosts")]
+    #[qapi(added = "3.0.0")]
     KnownHosts,
+    #[qapi(name = "known_hosts")]
+    #[qapi(removed = "3.0.0")]
+    KnownHostsLegacy(SshHostKeyDummy),
     /// Don't check the host key at all
     #[qapi(name = "none")]
+    #[qapi(added = "3.0.0")]
     None,
+    #[qapi(name = "none")]
+    #[qapi(removed = "3.0.0")]
+    NoneLegacy(SshHostKeyDummy),
 }
 
 /// @md5              The given hash is an md5 hash
@@ -19224,10 +19754,18 @@ pub struct TpmTypeOptions {
 #[qapi(added = "1.5.0")]
 pub enum TpmTypeOptionsBranch {
     #[qapi(name = "emulator")]
-    #[qapi(added = "2.11.0")]
+    #[qapi(added = "6.2.0")]
     Emulator(TpmEmulatorOptionsWrapper),
+    #[qapi(name = "emulator")]
+    #[qapi(added = "2.11.0")]
+    #[qapi(removed = "6.2.0")]
+    EmulatorLegacy(TpmEmulatorOptions),
     #[qapi(name = "passthrough")]
+    #[qapi(added = "6.2.0")]
     Passthrough(TpmPassthroughOptionsWrapper),
+    #[qapi(name = "passthrough")]
+    #[qapi(removed = "6.2.0")]
+    PassthroughLegacy(TpmPassthroughOptions),
 }
 
 #[qapi(condition = "defined(CONFIG_TPM)")]
@@ -19292,38 +19830,90 @@ pub struct TransactionAction {
 #[qapi(added = "1.6.0")]
 pub enum TransactionActionBranch {
     #[qapi(name = "abort")]
+    #[qapi(added = "6.2.0")]
     Abort(AbortWrapper),
+    #[qapi(name = "abort")]
+    #[qapi(removed = "6.2.0")]
+    AbortLegacy(Abort),
     #[qapi(name = "block-dirty-bitmap-add")]
-    #[qapi(added = "2.5.0")]
+    #[qapi(added = "6.2.0")]
     BlockDirtyBitmapAdd(BlockDirtyBitmapAddWrapper),
     #[qapi(name = "block-dirty-bitmap-clear")]
-    #[qapi(added = "2.5.0")]
+    #[qapi(added = "6.2.0")]
     BlockDirtyBitmapClear(BlockDirtyBitmapWrapper),
     #[qapi(name = "block-dirty-bitmap-disable")]
-    #[qapi(added = "4.0.0")]
+    #[qapi(added = "6.2.0")]
     BlockDirtyBitmapDisable(BlockDirtyBitmapWrapper),
     #[qapi(name = "block-dirty-bitmap-enable")]
-    #[qapi(added = "4.0.0")]
+    #[qapi(added = "6.2.0")]
     BlockDirtyBitmapEnable(BlockDirtyBitmapWrapper),
     #[qapi(name = "block-dirty-bitmap-merge")]
-    #[qapi(added = "4.0.0")]
+    #[qapi(added = "6.2.0")]
     BlockDirtyBitmapMerge(BlockDirtyBitmapMergeWrapper),
     #[qapi(name = "block-dirty-bitmap-remove")]
-    #[qapi(added = "4.2.0")]
+    #[qapi(added = "6.2.0")]
     BlockDirtyBitmapRemove(BlockDirtyBitmapWrapper),
     #[qapi(name = "blockdev-backup")]
-    #[qapi(added = "2.3.0")]
+    #[qapi(added = "6.2.0")]
     BlockdevBackup(BlockdevBackupWrapper),
     #[qapi(name = "blockdev-snapshot")]
-    #[qapi(added = "2.5.0")]
+    #[qapi(added = "6.2.0")]
     BlockdevSnapshot(BlockdevSnapshotWrapper),
     #[qapi(name = "blockdev-snapshot-internal-sync")]
-    #[qapi(added = "1.7.0")]
+    #[qapi(added = "6.2.0")]
     BlockdevSnapshotInternalSync(BlockdevSnapshotInternalWrapper),
     #[qapi(name = "blockdev-snapshot-sync")]
+    #[qapi(added = "6.2.0")]
     BlockdevSnapshotSync(BlockdevSnapshotSyncWrapper),
+    #[qapi(name = "blockdev-backup")]
+    #[qapi(added = "2.3.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockdevBackupLegacy(BlockdevBackup),
+    #[qapi(name = "blockdev-snapshot-internal-sync")]
+    #[qapi(added = "1.7.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockdevSnapshotInternalSyncLegacy(BlockdevSnapshotInternal),
+    #[qapi(name = "blockdev-snapshot")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockdevSnapshotLegacy(BlockdevSnapshot),
+    #[qapi(name = "blockdev-snapshot-sync")]
+    #[qapi(removed = "2.5.0")]
+    BlockdevSnapshotSyncLegacy(BlockdevSnapshot),
+    #[qapi(name = "blockdev-snapshot-sync")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockdevSnapshotSyncLegacy2(BlockdevSnapshotSync),
+    #[qapi(name = "block-dirty-bitmap-add")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockDirtyBitmapAddLegacy(BlockDirtyBitmapAdd),
+    #[qapi(name = "block-dirty-bitmap-clear")]
+    #[qapi(added = "2.5.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockDirtyBitmapClearLegacy(BlockDirtyBitmap),
+    #[qapi(name = "block-dirty-bitmap-disable")]
+    #[qapi(added = "4.0.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockDirtyBitmapDisableLegacy(BlockDirtyBitmap),
+    #[qapi(name = "block-dirty-bitmap-enable")]
+    #[qapi(added = "4.0.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockDirtyBitmapEnableLegacy(BlockDirtyBitmap),
+    #[qapi(name = "block-dirty-bitmap-merge")]
+    #[qapi(added = "4.0.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockDirtyBitmapMergeLegacy(BlockDirtyBitmapMerge),
+    #[qapi(name = "block-dirty-bitmap-remove")]
+    #[qapi(added = "4.2.0")]
+    #[qapi(removed = "6.2.0")]
+    BlockDirtyBitmapRemoveLegacy(BlockDirtyBitmap),
     #[qapi(name = "drive-backup")]
+    #[qapi(added = "6.2.0")]
     DriveBackup(DriveBackupWrapper),
+    #[qapi(name = "drive-backup")]
+    #[qapi(removed = "6.2.0")]
+    DriveBackupLegacy(DriveBackup),
     #[qapi(name = "x-block-dirty-bitmap-disable")]
     #[qapi(added = "3.0.0")]
     #[qapi(removed = "4.0.0")]

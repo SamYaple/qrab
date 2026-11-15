@@ -129,5 +129,12 @@ shape, including scalar, array and null payloads. The `simple_union` property
 tracks transitions to flat unions per type rather than using a global cutoff.
 Use `qapi::with_version` when decoding a recorded historical layout; unscoped
 decoding selects the newest layout. Protocol clients scope typed reply decoding
-to each peer, including OOB replies. Changes to branch payload types across
-releases require separate version-history handling.
+to each peer, including OOB replies.
+
+When a branch payload type or wire spelling changes, the latest Rust variant
+name remains stable and earlier representations are emitted as lifetime-gated
+`Legacy` variants. Repeated changes receive distinct suffixes without colliding
+with schema-defined names. Discriminator dispatch selects the representation
+for the scoped peer version; unscoped inspection uses the newest shape and
+does not fall back to an obsolete permissive shape after a decoding error.
+Generated metadata carries each representation's original wire tag and lifetime.

@@ -43,8 +43,8 @@ artifact and correct behavior.
 The codegen detects recursive types (where a struct field references
 the containing struct, directly or transitively) and wraps them in
 `Box<>`. This is correct and necessary for Rust's type system.
-32 fields are currently boxed across 15 struct families (mostly in
-the block layer: `BlockdevOptions*`, `ImageInfo*`, `BlockStats`).
+These fields occur mainly in the block layer: `BlockdevOptions*`,
+`ImageInfo*` and `BlockStats`. Regeneration logs every field that is boxed.
 
 ## Type merges
 

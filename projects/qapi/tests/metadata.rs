@@ -103,3 +103,24 @@ fn unit_enum_classified() {
         .expect("expected at least one unit enum");
     assert_eq!(e.kind, EnumKind::Unit);
 }
+
+#[test]
+fn changed_branch_payloads_expose_distinct_lifetimes_and_original_wire_tags() {
+    let branches = ENUMS.get("SocketAddressLegacyBranch").unwrap();
+    let current = branches
+        .variants
+        .iter()
+        .find(|variant| variant.name == "Inet")
+        .unwrap();
+    let historical = branches
+        .variants
+        .iter()
+        .find(|variant| variant.name == "InetLegacy")
+        .unwrap();
+    assert_eq!(current.wire_name, "inet");
+    assert_eq!(historical.wire_name, "inet");
+    assert_eq!(current.since, (6, 2, 0));
+    assert_eq!(historical.until, Some((6, 2, 0)));
+    assert_eq!(current.payload_struct, Some("InetSocketAddressWrapper"));
+    assert_eq!(historical.payload_struct, Some("InetSocketAddress"));
+}

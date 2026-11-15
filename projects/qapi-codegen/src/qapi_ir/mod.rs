@@ -1,9 +1,5 @@
-/// qir -- QAPI Intermediate Representation
-///
-/// The qapi dsl changes from time to time, but the representation in rust
-/// remains the same in rust. This IR serves to seperate the parser structs
-/// from the codegen structs. All documentation is also properly merged into
-/// these structs using the doc attr: `#[doc("Some flavor text")]`
+//! Rust IR for QAPI definitions, wire metadata and generated documentation.
+
 use heck::{ToPascalCase, ToSnakeCase};
 
 use proc_macro2::TokenStream;
@@ -72,7 +68,7 @@ fn rustify_field_name(input: &str) -> String {
     fix_leading_digit(&input)
 }
 
-fn rustify_type(input: &str) -> String {
+pub(crate) fn rustify_type(input: &str) -> String {
     let input = qapi_to_rust_type(input);
     fix_leading_digit(&input)
 }

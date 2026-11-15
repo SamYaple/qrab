@@ -927,20 +927,23 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
         .into_iter()
         .map(|v| {
             let ident = &v.ident;
+            let selected = payload_history_selection(v, variants);
             let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
             match &v.kind {
                 VariantKind::Tuple(ty) => {
                     quote! {
                         #cond
-                        if let Ok(v) = serde_json::from_value::<#ty>(value.clone()) {
-                            return Ok(#name::#ident(v));
+                        if #selected {
+                            if let Ok(v) = serde_json::from_value::<#ty>(value.clone()) {
+                                return Ok(#name::#ident(v));
+                            }
                         }
                     }
                 }
                 VariantKind::Unit => {
                     quote! {
                         #cond
-                        if value.is_null() {
+                        if (#selected) && value.is_null() {
                             return Ok(#name::#ident);
                         }
                     }
@@ -962,56 +965,105 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
     }
 }
 
-/// Select union branches by discriminator, including branches with no payload.
-///
-/// Maps discriminator wire values to specific variant constructors, enabling
-/// deterministic variant selection instead of brute-force trial deserialization.
-fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
-    let arms: Vec<TokenStream2> = variants
-        .iter()
-        .filter_map(|v| {
-            let ident = &v.ident;
-            let wn = wire_name(&v.attrs.name, &v.ident);
-            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
-            match &v.kind {
-                VariantKind::Tuple(_) => Some(quote! {
-                    #cond
-                    #wn => Ok(#name::#ident(
-                        serde_json::from_value(_value)
-                            .map_err(|e| serde_json::Error::custom(format!(
-                                "deserializing {} variant '{}': {}",
-                                stringify!(#name), discriminator, e
-                            )))?
-                    )),
-                }),
-                VariantKind::Unit => Some(quote! {
-                    #cond
-                    #wn => Ok(#name::#ident),
-                }),
-            }
-        })
-        .collect();
+fn newest_variants_first(variants: &mut [&VariantInfo]) {
+    use std::cmp::Reverse;
+    variants.sort_by_key(|variant| {
+        (
+            variant.attrs.until.is_some(),
+            Reverse(
+                variant
+                    .attrs
+                    .until
+                    .as_deref()
+                    .map(parse_version)
+                    .unwrap_or((u32::MAX, u32::MAX, u32::MAX)),
+            ),
+            Reverse(
+                variant
+                    .attrs
+                    .since
+                    .as_deref()
+                    .map(parse_version)
+                    .unwrap_or((0, 0, 0)),
+            ),
+        )
+    });
+}
 
+fn payload_history_selection(variant: &VariantInfo, variants: &[VariantInfo]) -> TokenStream2 {
+    let wire = wire_name(&variant.attrs.name, &variant.ident);
+    let mut same_wire: Vec<_> = variants
+        .iter()
+        .filter(|candidate| wire_name(&candidate.attrs.name, &candidate.ident) == wire)
+        .collect();
+    if same_wire.len() == 1 {
+        return quote! { true };
+    }
+    newest_variants_first(&mut same_wire);
+    let latest = same_wire[0].ident == variant.ident;
+    let active = version_range_check(
+        variant.attrs.since.as_deref(),
+        variant.attrs.until.as_deref(),
+    )
+    .unwrap_or_else(|| quote! { true });
+    quote! { (qapi::qemu_version() == (0, 0, 0) && #latest)
+    || (qapi::qemu_version() != (0, 0, 0) && (#active)) }
+}
+
+fn branch_decode(name: &syn::Ident, variant: &VariantInfo) -> TokenStream2 {
+    let ident = &variant.ident;
+    match &variant.kind {
+        VariantKind::Tuple(_) => quote! {
+            Ok(#name::#ident(serde_json::from_value(_value)
+                .map_err(|error| serde_json::Error::custom(format!(
+                    "deserializing {} variant '{}': {}", stringify!(#name), discriminator, error
+                )))?))
+        },
+        VariantKind::Unit => quote! { Ok(#name::#ident) },
+    }
+}
+
+/// Dispatch by wire tag and select changed payload shapes using the peer version.
+fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
+    let mut groups = std::collections::BTreeMap::<String, Vec<&VariantInfo>>::new();
+    for variant in variants {
+        groups
+            .entry(wire_name(&variant.attrs.name, &variant.ident))
+            .or_default()
+            .push(variant);
+    }
+    let arms: Vec<_> = groups.into_iter().map(|(wire, mut group)| {
+        if group.len() == 1 {
+            let variant = group[0];
+            let cond = variant.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
+            let decode = branch_decode(name, variant);
+            return quote! { #cond #wire => { #decode }, };
+        }
+        newest_variants_first(&mut group);
+        let candidates: Vec<_> = group.into_iter().map(|variant| {
+            let cond = variant.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
+            let active = version_range_check(variant.attrs.since.as_deref(), variant.attrs.until.as_deref())
+                .unwrap_or_else(|| quote! { true });
+            let decode = branch_decode(name, variant);
+            quote! { #cond if __peer_version == (0, 0, 0) || (#active) { return #decode; } }
+        }).collect();
+        quote! { #wire => {
+            let __peer_version = qapi::qemu_version();
+            #(#candidates)*
+            Err(serde_json::Error::custom(format!("{} branch '{}' has no payload for QEMU {:?}", stringify!(#name), discriminator, __peer_version)))
+        }, }
+    }).collect();
     quote! {
         #[allow(deprecated)]
         impl qapi::QapiFlatUnion for #name {
-            fn deserialize_variant(
-                discriminator: &str,
-                _map: serde_json::Map<String, serde_json::Value>,
-            ) -> Result<Self, serde_json::Error> {
+            fn deserialize_variant(discriminator: &str, _map: serde_json::Map<String, serde_json::Value>) -> Result<Self, serde_json::Error> {
                 <Self as qapi::QapiFlatUnion>::deserialize_variant_value(discriminator, serde_json::Value::Object(_map))
             }
-
-            fn deserialize_variant_value(
-                discriminator: &str,
-                _value: serde_json::Value,
-            ) -> Result<Self, serde_json::Error> {
+            fn deserialize_variant_value(discriminator: &str, _value: serde_json::Value) -> Result<Self, serde_json::Error> {
                 use serde::de::Error as _;
                 match discriminator {
                     #(#arms)*
-                    other => Err(serde_json::Error::custom(format!(
-                        "unknown {} discriminator '{}'", stringify!(#name), other
-                    ))),
+                    other => Err(serde_json::Error::custom(format!("unknown {} discriminator '{}'", stringify!(#name), other))),
                 }
             }
         }
