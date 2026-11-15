@@ -1017,7 +1017,8 @@ async fn the_images_page_lists_the_catalog_for_any_signed_in_user() {
         "<code>0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef</code>",
         "https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
         "data-label=\"Raw SHA-256\"",
-        "How images get here",
+        "A separate disk for each VM",
+        "Image verification and staging",
         "contrib/images/stage-base-image.sh",
         "1 staged",
     ] {

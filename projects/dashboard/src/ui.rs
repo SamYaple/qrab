@@ -1189,7 +1189,7 @@ fn images_page(images: &[BaseImage]) -> Element {
         div { class: "heading", div { p { class: "eyebrow", "BASE IMAGES" } h1 { "Operating system images" }
             p { class: "muted", "Sealed images a new VM can boot from. Choose one on the launch form." } }
             span { class: "count", "{images.len()} staged" } }
-        section { class: "card wide directory",
+        section { class: "card wide directory image-directory",
             if images.is_empty() { p { class: "empty", "No base images are staged yet." } }
             else { div { class: "table-wrap", table {
                 caption { class: "visually-hidden", "Staged base images" }

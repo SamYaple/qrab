@@ -592,6 +592,11 @@ with sync_playwright() as playwright:
                     assert page.locator('form.launch').count() == 0
                     expect(page.locator('h1')).to_have_text('Launching is unavailable')
                 if name == 'images':
+                    assert page.locator('td[data-label=Boot]').evaluate_all('''cells => cells.every(cell => {
+                        const text = document.createRange();
+                        text.selectNodeContents(cell);
+                        return text.getClientRects().length === 1;
+                    })'''), 'The UEFI boot label must stay on one line'
                     staging = page.locator('#image-staging')
                     assert not staging.evaluate('(e) => e.open')
                     capture(page, args.output / f'images-collapsed-{theme}-{width}.png')
