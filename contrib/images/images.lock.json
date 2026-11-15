@@ -55,8 +55,8 @@
     "source_revision": "b2022f5bb61210439bbd19fbff091642bd926fef"
   },
   "observability": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:e8c7bd9815efccd8a0abddc62c3ec3ae23e583f1c6620361a071bffbd16e6bb1",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:3a87af89b6a3fc25ed4166e323ef2212a5d4b126ff69e811bc8f915157e1e6e3",
     "version": "0.1.0",
-    "source_revision": "a205be608ccd7518248685143dc5f84143693645"
+    "source_revision": "694f43519c9ab9a0fc9290ce0c4fac1f106c7bc0"
   }
 }
