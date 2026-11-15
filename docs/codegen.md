@@ -111,6 +111,9 @@ Generated command constants describe the newest schema flags. The
 query their added/removed ranges for a particular peer release.
 Flags that disappear and return retain separate ranges, including historical
 simple-union layouts. Repeated macro ranges combine independently of order.
+Instability also tracks stabilization and later reintroduction for types and
+members. Command `is_unstable(version)` queries the peer release; reflection
+and the `UNSTABLE` constant describe the newest declaration.
 From 8.1, conditional members in command/event argument objects require boxing,
 including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before

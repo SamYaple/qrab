@@ -36,7 +36,7 @@ struct TypeAttrs {
     since: Option<String>,
     until: Option<String>,
     deprecated: AttrRange,
-    unstable: AttrRange,
+    unstable: Vec<AttrRange>,
     condition: Option<String>,
     returns: Option<String>,
     returns_history: Vec<((u32, u32, u32), String)>,
@@ -181,11 +181,11 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                         attrs.is_command = true;
                     } else if nv.path.is_ident("unstable") {
                         // Backward compat: unstable = "X" → AttrRange with added
-                        attrs.unstable = AttrRange {
+                        attrs.unstable.push(AttrRange {
                             present: true,
                             added: Some(val),
                             removed: None,
-                        };
+                        });
                     }
                 }
             }
@@ -216,7 +216,7 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     attrs.allow_preconfig.push(parse_attr_range(&list.nested));
                     attrs.is_command = true;
                 } else if list.path.is_ident("unstable") {
-                    attrs.unstable = parse_attr_range(&list.nested);
+                    attrs.unstable.push(parse_attr_range(&list.nested));
                 } else if list.path.is_ident("simple_union") {
                     attrs.simple_union.push(parse_attr_range(&list.nested));
                 } else if list.path.is_ident("deprecated") {
@@ -510,9 +510,7 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                 }
                 ta.condition = ta.condition.or(extra.condition);
                 ta.returns = ta.returns.or(extra.returns);
-                if extra.unstable.present {
-                    ta.unstable = extra.unstable;
-                }
+                ta.unstable.extend(extra.unstable);
                 ta.returns_history.extend(extra.returns_history);
                 ta.allow_oob.extend(extra.allow_oob);
                 ta.allow_preconfig.extend(extra.allow_preconfig);
@@ -554,8 +552,14 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
     }
 
     // Mark unstable types with a doc comment (not #[deprecated] — wrong semantics)
-    if ta.unstable.present && ta.unstable.removed.is_none() {
-        let msg = if let Some(ref ver) = ta.unstable.added {
+    if flag_latest(&ta.unstable) {
+        let current_since = ta
+            .unstable
+            .iter()
+            .filter(|range| range.removed.is_none())
+            .filter_map(|range| range.added.as_deref())
+            .min_by_key(|version| parse_version(version));
+        let msg = if let Some(ver) = current_since {
             format!(
                 " **Unstable** since QEMU {} — this interface may change without notice.",
                 ver
@@ -1953,7 +1957,8 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
     let oob = flag_latest(&ta.allow_oob);
     let preconfig = flag_latest(&ta.allow_preconfig);
     let success = !flag_latest(&ta.no_success_response);
-    let unstable = ta.unstable.present && ta.unstable.removed.is_none();
+    let unstable = flag_latest(&ta.unstable);
+    let unstable_at = command_flag_check(&ta.unstable);
     let oob_at = command_flag_check(&ta.allow_oob);
     let preconfig_at = command_flag_check(&ta.allow_preconfig);
     let no_success_at = command_flag_check(&ta.no_success_response);
@@ -2012,6 +2017,7 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
             fn allows_oob(_version: (u32, u32, u32)) -> bool { #oob_at }
             fn allows_preconfig(_version: (u32, u32, u32)) -> bool { #preconfig_at }
             fn sends_success_response(_version: (u32, u32, u32)) -> bool { !(#no_success_at) }
+            fn is_unstable(_version: (u32, u32, u32)) -> bool { #unstable_at }
             #since_const
             #until_const
             #preconfig_since_const

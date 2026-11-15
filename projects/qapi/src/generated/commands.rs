@@ -2490,7 +2490,6 @@ pub struct CpuAdd {
 /// @unstable: For now this command is subject to change.
 #[qapi(command)]
 #[qapi(name = "cxl-add-dynamic-capacity")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "9.1.0")]
 #[qapi(unstable(added = "9.1.0"))]
@@ -2876,7 +2875,6 @@ pub struct CxlInjectUncorrectableErrors {
 /// @unstable: For now this command is subject to change.
 #[qapi(command)]
 #[qapi(name = "cxl-release-dynamic-capacity")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "9.1.0")]
 #[qapi(unstable(added = "9.1.0"))]
@@ -3072,7 +3070,6 @@ pub struct DeviceListProperties {
 /// @unstable: The command is experimental.
 #[qapi(command)]
 #[qapi(name = "device-sync-config")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "9.2.0")]
 #[qapi(unstable(added = "9.2.0"))]
@@ -3565,7 +3562,6 @@ pub struct HumanMonitorCommand {
 /// @unstable: This command is experimental.
 #[qapi(command)]
 #[qapi(name = "inject-ghes-v2-error")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "10.2.0")]
 #[qapi(unstable(added = "10.2.0"))]
@@ -7179,7 +7175,6 @@ pub struct QueryRxFilter {
 /// Returns: the machine's CPU polarization
 #[qapi(command)]
 #[qapi(name = "query-s390x-cpu-polarization")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "CpuPolarizationInfo")]
 #[qapi(added = "8.2.0")]
 #[qapi(unstable(added = "8.2.0"))]
@@ -7976,7 +7971,6 @@ pub struct SetAction {
 /// @unstable: This command is experimental.
 #[qapi(command)]
 #[qapi(name = "set-cpu-topology")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "()")]
 #[qapi(added = "8.2.0")]
 #[qapi(unstable(added = "8.2.0"))]
@@ -8607,7 +8601,6 @@ pub struct WatchdogSetAction {
 /// Returns: accelerator statistics
 #[qapi(command)]
 #[qapi(name = "x-accel-stats")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "10.1.0")]
 #[qapi(unstable(added = "10.1.0"))]
@@ -8623,7 +8616,6 @@ pub struct XAccelStats {}
 #[qapi(command)]
 #[qapi(name = "x-blockdev-amend")]
 #[qapi(returns = "()")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "5.1.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -8696,7 +8688,6 @@ pub struct XBlockdevAmend {
 #[qapi(command)]
 #[qapi(name = "x-blockdev-change")]
 #[qapi(returns = "()")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "2.7.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -8991,7 +8982,6 @@ pub struct XBlockdevReopen {
 #[qapi(command)]
 #[qapi(name = "x-blockdev-set-iothread")]
 #[qapi(returns = "()")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "2.12.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -9196,7 +9186,6 @@ pub struct XBlockLatencyHistogramSet {
 #[qapi(command)]
 #[qapi(name = "x-colo-lost-heartbeat")]
 #[qapi(returns = "()")]
-#[qapi(feature = "unstable")]
 #[qapi(condition = "CONFIG_REPLICATION")]
 #[qapi(added = "2.8.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9216,7 +9205,6 @@ pub struct XColoLostHeartbeat {}
 #[qapi(command)]
 #[qapi(name = "x-debug-block-dirty-bitmap-sha256")]
 #[qapi(returns = "BlockDirtyBitmapSha256")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "2.10.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -9235,7 +9223,6 @@ pub struct XDebugBlockDirtyBitmapSha256 {
 #[qapi(command)]
 #[qapi(name = "x-debug-query-block-graph")]
 #[qapi(returns = "XDbgBlockGraph")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "4.0.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig(added = "7.1.0"))]
@@ -9424,7 +9411,6 @@ pub struct XenSetReplication {
 #[qapi(command)]
 #[qapi(name = "x-exit-preconfig")]
 #[qapi(returns = "()")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "3.0.0")]
 #[qapi(unstable(added = "6.2.0"))]
 #[qapi(allow_preconfig)]
@@ -9514,7 +9500,6 @@ pub struct XOobTest {
 /// Returns: Interrupt controller devices information
 #[qapi(command)]
 #[qapi(name = "x-query-interrupt-controllers")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "9.1.0")]
 #[qapi(unstable(added = "9.1.0"))]
@@ -9529,7 +9514,6 @@ pub struct XQueryInterruptControllers {}
 /// Returns: interrupt statistics
 #[qapi(command)]
 #[qapi(name = "x-query-irq")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9545,7 +9529,6 @@ pub struct XQueryIrq {}
 #[qapi(command)]
 #[qapi(name = "x-query-jit")]
 #[qapi(condition = "CONFIG_TCG")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9560,7 +9543,6 @@ pub struct XQueryJit {}
 /// Returns: topology information
 #[qapi(command)]
 #[qapi(name = "x-query-numa")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9576,7 +9558,6 @@ pub struct XQueryNuma {}
 #[qapi(command)]
 #[qapi(name = "x-query-opcount")]
 #[qapi(condition = "CONFIG_TCG")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9591,7 +9572,6 @@ pub struct XQueryOpcount {}
 /// Returns: profile information
 #[qapi(command)]
 #[qapi(name = "x-query-profile")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(condition = "CONFIG_TCG")]
 #[qapi(added = "6.2.0")]
@@ -9608,7 +9588,6 @@ pub struct XQueryProfile {}
 /// Returns: system ramblock information
 #[qapi(command)]
 #[qapi(name = "x-query-ramblock")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9623,7 +9602,6 @@ pub struct XQueryRamblock {}
 /// Returns: RDMA state
 #[qapi(command)]
 #[qapi(name = "x-query-rdma")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9639,7 +9617,6 @@ pub struct XQueryRdma {}
 /// Returns: registered ROMs
 #[qapi(command)]
 #[qapi(name = "x-query-roms")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9654,7 +9631,6 @@ pub struct XQueryRoms {}
 /// Returns: USB device information
 #[qapi(command)]
 #[qapi(name = "x-query-usb")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "HumanReadableText")]
 #[qapi(added = "6.2.0")]
 #[qapi(unstable(added = "6.2.0"))]
@@ -9699,7 +9675,6 @@ pub struct XQueryUsb {}
 /// ```
 #[qapi(command)]
 #[qapi(name = "x-query-virtio")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "Vec<VirtioInfo>")]
 #[qapi(added = "7.2.0")]
 #[qapi(unstable(added = "7.2.0"))]
@@ -9813,7 +9788,6 @@ pub struct XQueryVirtio {}
 /// ```
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-queue-element")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "VirtioQueueElement")]
 #[qapi(added = "7.2.0")]
 #[qapi(unstable(added = "7.2.0"))]
@@ -9913,7 +9887,6 @@ pub struct XQueryVirtioQueueElement {
 /// ```
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-queue-status")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "VirtQueueStatus")]
 #[qapi(added = "7.2.0")]
 #[qapi(unstable(added = "7.2.0"))]
@@ -10179,7 +10152,6 @@ pub struct XQueryVirtioQueueStatus {
 /// ```
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-status")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "VirtioStatus")]
 #[qapi(added = "7.2.0")]
 #[qapi(unstable(added = "7.2.0"))]
@@ -10248,7 +10220,6 @@ pub struct XQueryVirtioStatus {
 /// ```
 #[qapi(command)]
 #[qapi(name = "x-query-virtio-vhost-queue-status")]
-#[qapi(feature = "unstable")]
 #[qapi(returns = "VirtVhostQueueStatus")]
 #[qapi(added = "7.2.0")]
 #[qapi(unstable(added = "7.2.0"))]

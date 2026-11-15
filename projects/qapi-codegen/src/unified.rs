@@ -73,7 +73,10 @@ pub struct VersionRange {
     pub since: Version,
     pub until: Option<Version>,
     pub deprecated: Option<Version>,
+    /// First release marked unstable; use unstable_ranges for subsequent changes.
     pub unstable: Option<Version>,
+    /// Separate unstable-feature lifetimes, including stabilization gaps.
+    pub unstable_ranges: Vec<(Version, Option<Version>)>,
 }
 
 impl VersionRange {
@@ -83,6 +86,29 @@ impl VersionRange {
             until: None,
             deprecated: None,
             unstable: None,
+            unstable_ranges: Vec::new(),
+        }
+    }
+
+    /// Whether the unstable feature applies in a particular release.
+    pub fn is_unstable(&self, version: Version) -> bool {
+        self.unstable_ranges
+            .iter()
+            .any(|(since, until)| version >= *since && until.is_none_or(|end| version < end))
+    }
+
+    fn track_unstable(&mut self, meta: &Metadata, version: Version) {
+        if has_feature(meta, "unstable") {
+            self.unstable.get_or_insert(version);
+            if self
+                .unstable_ranges
+                .last()
+                .is_none_or(|(_, until)| until.is_some())
+            {
+                self.unstable_ranges.push((version, None));
+            }
+        } else if let Some((_, until)) = self.unstable_ranges.last_mut() {
+            until.get_or_insert(version);
         }
     }
 }
@@ -200,7 +226,16 @@ fn condition(meta: &Metadata) -> Option<&str> {
     })
 }
 
-fn refresh_condition(existing: &mut Metadata, latest: &Metadata) {
+// Conditions and instability describe the newest declaration, not their historical union.
+fn refresh_current_attributes(existing: &mut Metadata, latest: &Metadata) {
+    existing.attributes.retain(|attr| !unstable_attribute(attr));
+    existing.attributes.extend(
+        latest
+            .attributes
+            .iter()
+            .filter(|attr| unstable_attribute(attr))
+            .cloned(),
+    );
     if condition(existing) == condition(latest) {
         return;
     }
@@ -212,6 +247,24 @@ fn refresh_condition(existing: &mut Metadata, latest: &Metadata) {
             .attributes
             .push(Attribute::with_value("condition", value));
     }
+}
+
+fn unstable_attribute(attr: &Attribute) -> bool {
+    match attr {
+        Attribute::Item { name, value } => name == "feature" && value == "unstable",
+        Attribute::List(values) => values.iter().any(unstable_attribute),
+        _ => false,
+    }
+}
+
+fn unstable_attributes(versions: &VersionRange) -> impl Iterator<Item = Attribute> + '_ {
+    versions.unstable_ranges.iter().map(|(since, until)| {
+        let mut attrs = vec![Attribute::with_value("added", version_str(*since))];
+        if let Some(until) = until {
+            attrs.push(Attribute::with_value("removed", version_str(*until)));
+        }
+        Attribute::nested("unstable", attrs)
+    })
 }
 
 /// Merge command-specific attributes (command, returns, allow_oob, etc.) from
@@ -1190,13 +1243,9 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
         if has_feature(&e.meta, "deprecated") && existing.versions.deprecated.is_none() {
             existing.versions.deprecated = Some(version);
         }
-        // Track type-level unstable
-        if has_feature(&e.meta, "unstable") && existing.versions.unstable.is_none() {
-            existing.versions.unstable = Some(version);
-        }
         // Update doc from latest version (latest has best docs)
         merge_doc_from(&mut existing.ir.meta.doc, e.meta.doc.as_deref());
-        refresh_condition(&mut existing.ir.meta, &e.meta);
+        refresh_current_attributes(&mut existing.ir.meta, &e.meta);
         // Union enum-level attributes across versions.
         for new_attr in &e.meta.attributes {
             if !existing
@@ -1249,7 +1298,7 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                     existing_variant.kind = variant.kind.clone();
                     existing_variant.array = variant.array;
                     merge_doc_from(&mut existing_variant.meta.doc, variant.meta.doc.as_deref());
-                    refresh_condition(&mut existing_variant.meta, &variant.meta);
+                    refresh_current_attributes(&mut existing_variant.meta, &variant.meta);
                     for new_attr in &variant.meta.attributes {
                         if !existing_variant
                             .meta
@@ -1313,9 +1362,6 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
             clean_doc_in_place(&mut v.meta.doc);
         }
         let mut versions = VersionRange::new(version);
-        if has_feature(&ir.meta, "unstable") {
-            versions.unstable = Some(version);
-        }
         if has_feature(&ir.meta, "deprecated") {
             versions.deprecated = Some(version);
         }
@@ -1328,6 +1374,16 @@ fn merge_enum(registry: &mut UnifiedRegistry, name: &str, e: &Enum, version: Ver
                 variant_history: Vec::new(),
             }),
         );
+    }
+    if let Some(UnifiedType::Enum(value)) = registry.types.get_mut(name) {
+        value.versions.track_unstable(&e.meta, version);
+        for variant in &e.variants {
+            value
+                .variant_versions
+                .get_mut(&variant.name)
+                .unwrap()
+                .track_unstable(&variant.meta, version);
+        }
     }
 }
 
@@ -1391,13 +1447,9 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
         if has_feature(&s.meta, "deprecated") && existing.versions.deprecated.is_none() {
             existing.versions.deprecated = Some(version);
         }
-        // Track type-level unstable
-        if has_feature(&s.meta, "unstable") && existing.versions.unstable.is_none() {
-            existing.versions.unstable = Some(version);
-        }
         // Update doc from latest version (latest has best docs)
         merge_doc_from(&mut existing.ir.meta.doc, s.meta.doc.as_deref());
-        refresh_condition(&mut existing.ir.meta, &s.meta);
+        refresh_current_attributes(&mut existing.ir.meta, &s.meta);
         // Merge version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
         merge_bool_attrs(existing, &s.meta, version);
         merge_returns(existing, &s.meta, version);
@@ -1458,7 +1510,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                     existing_field.optional = field.optional;
                     existing_field.array = field.array;
                     merge_doc_from(&mut existing_field.meta.doc, field.meta.doc.as_deref());
-                    refresh_condition(&mut existing_field.meta, &field.meta);
+                    refresh_current_attributes(&mut existing_field.meta, &field.meta);
                     for new_attr in &field.meta.attributes {
                         if !existing_field
                             .meta
@@ -1576,9 +1628,6 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
             .map(|r| vec![(version, r.to_owned())])
             .unwrap_or_default();
         let mut versions = VersionRange::new(version);
-        if has_feature(&ir.meta, "unstable") {
-            versions.unstable = Some(version);
-        }
         if has_feature(&ir.meta, "deprecated") {
             versions.deprecated = Some(version);
         }
@@ -1594,6 +1643,14 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 returns_history,
             }),
         );
+    }
+    if let Some(UnifiedType::Struct(value)) = registry.types.get_mut(name) {
+        value.versions.track_unstable(&s.meta, version);
+        for field in &s.fields {
+            if let Some(range) = value.field_versions.get_mut(&field.name) {
+                range.track_unstable(&field.meta, version);
+            }
+        }
     }
 }
 
@@ -1998,18 +2055,8 @@ fn generate_unified_enum(
             vec![Attribute::with_value("added", version_str(dep))],
         ));
     }
-    if let Some(unstable) = ue.versions.unstable {
-        ir.meta.attributes.push(Attribute::nested(
-            "unstable",
-            vec![Attribute::with_value("added", version_str(unstable))],
-        ));
-        // Remove redundant feature = "unstable" since unstable(added=...) covers it
-        ir.meta.attributes.retain(|a| {
-            !matches!(a,
-                Attribute::Item { name, value } if name == "feature" && value == "unstable"
-            )
-        });
-    }
+    ir.meta.attributes.retain(|attr| !unstable_attribute(attr));
+    ir.meta.attributes.extend(unstable_attributes(&ue.versions));
     if let Some(until) = ue.versions.until {
         ir.meta
             .attributes
@@ -2072,24 +2119,8 @@ fn generate_unified_struct(
             vec![Attribute::with_value("added", version_str(dep))],
         ));
     }
-    if let Some(unstable) = us.versions.unstable {
-        let mut inner = vec![Attribute::with_value("added", version_str(unstable))];
-        // Check if unstable was removed (stabilized) via attr_versions
-        if let Some(uvr) = us.attr_versions.get("unstable")
-            && let Some(until) = uvr.until
-        {
-            inner.push(Attribute::with_value("removed", version_str(until)));
-        }
-        ir.meta
-            .attributes
-            .push(Attribute::nested("unstable", inner));
-        // Remove redundant feature = "unstable" since unstable(added=...) covers it
-        ir.meta.attributes.retain(|a| {
-            !matches!(a,
-                Attribute::Item { name, value } if name == "feature" && value == "unstable"
-            )
-        });
-    }
+    ir.meta.attributes.retain(|attr| !unstable_attribute(attr));
+    ir.meta.attributes.extend(unstable_attributes(&us.versions));
     if let Some(until) = us.versions.until {
         ir.meta
             .attributes
@@ -2098,12 +2129,7 @@ fn generate_unified_struct(
 
     // Add version-tracked boolean command attributes (allow_preconfig, allow_oob, etc.)
     // using nested syntax: #[qapi(allow_preconfig(added = "7.1.0", removed = "9.0.0"))]
-    // "unstable" is handled specially since it's also a top-level version attribute.
     for (attr_name, vr) in &us.attr_versions {
-        // Skip "unstable" — already handled above as a top-level attribute
-        if attr_name == "unstable" {
-            continue;
-        }
         // Remove any existing forms of this attribute (bare, old-style, nested)
         ir.meta
             .attributes
@@ -2949,6 +2975,37 @@ mod enum_history_tests {
     }
 
     #[test]
+    fn enum_and_variant_instability_retains_stabilization_gaps() {
+        let mut registry = UnifiedRegistry::default();
+        for (major, unstable) in [(6, true), (8, false), (11, true), (12, false)] {
+            let mut value = enumeration("value", EnumVariantKind::Unit, false);
+            if unstable {
+                let feature = Attribute::List(vec![Attribute::with_value("feature", "unstable")]);
+                value.meta.attributes.push(feature.clone());
+                value.variants[0].meta.attributes.push(feature);
+            }
+            merge_enum(&mut registry, "Example", &value, (major, 0, 0));
+        }
+        let UnifiedType::Enum(value) = &registry.types["Example"] else {
+            panic!()
+        };
+        assert!(!has_feature(&value.ir.meta, "unstable"));
+        assert!(!has_feature(&value.ir.variants[0].meta, "unstable"));
+        for (version, expected) in [
+            ((6, 0, 0), true),
+            ((8, 0, 0), false),
+            ((11, 0, 0), true),
+            ((12, 0, 0), false),
+        ] {
+            assert_eq!(value.versions.is_unstable(version), expected);
+            assert_eq!(
+                value.variant_versions["value"].is_unstable(version),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn latest_type_and_variant_conditions_replace_or_clear_old_conditions() {
         let mut registry = UnifiedRegistry::default();
         let mut value = enumeration("value", EnumVariantKind::Unit, false);
@@ -3121,6 +3178,28 @@ mod field_history_tests {
             fields,
             meta: Metadata::default(),
         }
+    }
+
+    #[test]
+    fn stabilization_clears_latest_type_and_field_feature_metadata() {
+        let mut registry = UnifiedRegistry::default();
+        for (major, unstable) in [(6, true), (8, false), (11, true), (12, false)] {
+            let mut value = record(vec![field("value", "str", false)]);
+            if unstable {
+                let feature = Attribute::List(vec![Attribute::with_value("feature", "unstable")]);
+                value.meta.attributes.push(feature.clone());
+                value.fields[0].meta.attributes.push(feature);
+            }
+            merge_struct(&mut registry, "Record", &value, (major, 0, 0));
+        }
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert!(!has_feature(&value.ir.meta, "unstable"));
+        assert!(!has_feature(&value.ir.fields[0].meta, "unstable"));
+        let expected = vec![((6, 0, 0), Some((8, 0, 0))), ((11, 0, 0), Some((12, 0, 0)))];
+        assert_eq!(value.versions.unstable_ranges, expected);
+        assert_eq!(value.field_versions["value"].unstable_ranges, expected);
     }
 
     #[test]
@@ -3382,6 +3461,12 @@ mod flag_timeline_tests {
                     let UnifiedType::Struct(merged) = &registry.types[&name] else {
                         panic!()
                     };
+                    if has_feature(&value.meta, "unstable")
+                        != merged.versions.is_unstable(source.version)
+                    {
+                        mismatches
+                            .push(format!("{} {name}: unstable feature mismatch", source.tag));
+                    }
                     for flag in TRACKED_BOOL_ATTRS {
                         let expected = value.meta.attributes.contains(&Attribute::new(flag));
                         let actual = merged.flag_enabled(flag, source.version);
@@ -3391,6 +3476,17 @@ mod flag_timeline_tests {
                                 source.tag
                             ));
                         }
+                    }
+                }
+                for (name, value) in source.enums {
+                    let UnifiedType::Enum(merged) = &registry.types[&name] else {
+                        panic!()
+                    };
+                    if has_feature(&value.meta, "unstable")
+                        != merged.versions.is_unstable(source.version)
+                    {
+                        mismatches
+                            .push(format!("{} {name}: unstable feature mismatch", source.tag));
                     }
                 }
             }

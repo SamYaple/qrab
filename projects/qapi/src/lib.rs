@@ -16,6 +16,7 @@ pub trait QapiCommand: serde::Serialize {
     const ALLOW_PRECONFIG: bool;
     /// Reply flag in the newest represented schema.
     const SUCCESS_RESPONSE: bool;
+    /// Unstable marker in the newest represented schema.
     const UNSTABLE: bool;
     const AVAILABLE_SINCE: (u32, u32, u32);
     const REMOVED_IN: Option<(u32, u32, u32)>;
@@ -36,6 +37,11 @@ pub trait QapiCommand: serde::Serialize {
     /// Whether a successful command produces a reply on a peer release.
     fn sends_success_response(_version: (u32, u32, u32)) -> bool {
         Self::SUCCESS_RESPONSE
+    }
+
+    /// Whether the command is marked unstable in a peer release.
+    fn is_unstable(_version: (u32, u32, u32)) -> bool {
+        Self::UNSTABLE
     }
 }
 

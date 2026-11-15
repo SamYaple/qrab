@@ -438,7 +438,6 @@ pub struct CommandDroppedEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "CPU_POLARIZATION_CHANGE")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "8.2.0")]
 #[qapi(unstable(added = "8.2.0"))]
 pub struct CpuPolarizationChangeEvent {
@@ -1140,7 +1139,6 @@ pub struct RtcChangeEvent {
 /// ```
 #[qapi(event)]
 #[qapi(name = "SCLP_CPI_INFO_AVAILABLE")]
-#[qapi(feature = "unstable")]
 #[qapi(added = "10.2.0")]
 #[qapi(unstable(added = "10.2.0"))]
 pub struct SclpCpiInfoAvailableEvent {}

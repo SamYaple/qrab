@@ -24,6 +24,19 @@ fn generated_command_flags_preserve_a_removed_interval() {
             "{'command':'flip','allow-oob':true,'allow-preconfig':true,'success-response':false}",
         ),
     ] {
+        let feature = if tag == "v8.0.0" {
+            "[]"
+        } else {
+            "['unstable']"
+        };
+        let initial = if tag == "v6.1.0" {
+            "['unstable']"
+        } else {
+            "[]"
+        };
+        let schema = format!(
+            "{schema}\n{{'command':'feature-flip','features':{feature}}}\n{{'command':'stabilized','features':{initial}}}"
+        );
         std::fs::write(repo.join("qapi/qapi-schema.json"), schema).unwrap();
         git(&repo, &["add", "."]);
         git(
@@ -57,12 +70,18 @@ fn main() {
         assert_eq!(commands::Flip::allows_oob(version), enabled);
         assert_eq!(commands::Flip::allows_preconfig(version), enabled);
         assert_eq!(commands::Flip::sends_success_response(version), !enabled);
+        assert_eq!(commands::FeatureFlip::is_unstable(version), enabled);
+        assert_eq!(commands::Stabilized::is_unstable(version), version == (6,1,0));
     }
     assert_eq!(commands::Flip::PRECONFIG_SINCE, Some((6,1,0)));
     assert!(commands::Flip::ALLOW_OOB && commands::Flip::ALLOW_PRECONFIG);
     assert!(!commands::Flip::SUCCESS_RESPONSE);
-    let command = &metadata::COMMANDS[0];
+    assert!(commands::FeatureFlip::UNSTABLE);
+    assert!(!commands::Stabilized::UNSTABLE);
+    let command = metadata::COMMANDS.iter().find(|command| command.wire_name == "flip").unwrap();
     assert!(command.allow_oob && command.allow_preconfig && !command.success_response);
+    assert!(metadata::COMMANDS.iter().find(|command| command.wire_name == "feature-flip").unwrap().unstable);
+    assert!(!metadata::COMMANDS.iter().find(|command| command.wire_name == "stabilized").unwrap().unstable);
 }
 "#,
     );
