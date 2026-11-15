@@ -11,7 +11,7 @@ use crate::versions::{
 };
 use crate::{QapiSchemaToken, parse_schema};
 use anyhow::{Context, Result};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 pub type Version = (u32, u32, u32);
@@ -249,6 +249,36 @@ fn process_version_schema(
         })
         .collect::<Result<Vec<_>>>()?;
     crate::schema_validation::validate(&schemas)?;
+    // Anonymous structs must not overwrite declared types or generated role types.
+    let mut names = HashSet::new();
+    for (_, schema) in &schemas {
+        for token in &schema.0 {
+            match token {
+                QapiSchemaToken::Enum(value) => {
+                    names.insert(rustify_name(value.name));
+                }
+                QapiSchemaToken::Struct(value) => {
+                    names.insert(rustify_name(value.name));
+                }
+                QapiSchemaToken::Alternate(value) => {
+                    names.insert(rustify_name(value.name));
+                }
+                QapiSchemaToken::Command(value) => {
+                    names.insert(rustify_name(value.name));
+                    names.insert(format!("{}Command", rustify_name(value.name)));
+                }
+                QapiSchemaToken::Event(value) => {
+                    names.insert(rustify_name(&format!("{}Event", value.name)));
+                }
+                QapiSchemaToken::Union(value) => {
+                    names.insert(rustify_name(value.name));
+                    names.insert(format!("{}Branch", rustify_name(value.name)));
+                    names.insert(format!("{}Type", rustify_name(value.name)));
+                }
+                _ => {}
+            }
+        }
+    }
 
     // All types are keyed by their rustified form so that cross-version renames
     // (e.g. SGXInfo → SgxInfo in v10.1) and command/data-struct pairs that
@@ -293,7 +323,8 @@ fn process_version_schema(
                         unprocessed_structs.push(v);
                         continue;
                     }
-                    let (processed, extracted) = process_struct(v, &structs_lookup);
+                    let (processed, extracted) =
+                        process_struct_with_names(v, &structs_lookup, &mut names);
                     structs_lookup.insert(rustify_name(&processed.name), processed);
                     for e in extracted {
                         structs_lookup.insert(rustify_name(&e.name), e);
@@ -333,7 +364,8 @@ fn process_version_schema(
                 pending.push(value);
                 continue;
             }
-            let (processed, extracted) = process_struct(value, &structs_lookup);
+            let (processed, extracted) =
+                process_struct_with_names(value, &structs_lookup, &mut names);
             structs_lookup.insert(rustify_name(&processed.name), processed);
             for value in extracted {
                 structs_lookup.insert(rustify_name(&value.name), value);

@@ -6,7 +6,7 @@ use crate::{
     MembersOrRef, QapiAlternate, QapiAlternative, QapiCommand, QapiEnum, QapiEnumValue, QapiEvent,
     QapiMember, QapiStruct, QapiTypeRef, QapiUnion, extract_since_from_comment,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Normalize a since version string to always include patch: "1.2" → "1.2.0"
 /// Also handles: trailing dots ("2.9." → "2.9.0"), extra text after version.
@@ -280,21 +280,37 @@ pub fn process_member(q: QapiMember) -> StructField {
 }
 
 /// Process a member that may contain an inline struct definition.
-/// Returns the field and optionally an extracted struct.
-/// The `parent_name` is used to generate a name for the extracted struct.
-fn process_member_with_inline(q: QapiMember, parent_name: &str) -> (StructField, Option<Struct>) {
+/// Return the field and all recursively extracted anonymous structs.
+fn process_member_with_inline(
+    q: QapiMember,
+    parent_name: &str,
+    names: &mut HashSet<String>,
+) -> (StructField, Vec<Struct>) {
     if let QapiTypeRef::InlineStruct(members) = q.r#type {
         // Generate a name: ParentNameFieldName (PascalCase)
-        let inline_name = format!("{}{}", rustify_name(parent_name), rustify_name(q.name));
-        let mut fields = Vec::new();
-        for member in members {
-            fields.push(process_member(member));
+        let preferred = format!("{}{}", rustify_name(parent_name), rustify_name(q.name));
+        let mut inline_name = preferred.clone();
+        let mut suffix = 0;
+        while !names.insert(inline_name.clone()) {
+            suffix += 1;
+            inline_name = if suffix == 1 {
+                format!("{preferred}Inline")
+            } else {
+                format!("{preferred}Inline{suffix}")
+            };
         }
-        let extracted = Struct {
+        let mut fields = Vec::new();
+        let mut extracted = Vec::new();
+        for member in members {
+            let (field, nested) = process_member_with_inline(member, &inline_name, names);
+            fields.push(field);
+            extracted.extend(nested);
+        }
+        extracted.push(Struct {
             name: inline_name.clone(),
             fields,
             meta: Metadata::default(),
-        };
+        });
 
         let mut meta = Metadata::default();
         if let Some(attr) = field_name_attr(q.name) {
@@ -312,9 +328,9 @@ fn process_member_with_inline(q: QapiMember, parent_name: &str) -> (StructField,
             optional: q.optional,
             array: false,
         };
-        (field, Some(extracted))
+        (field, extracted)
     } else {
-        (process_member(q), None)
+        (process_member(q), Vec::new())
     }
 }
 
@@ -323,6 +339,16 @@ pub fn process_struct(
     q: QapiStruct,
     structs_lookup: &HashMap<String, Struct>,
 ) -> (Struct, Vec<Struct>) {
+    let mut names = structs_lookup.keys().cloned().collect();
+    process_struct_with_names(q, structs_lookup, &mut names)
+}
+
+pub(crate) fn process_struct_with_names(
+    q: QapiStruct,
+    structs_lookup: &HashMap<String, Struct>,
+    names: &mut HashSet<String>,
+) -> (Struct, Vec<Struct>) {
+    names.insert(rustify_name(q.name));
     let mut fields = Vec::new();
     let mut extracted = Vec::new();
     if let Some(base) = q.base {
@@ -332,11 +358,9 @@ pub fn process_struct(
         fields.extend(struct_ref.fields.clone());
     }
     for member in q.data {
-        let (field, inline) = process_member_with_inline(member, q.name);
+        let (field, inline) = process_member_with_inline(member, q.name, names);
         fields.push(field);
-        if let Some(s) = inline {
-            extracted.push(s);
-        }
+        extracted.extend(inline);
     }
     let mut meta = Metadata::default();
     if let Some(attr) = name_attr(q.name) {

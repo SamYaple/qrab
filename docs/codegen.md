@@ -82,6 +82,9 @@ Empty enums and structs are valid, but their `data` key is still required.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.
+Historical anonymous structs lower recursively, including optional and empty
+objects. Extracted type names avoid declared types and generated role names,
+so anonymous objects cannot overwrite unrelated schema definitions.
 Flat unions may omit every payload branch when their discriminator enum is
 nonempty. Generated branch enums carry `union_branch` even when all variants
 have no payload, preserving discriminator dispatch and empty-object wire shape.

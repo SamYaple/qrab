@@ -81,7 +81,8 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     // payload in the compiled fixture after validating the modern definitions.
     schema.push_str("{ 'union':'ArrayPayload', 'data':{'strings':['str'],'objects':['String'],'kinds':['Kind']} }\n");
     schema.push_str("{ 'struct':'OpaqueReferences', 'data':{'visitor':'visitor','dict':'dict','wildcard':'**'} }\n");
-    std::fs::write(&entry, &schema).unwrap();
+    let nested_schema = "{ 'struct':'NestedInline', 'data':{'outer':{'inner':{'value':'str','*count':'int'},'*empty':{}},'*choice':{'flag':'bool'}} }\n{ 'struct':'NestedInlineOuterInner', 'data':{'declared':'bool'} }\n";
+    std::fs::write(&entry, nested_schema).unwrap();
     git(&repo, &["init", "-q"]);
     git(&repo, &["add", "."]);
     git(
@@ -94,6 +95,21 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
             "commit",
             "-qm",
             "fixture",
+        ],
+    );
+    git(&repo, &["tag", "v2.3.0"]);
+    std::fs::write(&entry, &schema).unwrap();
+    git(&repo, &["add", "."]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "historical union",
         ],
     );
     git(&repo, &["tag", "v6.1.0"]);
@@ -112,7 +128,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         ],
     );
     git(&repo, &["tag", "v11.1.3"]);
-    let output = generate_unified_code(&repo, &["v6.1.0", "v11.1.3"]).unwrap();
+    let output = generate_unified_code(&repo, &["v2.3.0", "v6.1.0", "v11.1.3"]).unwrap();
     let fixture = temp.path().join("fixture");
     let generated = fixture.join("src/generated");
     std::fs::create_dir_all(&generated).unwrap();
@@ -141,96 +157,7 @@ phf = {{ version = "0.11", features = ["macros"] }}
         workspace.join("projects/qapi-macros")
     );
     std::fs::write(fixture.join("Cargo.toml"), manifest).unwrap();
-    let main = r#"
-pub use qapi_runtime::{QapiCommand, QapiEvent, QapiFlatUnion, PreconfigSafe, qemu_version, scoped_qemu_version, with_version, unavailable_type_message};
-mod generated;
-pub use generated::*;
-fn main() {
-    with_version((11,1,3), || {
-        let empty: EmptyUnion = serde_json::from_value(serde_json::json!({"kind":"none"})).unwrap();
-        assert_eq!(serde_json::to_value(empty).unwrap(), serde_json::json!({"kind":"none"}));
-        assert_eq!(metadata::ENUMS.get("EmptyUnionBranch").unwrap().kind, metadata::EnumKind::FlatUnionBranch);
-        let _: Option<<commands::PeerWindowsCommand as QapiCommand>::Returns> = Some(PeerWindows { value: "remote".into() });
-        for wire in [serde_json::json!({}), serde_json::json!({"windows":"remote"}), serde_json::json!({"posix":"remote"})] {
-            let value: PeerFields = serde_json::from_value(wire.clone()).unwrap();
-            assert_eq!(serde_json::to_value(value).unwrap(), wire);
-        }
-        for wire in ["windows", "posix"] {
-            let value: PeerKind = serde_json::from_value(serde_json::json!(wire)).unwrap();
-            assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!(wire));
-        }
-        // Schema optionality still describes the member when its peer condition holds.
-        assert!(metadata::STRUCTS.get("PeerFields").unwrap().fields.iter().all(|field| !field.optional));
-        with_version((6,1,0), || {
-        let wire = serde_json::json!({"visitor":[1,2],"dict":false,"wildcard":null});
-        let opaque: OpaqueReferences = serde_json::from_value(wire.clone()).unwrap();
-        assert_eq!(serde_json::to_value(opaque).unwrap(), wire);
-        for field in metadata::STRUCTS.get("OpaqueReferences").unwrap().fields {
-            let ty = &metadata::TYPE_REFS[field.ty as usize];
-            assert_eq!(ty.kind, metadata::TypeKind::Primitive);
-            assert_eq!(ty.prim, metadata::Prim::Any);
-        }
-        for wire in [serde_json::json!({"type":"strings","data":["a"]}), serde_json::json!({"type":"objects","data":[{"value":"a"}]}), serde_json::json!({"type":"kinds","data":["string"]})] {
-            let value: ArrayPayload = serde_json::from_value(wire.clone()).unwrap();
-            assert_eq!(serde_json::to_value(value).unwrap(), wire);
-        }
-        });
-        for variant in metadata::ENUMS.get("ArrayPayloadBranch").unwrap().variants {
-            assert_eq!(variant.payload_struct, None);
-            let list = &metadata::TYPE_REFS[variant.payload_type.unwrap() as usize];
-            assert_eq!(list.kind, metadata::TypeKind::List);
-            let element = &metadata::TYPE_REFS[list.inner as usize];
-            match variant.wire_name {
-                "strings" => assert_eq!(element.prim, metadata::Prim::Str),
-                "objects" => {assert_eq!(element.kind, metadata::TypeKind::Struct); assert_eq!(element.name, "QapiString");},
-                "kinds" => {assert_eq!(element.kind, metadata::TypeKind::Enum); assert_eq!(element.name, "Kind");},
-                _ => unreachable!(),
-            }
-        }
-        let command = commands::QapiSelfCommand { value: "command".into() };
-        assert_eq!(<commands::QapiSelfCommand as QapiCommand>::NAME, "self");
-        assert_eq!(serde_json::to_value(command).unwrap(), serde_json::json!({"value":"command"}));
-        let _: Option<QapiSelf> = None::<<commands::QapiSelfCommand as QapiCommand>::Returns>;
-        let mut wire = serde_json::Map::new();
-        for name in ["self","string","option","vec","box","result","hashmap","send","sync","sized","drop","fnonce","some","none","ok","err","visitor","dict"] {
-            wire.insert(name.into(), serde_json::json!({"value":name}));
-        }
-        for name in ["crate","super","type","async"] { wire.insert(name.into(), serde_json::json!(name)); }
-        wire.insert("kind".into(), serde_json::json!("string"));
-        let wire = serde_json::Value::Object(wire);
-        let value: Holder = serde_json::from_value(wire.clone()).unwrap();
-        assert!(matches!(value.kind, Kind::String));
-        assert_eq!(value.self_.value, "self");
-        assert_eq!(value.crate_, "crate");
-        assert_eq!(serde_json::to_value(value).unwrap(), wire);
-        let field = metadata::STRUCTS.get("Holder").unwrap().fields.iter().find(|field| field.name == "self_").unwrap();
-        assert_eq!(field.wire_name, "self");
-        let field = metadata::STRUCTS.get("Holder").unwrap().fields.iter().find(|field| field.name == "string").unwrap();
-        let ty = &metadata::TYPE_REFS[field.ty as usize];
-        assert_eq!(ty.kind, metadata::TypeKind::Struct);
-        assert_eq!(ty.name, "QapiString");
-        let command = metadata::COMMANDS.iter().find(|command| command.wire_name == "read-string").unwrap();
-        let ty = &metadata::TYPE_REFS[command.returns.unwrap() as usize];
-        assert_eq!(ty.kind, metadata::TypeKind::Primitive);
-        assert_eq!(ty.prim, metadata::Prim::Str);
-        let command = metadata::COMMANDS.iter().find(|command| command.wire_name == "read-strings").unwrap();
-        let ty = &metadata::TYPE_REFS[command.returns.unwrap() as usize];
-        assert_eq!(ty.kind, metadata::TypeKind::List);
-        assert_eq!(metadata::TYPE_REFS[ty.inner as usize].prim, metadata::Prim::Str);
-        for variant in metadata::ENUMS.get("PeerPayload").unwrap().variants.iter().chain(metadata::ENUMS.get("PeerNumber").unwrap().variants) {
-            let ty = &metadata::TYPE_REFS[variant.payload_type.unwrap() as usize];
-            match variant.wire_name {
-                "object" => {assert_eq!(ty.kind, metadata::TypeKind::Struct); assert_eq!(variant.payload_struct, Some("QapiString"));},
-                "text" => assert_eq!(ty.prim, metadata::Prim::Str),
-                "kind" => {assert_eq!(ty.kind, metadata::TypeKind::Enum); assert_eq!(ty.name, "Kind"); assert_eq!(variant.payload_struct, None);},
-                "number" => assert_eq!(ty.prim, metadata::Prim::I64),
-                "nothing" => assert_eq!(ty.prim, metadata::Prim::Null),
-                _ => unreachable!(),
-            }
-        }
-    });
-}
-"#;
+    let main = include_str!("fixtures/compiler/main.rs");
     std::fs::write(fixture.join("src/main.rs"), main).unwrap();
     let result = Command::new(env!("CARGO"))
         .args(["run", "--offline", "--quiet", "--manifest-path"])
