@@ -60,7 +60,9 @@ pub struct BlockExportDeletedEvent {
 /// image does not have a device name associated.
 ///
 /// .. note:: If action is "stop", a `STOP` event will eventually follow
+/// ```text
 ///    the `BLOCK_IO_ERROR` event.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -103,7 +105,9 @@ pub struct BlockImageCorruptedEvent {
 /// Emitted when a disk I/O error occurs
 ///
 /// .. note:: If action is "stop", a `STOP` event will eventually follow
+/// ```text
 ///    the `BLOCK_IO_ERROR` event.
+/// ```
 ///
 /// .. note:: This event is rate-limited, except if action is "stop".
 ///
@@ -295,7 +299,9 @@ pub struct BlockJobPendingEvent {
 /// Emitted when a block job is ready to complete
 ///
 /// .. note:: The "ready to complete" status is always reset by a
+/// ```text
 ///    `BLOCK_JOB_ERROR` event.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -962,7 +968,9 @@ pub struct QuorumFailureEvent {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Read operation
+/// ```
 ///
 /// ```text
 ///     <- { "event": "QUORUM_REPORT_BAD",
@@ -972,7 +980,9 @@ pub struct QuorumFailureEvent {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Flush operation
+/// ```
 ///
 /// ```text
 ///     <- { "event": "QUORUM_REPORT_BAD",
@@ -1080,8 +1090,10 @@ pub struct ResumeEvent {}
 /// Emitted when the guest changes the RTC time.
 ///
 /// .. note:: This event is rate-limited.  It is not guaranteed that the
+/// ```text
 ///    RTC in the system implements this event, or even that the system
 ///    has an RTC at all.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -1133,8 +1145,10 @@ pub struct SclpCpiInfoAvailableEvent {}
 /// is about to exit.
 ///
 /// .. note:: If the command-line option ``-no-shutdown`` has been
+/// ```text
 ///    specified, QEMU will not exit, and a `STOP` event will eventually
 ///    follow the `SHUTDOWN` event.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -1271,7 +1285,9 @@ pub struct StopEvent {}
 /// hibernate state
 ///
 /// .. note:: QEMU shuts down (similar to event `SHUTDOWN`) when
+/// ```text
 ///    entering this state.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -1394,7 +1410,9 @@ pub struct VfuClientHangupEvent {
 /// Emitted when a VNC client establishes a connection
 ///
 /// .. note:: This event is emitted before any authentication takes
+/// ```text
 ///    place, thus the authentication ID is not provided.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -1510,8 +1528,10 @@ pub struct WakeupEvent {}
 /// Emitted when the watchdog device's timer is expired
 ///
 /// .. note:: If action is "reset", "shutdown", or "pause" the
+/// ```text
 ///    `WATCHDOG` event is followed respectively by the `RESET`,
 ///    `SHUTDOWN`, or `STOP` events.
+/// ```
 ///
 /// .. note:: This event is rate-limited.
 ///

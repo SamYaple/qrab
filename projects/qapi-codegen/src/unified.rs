@@ -1829,7 +1829,18 @@ fn generate_unified_struct(
                 }
             }
         }
-        if required && field.optional && !field.meta.attributes.contains(&Attribute::new("flatten"))
+        let conditional = field
+            .meta
+            .attributes
+            .iter()
+            .any(|attr| matches!(attr, Attribute::Item { name, .. } if name == "condition"));
+        if conditional {
+            field.optional = true;
+        }
+        if required
+            && field.optional
+            && !conditional
+            && !field.meta.attributes.contains(&Attribute::new("flatten"))
         {
             field.meta.attributes.push(Attribute::new("required"));
         }

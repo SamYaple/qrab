@@ -143,8 +143,10 @@ pub struct GuestFileWriteCommand {
 /// Returns: Number of file systems currently frozen.
 ///
 /// .. note:: On Windows, the command is implemented with the help of a
+/// ```text
 ///    Volume Shadow-copy Service DLL helper.  The frozen state is
 ///    limited for up to 10 seconds by VSS.
+/// ```
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-freeze")]
 #[qapi(returns = "i64")]
@@ -173,8 +175,10 @@ pub struct GuestFsfreezeFreezeList {
 /// Get guest fsfreeze state.
 ///
 /// .. note:: This may fail to properly report the current state as a
+/// ```text
 ///    result of some other guest processes having issued an fs
 ///    freeze/thaw.
+/// ```
 #[qapi(command)]
 #[qapi(returns = "GuestFsfreezeStatus")]
 #[qapi(name = "guest-fsfreeze-status")]
@@ -187,9 +191,11 @@ pub struct GuestFsfreezeStatusCommand {}
 /// Returns: Number of file systems thawed by this call
 ///
 /// .. note:: If the return value does not match the previous call to
+/// ```text
 ///    `guest-fsfreeze-freeze`, this likely means some freezable
 ///    filesystems were unfrozen before this call, and that the
 ///    filesystem state may have changed before issuing this command.
+/// ```
 #[qapi(command)]
 #[qapi(name = "guest-fsfreeze-thaw")]
 #[qapi(returns = "i64")]
@@ -288,9 +294,11 @@ pub struct GuestGetHostName {}
 /// Retrieve CPU process load information
 ///
 /// .. note:: Windows does not have load average API, so QGA emulates it
+/// ```text
 ///    by calculating the average CPU usage in the last 1, 5, 15 minutes
 ///    similar as Linux does this.  Calculation starts from the first
 ///    time this command is called.
+/// ```
 ///
 /// Returns: load information
 #[qapi(command)]
@@ -619,7 +627,9 @@ pub struct GuestSshRemoveAuthorizedKeys {
 /// ```
 ///
 /// .. note:: It's strongly recommended to issue the `guest-sync`
+/// ```text
 ///    command before sending commands when the guest resumes.
+/// ```
 #[qapi(command)]
 #[qapi(name = "guest-suspend-disk")]
 #[qapi(returns = "()")]
@@ -648,7 +658,9 @@ pub struct GuestSuspendDisk {}
 ///
 /// 1. Wait for the `SUSPEND` QMP event from QEMU
 /// 2. Issue the `query-status` QMP command to confirm the VM status is
+/// ```text
 ///    "suspended"
+/// ```
 ///
 /// Errors:
 /// ```text
@@ -656,7 +668,9 @@ pub struct GuestSuspendDisk {}
 /// ```
 ///
 /// .. note:: It's strongly recommended to issue the `guest-sync`
+/// ```text
 ///    command before sending commands when the guest resumes.
+/// ```
 #[qapi(command)]
 #[qapi(name = "guest-suspend-hybrid")]
 #[qapi(returns = "()")]
@@ -686,7 +700,9 @@ pub struct GuestSuspendHybrid {}
 ///
 /// 1. Wait for the `SUSPEND` QMP event from QEMU
 /// 2. Issue the `query-status` QMP command to confirm the VM status is
+/// ```text
 ///    "suspended"
+/// ```
 ///
 /// Errors:
 /// ```text
@@ -694,7 +710,9 @@ pub struct GuestSuspendHybrid {}
 /// ```
 ///
 /// .. note:: It's strongly recommended to issue the `guest-sync`
+/// ```text
 ///    command before sending commands when the guest resumes.
+/// ```
 #[qapi(command)]
 #[qapi(name = "guest-suspend-ram")]
 #[qapi(returns = "()")]

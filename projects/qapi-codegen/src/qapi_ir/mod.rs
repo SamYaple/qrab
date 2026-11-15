@@ -192,13 +192,14 @@ pub struct Metadata {
 
 /// Convert a doc string into `#[doc = "..."]` token stream.
 /// Each line gets its own `#[doc]` attribute so `prettyplease` renders them as `///`.
-/// Indented blocks (4+ spaces) are fenced with ` ```text` to prevent Rust doctests.
+/// Fence indented schema prose as text, accounting for the doc-comment space.
 pub fn doc_to_tokens(doc: &str) -> proc_macro2::TokenStream {
     let mut result_lines: Vec<String> = Vec::new();
     let mut in_code_block = false;
 
     for line in doc.lines() {
-        let is_indented = line.starts_with("    ") && !line.trim().is_empty();
+        let is_indented =
+            (line.starts_with("   ") || line.starts_with('\t')) && !line.trim().is_empty();
 
         if is_indented && !in_code_block {
             result_lines.push(" ```text".to_string());

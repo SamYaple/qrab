@@ -446,10 +446,7 @@ pub fn process_union(
             }
         }
     }
-    // The branch enum inherits the union's `if` condition. Without this, the
-    // synthesized branch type would compile on targets where the union (and
-    // its variant payload structs) are cfg-gated away, leaving dangling type
-    // references.
+    // Keep the synthesized branch's peer-build condition with its union.
     let mut branch_meta = Metadata::default();
     branch_meta.attributes.push(Attribute::new("union_branch"));
     if let Some(condition) = &q.r#if {

@@ -893,15 +893,19 @@ pub struct GuestNvMeSmart {
 }
 
 /// .. note:: On POSIX systems the fields @id, @name, @pretty-name,
+/// ```text
 ///    @version, @version-id, @variant and @variant-id follow the
 ///    definition specified in os-release(5).  Refer to the manual page
 ///    for exact description of the fields.  Their values are taken from
 ///    the os-release file.  If the file is not present in the system,
 ///    or the values are not present in the file, the fields are not
 ///    included.
+/// ```
 ///
+/// ```text
 ///    On Windows the values are filled from information gathered from
 ///    the system.
+/// ```
 #[qapi(name = "GuestOSInfo")]
 #[qapi(added = "2.10.0")]
 pub struct GuestOsInfo {

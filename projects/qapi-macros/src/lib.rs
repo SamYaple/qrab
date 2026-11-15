@@ -429,39 +429,12 @@ fn removed_field_warning(type_name: &str, field_name: &str, removed_version: &st
     }
 }
 
-fn condition_cfg(condition: &str) -> TokenStream2 {
-    match condition {
-        "CONFIG_LINUX" => quote! { #[cfg(target_os = "linux")] },
-        "CONFIG_WIN32" => quote! { #[cfg(target_os = "windows")] },
-        "CONFIG_POSIX" => quote! { #[cfg(unix)] },
-        // All other conditions (CONFIG_*, TARGET_*, HAVE_*) are QEMU build-time
-        // options that don't map to the Rust compilation target. We always compile
-        // these types and handle availability at runtime.
-        _ => quote! {},
-    }
-}
-
-fn condition_cfg_attr(condition: &str) -> Option<syn::Attribute> {
-    match condition {
-        "CONFIG_LINUX" => Some(syn::parse_quote! { #[cfg(target_os = "linux")] }),
-        "CONFIG_WIN32" => Some(syn::parse_quote! { #[cfg(target_os = "windows")] }),
-        "CONFIG_POSIX" => Some(syn::parse_quote! { #[cfg(unix)] }),
-        _ => None,
-    }
-}
-
 /// Build an `impl std::fmt::Display` block for `name`. The wrapping boilerplate
-/// (fn signature, optional outer `#cond` cfg, optional `#[allow(...)]` on the
+/// (fn signature and optional `#[allow(...)]` on the
 /// impl) is identical across all call sites; only the `body` (the contents of
 /// `fn fmt`) varies per type shape.
-fn gen_display_impl(
-    name: &syn::Ident,
-    cond: &Option<TokenStream2>,
-    allows: TokenStream2,
-    body: TokenStream2,
-) -> TokenStream2 {
+fn gen_display_impl(name: &syn::Ident, allows: TokenStream2, body: TokenStream2) -> TokenStream2 {
     quote! {
-        #cond
         #allows
         impl std::fmt::Display for #name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -595,6 +568,11 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
         input_ast.attrs.push(syn::parse_quote! { #[doc = #msg] });
     }
 
+    if let Some(condition) = &ta.condition {
+        let note = format!("QEMU/guest build condition: `{condition}`.");
+        input_ast.attrs.push(syn::parse_quote! { #[doc = #note] });
+    }
+
     // Inject derive(Debug, Clone) on all QAPI types
     input_ast
         .attrs
@@ -644,11 +622,9 @@ fn gen_enum(
         let attrs = extract_all_item_attrs(&v.attrs);
         v.attrs.retain(|a| !a.path.is_ident("qapi"));
 
-        // Apply cfg attribute to the variant definition itself (only for OS-level conditions)
-        if let Some(ref cond) = attrs.condition {
-            if let Some(cfg_attr) = condition_cfg_attr(cond) {
-                v.attrs.push(cfg_attr);
-            }
+        if let Some(condition) = &attrs.condition {
+            let note = format!("QEMU/guest build condition: `{condition}`.");
+            v.attrs.push(syn::parse_quote! { #[doc = #note] });
         }
 
         // Add Rust #[deprecated] if variant is deprecated and bounds are set
@@ -693,8 +669,6 @@ fn gen_enum(
     let is_string_enum =
         !ta.is_union_branch && variants.iter().all(|v| matches!(v.kind, VariantKind::Unit));
 
-    let cond = ta.condition.as_ref().map(|c| condition_cfg(c));
-
     let ser = if is_string_enum {
         gen_unit_enum_ser(&enum_name, &variants, ta)
     } else {
@@ -714,16 +688,13 @@ fn gen_enum(
             .map(|v| {
                 let ident = &v.ident;
                 let wn = wire_name(&v.attrs.name, &v.ident);
-                let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
                 quote! {
-                    #cond
                     #enum_name::#ident => f.write_str(#wn),
                 }
             })
             .collect();
         gen_display_impl(
             &enum_name,
-            &cond,
             quote! { #[allow(deprecated)] },
             quote! { match *self { #(#display_arms)* } },
         )
@@ -734,17 +705,14 @@ fn gen_enum(
     // Generate QapiFlatUnion impl for non-unit enums (union branch enums)
     let flat_union = if !is_string_enum {
         let fu = gen_flat_union_impl(&enum_name, &variants);
-        quote! { #cond #fu }
+        quote! { #fu }
     } else {
         TokenStream2::new()
     };
 
     Ok(quote! {
-        #cond
         #input_ast
-        #cond
         #ser
-        #cond
         #de
         #display
         #flat_union
@@ -782,10 +750,8 @@ fn gen_unit_enum_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs
         .map(|v| {
             let ident = &v.ident;
             let wn = wire_name(&v.attrs.name, &v.ident);
-            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
             let guard = variant_serialization_guard(name, v);
             quote! {
-                #cond
                 #name::#ident => {
                     #guard
                     serializer.serialize_str(#wn)
@@ -834,9 +800,7 @@ fn gen_unit_enum_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2
         .map(|v| {
             let ident = &v.ident;
             let wn = wire_name(&v.attrs.name, &v.ident);
-            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
             quote! {
-                #cond
                 #wn => Ok(#name::#ident),
             }
         })
@@ -879,18 +843,15 @@ fn gen_alt_ser(name: &syn::Ident, variants: &[VariantInfo], ta: &TypeAttrs) -> T
         .iter()
         .map(|variant| {
             let ident = &variant.ident;
-            let cond = variant.attrs.condition.as_ref().map(|c| condition_cfg(c));
             let guard = variant_serialization_guard(name, variant);
             match &variant.kind {
                 VariantKind::Tuple(_) => quote! {
-                    #cond
                     #name::#ident(ref inner) => {
                         #guard
                         serde::Serialize::serialize(inner, serializer)
                     }
                 },
                 VariantKind::Unit => quote! {
-                    #cond
                     #name::#ident => {
                         #guard
                         serializer.serialize_unit()
@@ -967,11 +928,9 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
         .map(|v| {
             let ident = &v.ident;
             let selected = payload_history_selection(v, variants);
-            let cond = v.attrs.condition.as_ref().map(|c| condition_cfg(c));
             match &v.kind {
                 VariantKind::Tuple(ty) => {
                     quote! {
-                        #cond
                         if #selected {
                             if let Ok(v) = serde_json::from_value::<#ty>(value.clone()) {
                                 return Ok(#name::#ident(v));
@@ -981,7 +940,6 @@ fn gen_alt_de(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStream2 {
                 }
                 VariantKind::Unit => {
                     quote! {
-                        #cond
                         if (#selected) && value.is_null() {
                             return Ok(#name::#ident);
                         }
@@ -1074,17 +1032,15 @@ fn gen_flat_union_impl(name: &syn::Ident, variants: &[VariantInfo]) -> TokenStre
     let arms: Vec<_> = groups.into_iter().map(|(wire, mut group)| {
         if group.len() == 1 {
             let variant = group[0];
-            let cond = variant.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
             let decode = branch_decode(name, variant);
-            return quote! { #cond #wire => { #decode }, };
+            return quote! { #wire => { #decode }, };
         }
         newest_variants_first(&mut group);
         let candidates: Vec<_> = group.into_iter().map(|variant| {
-            let cond = variant.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
             let active = version_range_check(variant.attrs.since.as_deref(), variant.attrs.until.as_deref())
                 .unwrap_or_else(|| quote! { true });
             let decode = branch_decode(name, variant);
-            quote! { #cond if __peer_version == (0, 0, 0) || (#active) { return #decode; } }
+            quote! { if __peer_version == (0, 0, 0) || (#active) { return #decode; } }
         }).collect();
         quote! { #wire => {
             let __peer_version = qapi::qemu_version();
@@ -1143,11 +1099,9 @@ fn gen_struct(
             let attrs = extract_all_item_attrs(&f.attrs);
             f.attrs.retain(|a| !a.path.is_ident("qapi"));
 
-            // Apply cfg attribute to the field definition itself (only for OS-level conditions)
-            if let Some(ref cond) = attrs.condition {
-                if let Some(cfg_attr) = condition_cfg_attr(cond) {
-                    f.attrs.push(cfg_attr);
-                }
+            if let Some(condition) = &attrs.condition {
+                let note = format!("QEMU/guest build condition: `{condition}`.");
+                f.attrs.push(syn::parse_quote! { #[doc = #note] });
             }
 
             // Add Rust #[deprecated] if field is deprecated and bounds are set
@@ -1181,8 +1135,6 @@ fn gen_struct(
     let wn = ta.name.clone().unwrap_or_else(|| struct_name.to_string());
     let has_flatten = fields.iter().any(|f| f.attrs.flatten);
 
-    let cond = ta.condition.as_ref().map(|c| condition_cfg(c));
-
     let ser = if has_flatten {
         gen_struct_ser_flatten(&struct_name, &fields, ta)
     } else {
@@ -1197,14 +1149,14 @@ fn gen_struct(
 
     let cmd = if ta.is_command {
         let impl_tokens = gen_command_impl(&struct_name, &wn, ta)?;
-        quote! { #cond #impl_tokens }
+        quote! { #impl_tokens }
     } else {
         TokenStream2::new()
     };
 
     let evt = if ta.is_event {
         let impl_tokens = gen_event_impl(&struct_name, &wn);
-        quote! { #cond #impl_tokens }
+        quote! { #impl_tokens }
     } else {
         TokenStream2::new()
     };
@@ -1218,7 +1170,6 @@ fn gen_struct(
                 let ident = &f.ident;
                 let fwn = wire_name(&f.attrs.name, &f.ident);
                 let is_opt = is_option_type(&f.ty);
-                let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
                 let sep = if i == 0 {
                     quote! {}
                 } else {
@@ -1227,7 +1178,6 @@ fn gen_struct(
 
                 if is_opt {
                     quote! {
-                        #cond
                         if let Some(ref value) = self.#ident {
                             #sep
                             write!(f, concat!(#fwn, "={:?}"), value)?;
@@ -1236,7 +1186,6 @@ fn gen_struct(
                     }
                 } else {
                     quote! {
-                        #cond
                         #sep
                         write!(f, concat!(#fwn, "={:?}"), self.#ident)?;
                         first = false;
@@ -1249,7 +1198,6 @@ fn gen_struct(
             // Command structs: just print the wire name
             gen_display_impl(
                 &struct_name,
-                &cond,
                 quote! { #[allow(deprecated)] },
                 quote! { f.write_str(#wn) },
             )
@@ -1257,7 +1205,6 @@ fn gen_struct(
             // Empty structs: just print the wire name
             gen_display_impl(
                 &struct_name,
-                &cond,
                 quote! { #[allow(deprecated)] },
                 quote! { f.write_str(#wn) },
             )
@@ -1265,7 +1212,6 @@ fn gen_struct(
             // Data structs: wire_name(field=value, field2=value2)
             gen_display_impl(
                 &struct_name,
-                &cond,
                 quote! { #[allow(deprecated, unused_mut, unused_assignments)] },
                 quote! {
                     f.write_str(#wn)?;
@@ -1279,11 +1225,8 @@ fn gen_struct(
     };
 
     Ok(quote! {
-        #cond
         #input_ast
-        #cond
         #ser
-        #cond
         #de
         #cmd
         #evt
@@ -1295,13 +1238,12 @@ fn required_field_checks(name: &syn::Ident, fields: &[FieldInfo], decoding: bool
     let checks: Vec<_> = fields.iter().filter(|field| field.attrs.required && is_option_type(&field.ty)).map(|field| {
         let ident = &field.ident;
         let wire = wire_name(&field.attrs.name, ident);
-        let cond = field.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
         let active = version_range_check(field.attrs.since.as_deref(), field.attrs.until.as_deref()).unwrap_or_else(|| quote! { true });
-        if decoding { quote! { #cond {
+        if decoding { quote! { {
             if qapi::scoped_qemu_version().is_some() && (#active) && #ident.is_none() {
                 return Err(serde::de::Error::missing_field(#wire));
             }
-        }}} else { quote! { #cond {
+        }}} else { quote! { {
             if (#active) && self.#ident.is_none() {
                 return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": missing required field '", #wire, "'")));
             }
@@ -1315,9 +1257,8 @@ fn validate_shared_fields(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStrea
         let candidates: Vec<_> = fields.iter().filter(|field| !field.attrs.flatten
             && wire_name(&field.attrs.name, &field.ident) == wire).map(|field| {
             let ident = &field.ident;
-            let cond = field.attrs.condition.as_ref().map(|condition| condition_cfg(condition));
             let active = version_range_check(field.attrs.since.as_deref(), field.attrs.until.as_deref()).unwrap_or_else(|| quote! { true });
-            quote! { #cond {
+            quote! { {
                 if self.#ident.is_some() {
                     if !(#active) {
                         return Err(serde::ser::Error::custom(concat!(stringify!(#name), ": inactive representation of field '", #wire, "'")));
@@ -1352,7 +1293,6 @@ fn gen_struct_ser(
         let ident = &f.ident;
         let fwn = wire_name(&f.attrs.name, &f.ident);
         let is_opt = is_option_type(&f.ty);
-        let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
 
         let code = if is_opt {
             quote! { if let Some(ref value) = self.#ident { state.serialize_field(#fwn, value)?; } }
@@ -1382,7 +1322,7 @@ fn gen_struct_ser(
             code
         };
 
-        quote! { #cond { #dep_warn #code } }
+        quote! { { #dep_warn #code } }
     }).collect();
 
     let body = quote! {
@@ -1434,7 +1374,6 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
         let ident = &f.ident;
         let fwn = wire_name(&f.attrs.name, &f.ident);
         let is_opt = is_option_type(&f.ty);
-        let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
 
         // Field-level deprecation warning
         let dep_warn = field_deprecation_warn(&type_name_str, f);
@@ -1449,7 +1388,6 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
                 }
             }} else { TokenStream2::new() };
             quote! {
-                #cond
                 {
                     #dep_warn
                     if #active {
@@ -1474,7 +1412,6 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
                 let chk = version_range_check(f.attrs.since.as_deref(), f.attrs.until.as_deref()).unwrap();
                 let rem_warn = removed_field_warning(&type_name_str, &fwn, until_ver);
                 quote! {
-                    #cond
                     {
                         #dep_warn
                         if #chk {
@@ -1487,7 +1424,6 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
             } else if f.attrs.since.is_some() {
                 let chk = version_range_check(f.attrs.since.as_deref(), None).unwrap();
                 quote! {
-                    #cond
                     {
                         #dep_warn
                         if #chk {
@@ -1497,7 +1433,6 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
                 }
             } else {
                 quote! {
-                    #cond
                     {
                         #dep_warn
                         if let Some(ref value) = self.#ident { map.serialize_entry(#fwn, value)?; }
@@ -1506,7 +1441,6 @@ fn gen_struct_ser_flatten(name: &syn::Ident, fields: &[FieldInfo], ta: &TypeAttr
             }
         } else {
             quote! {
-                #cond
                 {
                     #dep_warn
                     map.serialize_entry(#fwn, &self.#ident)?;
@@ -1746,11 +1680,10 @@ fn gen_struct_de(name: &syn::Ident, fields: &[FieldInfo]) -> TokenStream2 {
         .map(|(i, f)| {
             let w = &field_wires[i];
             let v = &field_vars[i];
-            let cond = f.attrs.condition.as_ref().map(|c| condition_cfg(c));
             if let Some(inner) = inner_option_type(&f.ty) {
-                quote! { #cond #w => { #v = Some(Some(map.next_value::<#inner>()?)); } }
+                quote! { #w => { #v = Some(Some(map.next_value::<#inner>()?)); } }
             } else {
-                quote! { #cond #w => { #v = Some(map.next_value()?); } }
+                quote! { #w => { #v = Some(map.next_value()?); } }
             }
         })
         .collect();

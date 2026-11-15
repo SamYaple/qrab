@@ -46,7 +46,9 @@ pub struct AddClient {
 /// .. note:: The list of fd sets is shared by all monitor connections.
 ///
 /// .. note:: If @fdset-id is not specified, a new fd set will be
+/// ```text
 ///    created.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -117,21 +119,29 @@ pub struct AnnounceSelf {
 /// ```
 ///
 /// .. note:: This command just issues a request to the guest.  When it
+/// ```text
 ///    returns, the balloon size may not have changed.  A guest can
 ///    change the balloon size independent of this command.
+/// ```
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    ::
+/// ```
 ///
 /// ```text
 ///      -> { "execute": "balloon", "arguments": { "value": 536870912 } }
 ///      <- { "return": {} }
 /// ```
 ///
+/// ```text
 ///    With a 2.5GiB guest this command inflated the ballon to 3GiB.
+/// ```
 #[qapi(command)]
 #[qapi(name = "balloon")]
 #[qapi(returns = "()")]
@@ -405,7 +415,9 @@ pub struct BlockdevAdd {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Change a removable medium
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "blockdev-change-medium",
@@ -416,7 +428,9 @@ pub struct BlockdevAdd {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Load a read-only medium into a writable drive
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "blockdev-change-medium",
@@ -966,7 +980,9 @@ pub struct BlockdevSnapshotDeleteInternalSync {
 /// ```
 ///
 /// .. note:: Only some image formats such as qcow2 and rbd support
+/// ```text
 ///    internal snapshots.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -1465,10 +1481,14 @@ pub struct BlockJobSetSpeed {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Set new histograms for all io types with intervals
 ///    [0, 10), [10, 50), [50, 100), [100, +inf)::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "block-latency-histogram-set",
@@ -1478,10 +1498,14 @@ pub struct BlockJobSetSpeed {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Set new histogram only for write, other histograms will remain
 ///    not changed (or not created)::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "block-latency-histogram-set",
@@ -1491,14 +1515,22 @@ pub struct BlockJobSetSpeed {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Set new histograms with the following intervals:
+/// ```
 ///
+/// ```text
 ///    - read, flush: [0, 10), [10, 50), [50, 100), [100, +inf)
 ///    - write: [0, 1000), [1000, 5000), [5000, +inf)
+/// ```
 ///
+/// ```text
 ///    ::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "block-latency-histogram-set",
@@ -1509,9 +1541,13 @@ pub struct BlockJobSetSpeed {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Remove all latency histograms::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "block-latency-histogram-set",
@@ -1933,6 +1969,7 @@ pub struct BlockStream {
 /// available:
 ///
 /// 1. In page sampling mode, a random subset of pages are selected and
+/// ```text
 ///    hashed twice: once at the beginning of measurement time period,
 ///    and once again at the end.  If two hashes for some page are
 ///    different, the page is counted as changed.  Since this method
@@ -1940,18 +1977,23 @@ pub struct BlockStream {
 ///    only an estimate of its true value.  Increasing @sample-pages
 ///    improves estimation quality at the cost of higher computational
 ///    overhead.
+/// ```
 ///
 /// 2. Dirty bitmap mode captures writes to memory (for example by
+/// ```text
 ///    temporarily revoking write access to all pages) and counting page
 ///    faults.  Information about modified pages is collected into a
 ///    bitmap, where each bit corresponds to one guest page.  This mode
 ///    requires that KVM accelerator property "dirty-ring-size" is *not*
 ///    set.
+/// ```
 ///
 /// 3. Dirty ring mode is similar to dirty bitmap mode, but the
+/// ```text
 ///    information about modified pages is collected into ring buffer.
 ///    This mode tracks page modification per each vCPU separately.  It
 ///    requires that KVM accelerator property "dirty-ring-size" is set.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -1963,9 +2005,13 @@ pub struct BlockStream {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Measure dirty rate using dirty bitmap for 500 milliseconds::
+/// ```
 ///
 /// ```text
 ///     -> {"execute": "calc-dirty-rate", "arguments": {"calc-time": 500,
@@ -2125,8 +2171,10 @@ pub struct ChangeBackingFile {
 ///
 ///
 /// .. note:: An empty password in this command will set the password to
+/// ```text
 ///    the empty string.  Existing clients are unaffected by executing
 ///    this command.
+/// ```
 #[qapi(command)]
 #[qapi(name = "change-vnc-password")]
 #[qapi(returns = "()")]
@@ -2311,14 +2359,18 @@ pub struct Closefd {
 ///
 ///
 /// .. note:: This command will succeed if the guest is currently
+/// ```text
 ///    running.  It will also succeed if the guest is in the "inmigrate"
 ///    state; in this case, the effect of the command is to make sure
 ///    the guest starts once migration finishes, removing the effect of
 ///    the ``-S`` command line option if it was passed.
+/// ```
 ///
+/// ```text
 ///    If the VM was previously suspended, and not been reset or woken,
 ///    this command will transition back to the "suspended" state.
 ///    (Since 9.0)
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -2889,6 +2941,7 @@ pub struct DeviceAdd {
 /// ```
 ///
 /// .. note:: When this command completes, the device may not be removed
+/// ```text
 ///    from the guest.  Hot removal is an operation that requires guest
 ///    cooperation.  This command merely requests that the guest begin
 ///    the hot removal process.  Completion of the device removal
@@ -2897,6 +2950,7 @@ pub struct DeviceAdd {
 ///    guest-side error in the hot removal process is detected, the
 ///    device will not be removed and a `DEVICE_UNPLUG_GUEST_ERROR`
 ///    event is sent.  Some errors cannot be detected.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -2928,8 +2982,10 @@ pub struct DeviceDel {
 /// Returns: a list describing a devices properties
 ///
 /// .. note:: Objects can create properties at runtime, for example to
+/// ```text
 ///    describe links between different devices and/or objects.  These
 ///    properties are not included in the output of this command.
+/// ```
 #[qapi(command)]
 #[qapi(name = "device-list-properties")]
 #[qapi(returns = "Vec<ObjectPropertyInfo>")]
@@ -3191,19 +3247,27 @@ pub struct DumpGuestMemory {
     /// Also, paging=true has the following limitations:
     ///
     /// 1. The guest may be in a catastrophic state or can have
+    /// ```text
     ///    corrupted memory, which cannot be trusted
+    /// ```
     /// 2. The guest can be in real-mode even if paging is enabled.  For
+    /// ```text
     ///    example, the guest uses ACPI to sleep, and ACPI sleep state
     ///    goes in real-mode
+    /// ```
     /// 3. Currently only supported on i386 and x86_64.
     pub paging: bool,
     /// the filename or file descriptor of the vmcore.  The
     /// supported protocols are:
     ///
     /// 1. file: the protocol starts with "file:", and the following
+    /// ```text
     ///    string is the file's path.
+    /// ```
     /// 2. fd: the protocol starts with "fd:", and the following string
+    /// ```text
     ///    is the fd's name.
+    /// ```
     pub protocol: String,
 }
 
@@ -3313,10 +3377,14 @@ pub struct ExpirePassword {
 ///
 ///
 /// .. note:: If @fdname already exists, the file descriptor assigned to
+/// ```text
 ///    it will be closed and replaced by the received file descriptor.
+/// ```
 ///
+/// ```text
 ///    The `closefd` command can be used to explicitly close the file
 ///    descriptor when it is no longer needed.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -3341,10 +3409,14 @@ pub struct Getfd {
 ///
 ///
 /// .. note:: If @fdname already exists, the file descriptor assigned to
+/// ```text
 ///    it will be closed and replaced by the received file descriptor.
+/// ```
 ///
+/// ```text
 ///    The `closefd` command can be used to explicitly close the file
 ///    descriptor when it is no longer needed.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -3379,19 +3451,25 @@ pub struct GetWin32Socket {
 ///
 ///
 /// .. note:: This command only exists as a stop-gap.  Its use is highly
+/// ```text
 ///    discouraged.  The semantics of this command are not guaranteed:
 ///    this means that command names, arguments and responses can change
 ///    or be removed at **any** time.  Applications that rely on long
 ///    term stability guarantees should **not** use this command.
+/// ```
 ///
-///    Known limitations:
-///
-///    * This command is stateless, this means that commands that depend
 /// ```text
+///    Known limitations:
+/// ```
+///
+/// ```text
+///    * This command is stateless, this means that commands that depend
 ///      on state information (such as `getfd`) might not work.
 /// ```
 ///
+/// ```text
 ///    * Commands that prompt the user for data don't currently work.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -3439,7 +3517,9 @@ pub struct InjectGhesV2Error {
 ///
 ///
 /// .. note:: Prior to 2.1, this command was only supported for x86 and
+/// ```text
 ///    s390 VMs.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -3468,12 +3548,16 @@ pub struct InjectNmi {}
 ///
 ///
 /// .. note:: The consoles are visible in the qom tree, under
+/// ```text
 ///    ``/backend/console[$index]``.  They have a device link and head
 ///    property, so it is possible to map which console belongs to which
 ///    device and display.
+/// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Press left mouse button
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "input-send-event",
@@ -3492,7 +3576,9 @@ pub struct InjectNmi {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Press ctrl-alt-del
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "input-send-event",
@@ -3507,7 +3593,9 @@ pub struct InjectNmi {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Move mouse pointer to absolute coordinates
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "input-send-event" ,
@@ -3811,7 +3899,9 @@ pub struct Migrate {
 /// cancelling is not allowed after the postcopy phase has started.
 ///
 /// .. note:: This command succeeds even if there is no migration
+/// ```text
 ///    process running.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -4861,13 +4951,17 @@ pub struct Pmemsave {
 /// ```
 ///
 /// .. note:: This command is valid exactly when first connecting: it
+/// ```text
 ///    must be issued before any other command will be accepted, and
 ///    will fail once the monitor is accepting other commands.  (see
 ///    :doc:`/interop/qmp-spec`)
+/// ```
 ///
 /// .. note:: The QMP client needs to explicitly enable QMP
+/// ```text
 ///    capabilities, otherwise all the QMP capabilities will be turned
 ///    off by default.
+/// ```
 #[qapi(command)]
 #[qapi(name = "qmp_capabilities")]
 #[qapi(returns = "()")]
@@ -4892,7 +4986,9 @@ pub struct QmpCapabilities {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Use absolute path
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "qom-get",
@@ -4902,7 +4998,9 @@ pub struct QmpCapabilities {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Use partial path
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "qom-get",
@@ -4993,8 +5091,10 @@ pub struct QomListGet {
 /// List properties associated with a QOM object.
 ///
 /// .. note:: Objects can create properties at runtime, for example to
+/// ```text
 ///    describe links between different devices and/or objects.  These
 ///    properties are not included in the output of this command.
+/// ```
 ///
 /// Returns: a list describing object properties
 #[qapi(command)]
@@ -5735,8 +5835,8 @@ pub struct QueryCpuModelExpansion {
 ///             "thread_id":3135
 ///          }
 ///       ]
-/// ```
 ///    }
+/// ```
 #[qapi(command)]
 #[qapi(name = "query-cpus")]
 #[qapi(returns = "Vec<CpuInfo>")]
@@ -5803,7 +5903,9 @@ pub struct QueryCurrentMachine {}
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Measurement is in progress
+/// ```
 ///
 /// ```text
 ///     <- {"status": "measuring", "sample-pages": 512,
@@ -5812,7 +5914,9 @@ pub struct QueryCurrentMachine {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Measurement has been completed
+/// ```
 ///
 /// ```text
 ///     <- {"status": "measured", "sample-pages": 512, "dirty-rate": 108,
@@ -5899,8 +6003,8 @@ pub struct QueryDumpGuestMemoryCapability {}
 ///             "name":"RESET"
 ///          }
 ///       ]
-/// ```
 ///    }
+/// ```
 ///
 /// Note: This example has been shortened as the real response is too long.
 #[qapi(command)]
@@ -5993,10 +6097,14 @@ pub struct QueryGicCapabilities {}
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    For pseries machine type started with
 ///    ``-smp 2,cores=2,maxcpus=4 -cpu POWER8``::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-hotpluggable-cpus" }
@@ -6009,9 +6117,13 @@ pub struct QueryGicCapabilities {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    For pc machine type started with ``-smp 1,maxcpus=2``::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-hotpluggable-cpus" }
@@ -6029,10 +6141,14 @@ pub struct QueryGicCapabilities {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    For s390x-virtio-ccw machine type started with
 ///    ``-smp 1,maxcpus=2 -cpu qemu``::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-hotpluggable-cpus" }
@@ -6085,8 +6201,10 @@ pub struct QueryHvBalloonStatusReport {}
 /// Return a list of information about each iothread.
 ///
 /// .. note:: This list excludes the QEMU main loop thread, which is not
+/// ```text
 ///    declared using the ``-object iothread`` command-line option.  It
 ///    is always the main thread of the process.
+/// ```
 ///
 /// Returns: a list of info for each iothread
 ///
@@ -6314,7 +6432,9 @@ pub struct QueryMice {}
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Before the first migration
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-migrate" }
@@ -6322,7 +6442,9 @@ pub struct QueryMice {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Migration is done and has succeeded
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-migrate" }
@@ -6345,7 +6467,9 @@ pub struct QueryMice {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Migration is done and has failed
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-migrate" }
@@ -6353,7 +6477,9 @@ pub struct QueryMice {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Migration is being performed
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-migrate" }
@@ -6377,7 +6503,9 @@ pub struct QueryMice {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Migration is being performed and XBZRLE is active
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "query-migrate" }
@@ -6772,8 +6900,10 @@ pub struct QueryPrManagers {}
 /// ```
 ///
 /// .. note:: The QAPI schema is also used to help define *internal*
+/// ```text
 ///    interfaces, by defining QAPI types.  These are not part of the
 ///    QMP wire ABI, and therefore not returned by this command.
+/// ```
 #[qapi(command)]
 #[qapi(name = "query-qmp-schema")]
 #[qapi(returns = "Vec<SchemaInfo>")]
@@ -7200,6 +7330,7 @@ pub struct QueryStats {
 /// Return the schema for all available runtime-collected statistics.
 ///
 /// .. note:: Runtime-collected statistics and their names fall outside
+/// ```text
 ///    QEMU's usual deprecation policies.  QEMU will try to keep the set
 ///    of available data stable, together with their names, but will not
 ///    guarantee stability at all costs; the same is true of providers
@@ -7210,6 +7341,7 @@ pub struct QueryStats {
 ///    changed or some code is removed; changing a default might cause
 ///    previously useful statistics to always report 0.  Such changes,
 ///    however, are expected to be rare.
+/// ```
 #[qapi(command)]
 #[qapi(name = "query-stats-schemas")]
 #[qapi(returns = "Vec<StatsSchema>")]
@@ -7480,7 +7612,9 @@ pub struct Quit {}
 /// .. note:: The list of fd sets is shared by all monitor connections.
 ///
 /// .. note:: If @fd is not specified, all file descriptors in @fdset-id
+/// ```text
 ///    will be removed.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -7811,8 +7945,10 @@ pub struct SetCpuTopology {
 ///
 ///
 /// .. note:: Not all network adapters support setting link status.
+/// ```text
 ///    This command will succeed even if the network adapter does not
 ///    support link status notification.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -8152,12 +8288,16 @@ pub struct SnapshotSave {
 ///
 ///
 /// .. note:: This function will succeed even if the guest is already in
+/// ```text
 ///    the stopped state.  In "inmigrate" state, it will ensure that the
 ///    guest remains paused once migration finishes, as if the ``-S``
 ///    option was passed on the command line.
+/// ```
 ///
+/// ```text
 ///    In the "suspended" state, it will completely stop the VM and
 ///    cause a transition to the "paused" state.  (Since 9.0)
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -8175,9 +8315,11 @@ pub struct Stop {}
 ///
 ///
 /// .. note:: A guest may or may not respond to this command.  This
+/// ```text
 ///    command returning does not indicate that a guest has accepted the
 ///    request or that it has shut down.  Many guests will respond to
 ///    this command by prompting the user in some way.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -8213,7 +8355,9 @@ pub struct SystemReset {}
 ///
 ///
 /// .. note:: Prior to 4.0, this command does nothing in case the guest
+/// ```text
 ///    isn't suspended.
+/// ```
 ///
 /// .. qmp-example::
 ///
@@ -8317,9 +8461,11 @@ pub struct TraceEventSetState {
 /// ```
 ///
 /// .. note:: The transaction aborts on the first failure.  Therefore,
+/// ```text
 ///    there will be information on only one failed operation returned
 ///    in an error condition, and subsequent actions will not have been
 ///    attempted.
+/// ```
 ///
 ///
 /// .. qmp-example::
@@ -8450,7 +8596,9 @@ pub struct XBlockdevAmend {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Add a new node to a quorum
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "blockdev-add",
@@ -8467,7 +8615,9 @@ pub struct XBlockdevAmend {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Delete a quorum's node
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-blockdev-change",
@@ -8730,7 +8880,9 @@ pub struct XBlockdevReopen {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Move a node into an IOThread
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-blockdev-set-iothread",
@@ -8740,7 +8892,9 @@ pub struct XBlockdevReopen {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Move a node into the main loop
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-blockdev-set-iothread",
@@ -9475,7 +9629,9 @@ pub struct XQueryVirtio {}
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Introspect on virtio-net's VirtQueue 0 at index 5
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-queue-element",
@@ -9507,7 +9663,9 @@ pub struct XQueryVirtio {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Introspect on virtio-crypto's VirtQueue 1 at head
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-queue-element",
@@ -9538,7 +9696,9 @@ pub struct XQueryVirtio {}
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Introspect on virtio-scsi's VirtQueue 2 at head
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-queue-element",
@@ -9592,18 +9752,24 @@ pub struct XQueryVirtioQueueElement {
 /// Returns: Status of the queue
 ///
 /// .. note:: last_avail_idx will not be displayed in the case where the
+/// ```text
 ///    selected VirtIODevice has a running vhost device and the
 ///    VirtIODevice VirtQueue index (queue) does not exist for the
 ///    corresponding vhost device vhost_virtqueue.  Also,
 ///    shadow_avail_idx will not be displayed in the case where the
 ///    selected VirtIODevice has a running vhost device.
+/// ```
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Get `VirtQueueStatus` for virtio-vsock (vhost-vsock running)
 ///    ::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-queue-status",
@@ -9629,10 +9795,14 @@ pub struct XQueryVirtioQueueElement {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Get `VirtQueueStatus` for virtio-serial (no vhost)
 ///    ::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-queue-status",
@@ -9680,10 +9850,14 @@ pub struct XQueryVirtioQueueStatus {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Poll for the status of virtio-crypto (no vhost-crypto active)
 ///    ::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-status",
@@ -9743,10 +9917,14 @@ pub struct XQueryVirtioQueueStatus {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :annotated:
+/// ```
 ///
+/// ```text
 ///    Poll for the status of virtio-net (vhost-net is active)
 ///    ::
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-status",
@@ -9936,7 +10114,9 @@ pub struct XQueryVirtioStatus {
 ///
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Get vhost_virtqueue status for vhost-crypto
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-vhost-queue-status",
@@ -9959,7 +10139,9 @@ pub struct XQueryVirtioStatus {
 /// ```
 ///
 /// .. qmp-example::
+/// ```text
 ///    :title: Get vhost_virtqueue status for vhost-vsock
+/// ```
 ///
 /// ```text
 ///     -> { "execute": "x-query-virtio-vhost-queue-status",

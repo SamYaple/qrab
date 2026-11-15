@@ -49,6 +49,10 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     }
     schema.push_str("'crate':'str','super':'str','type':'str','async':'str','kind':'Kind'} }\n");
     schema.push_str("{ 'command':'self', 'data':{'value':'str'}, 'returns':'Self' }\n");
+    schema.push_str("{ 'struct':'PeerWindows', 'if':'CONFIG_WIN32', 'data':{'value':'str'} }\n");
+    schema.push_str("{ 'struct':'PeerFields', 'data':{'windows':{'type':'str','if':'CONFIG_WIN32'},'posix':{'type':'str','if':'CONFIG_POSIX'}} }\n");
+    schema.push_str("{ 'enum':'PeerKind', 'data':[{'name':'windows','if':'CONFIG_WIN32'},{'name':'posix','if':'CONFIG_POSIX'}] }\n");
+    schema.push_str("{ 'command':'peer-windows', 'if':'CONFIG_WIN32', 'returns':'PeerWindows' }\n");
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -108,6 +112,17 @@ mod generated;
 pub use generated::*;
 fn main() {
     with_version((11,1,3), || {
+        let _: Option<<commands::PeerWindowsCommand as QapiCommand>::Returns> = Some(PeerWindows { value: "remote".into() });
+        for wire in [serde_json::json!({}), serde_json::json!({"windows":"remote"}), serde_json::json!({"posix":"remote"})] {
+            let value: PeerFields = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        }
+        for wire in ["windows", "posix"] {
+            let value: PeerKind = serde_json::from_value(serde_json::json!(wire)).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), serde_json::json!(wire));
+        }
+        // Schema optionality still describes the member when its peer condition holds.
+        assert!(metadata::STRUCTS.get("PeerFields").unwrap().fields.iter().all(|field| !field.optional));
         let command = commands::QapiSelfCommand { value: "command".into() };
         assert_eq!(<commands::QapiSelfCommand as QapiCommand>::NAME, "self");
         assert_eq!(serde_json::to_value(command).unwrap(), serde_json::json!({"value":"command"}));

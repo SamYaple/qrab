@@ -879,8 +879,10 @@ pub struct AuthZSimpleProperties {
 /// @unstable: Member @x-perf is experimental.
 ///
 /// .. note:: @on-source-error and @on-target-error only affect
+/// ```text
 ///    background I/O.  If an error occurs during a guest write request,
 ///    the device's rerror/werror actions will be used.
+/// ```
 #[qapi(added = "4.2.0")]
 pub struct BackupCommon {
     /// When false, this job will wait in a CONCLUDED state
@@ -5703,12 +5705,12 @@ pub struct BlockLatencyHistogramInfo {
     /// example above, @bins may be something like [3, 1, 5, 2], and
     /// corresponding histogram looks like::
     ///
+    /// ```text
     ///    5|           *
     ///    4|           *
     ///    3| *         *
     ///    2| *         *    *
     ///    1| *    *    *    *
-    /// ```text
     ///     +------------------
     ///         10   50   100
     /// ```
@@ -6656,7 +6658,9 @@ pub struct ChardevHubWrapper {
 /// Information about a character device.
 ///
 /// .. note:: @filename is encoded using the QEMU command line character
+/// ```text
 ///    device encoding.  See the QEMU man page for details.
+/// ```
 #[qapi(added = "1.0.0")]
 pub struct ChardevInfo {
     /// the filename of the character device
@@ -6976,8 +6980,10 @@ pub struct ChardevUdpWrapper {
 /// Configuration info for virtual console chardevs.
 ///
 /// .. note:: The options are only effective when the VNC or SDL
+/// ```text
 ///    graphical display backend is active.  They are ignored with the
 ///    GTK, Spice, VNC and D-Bus display backends.
+/// ```
 #[qapi(name = "ChardevVC")]
 #[qapi(added = "1.5.0")]
 pub struct ChardevVc {
@@ -8121,6 +8127,7 @@ pub struct CpuModelExpansionInfo {
 /// An enumeration of CPU model expansion types.
 ///
 /// .. note:: When a non-migration-safe CPU model is expanded in static
+/// ```text
 ///    mode, some features enabled by the CPU model may be omitted,
 ///    because they can't be implemented by a static CPU model
 ///    definition (e.g. cache info passthrough and PMU passthrough in
@@ -8129,6 +8136,7 @@ pub struct CpuModelExpansionInfo {
 ///    need a static representation that will keep ABI compatibility
 ///    even when changing QEMU version or machine-type, use @static (but
 ///    keep in mind that some features may be omitted).
+/// ```
 #[qapi(added = "2.8.0")]
 pub enum CpuModelExpansionType {
     /// Expand all properties.  The produced model is not guaranteed
@@ -9716,10 +9724,12 @@ pub enum EvtchnPortType {
 /// General options for `expire_password`.
 ///
 /// .. note:: Time is relative to the server and currently there is no
+/// ```text
 ///    way to coordinate server time with client time.  It is not
 ///    recommended to use the absolute time version of the @time
 ///    parameter unless you're sure you are on the same machine as the
 ///    QEMU instance.
+/// ```
 #[qapi(added = "7.0.0")]
 pub struct ExpirePasswordOptions {
     /// - 'vnc' to modify the VNC server expiration
@@ -10042,11 +10052,15 @@ pub struct GicCapability {
 /// This is similar to SocketAddress, only distinction:
 ///
 /// 1. GlusterServer is a flat union, SocketAddress is a simple union.
+/// ```text
 ///    A flat union is nicer than simple because it avoids nesting
 ///    (i.e. more {}) on the wire.
+/// ```
 ///
 /// 2. GlusterServer lacks case 'fd', since gluster doesn't let you
+/// ```text
 ///    pass in a file descriptor.
+/// ```
 ///
 /// GlusterServer is actually not Gluster-specific, its a
 /// compatibility evolved into an alternate for SocketAddress.
@@ -10378,7 +10392,9 @@ pub enum HotKeyMod {
 }
 
 /// .. note:: Management should be prepared to pass through additional
+/// ```text
 ///    properties with `device_add`.
+/// ```
 #[qapi(name = "HotpluggableCPU")]
 #[qapi(added = "2.7.0")]
 pub struct HotpluggableCpu {
@@ -11928,10 +11944,12 @@ pub struct MemoryBackendMemfdProperties {
 /// Properties for objects of classes derived from memory-backend.
 ///
 /// .. note:: prealloc=true and reserve=false cannot be set at the same
+/// ```text
 ///    time.  With reserve=true, the behavior depends on the operating
 ///    system: for example, Linux will not reserve swap space for shared
 ///    file mappings -- "not applicable".  In contrast, reserve=false
 ///    will bail out if it cannot be configured accordingly.
+/// ```
 #[qapi(added = "6.0.0")]
 pub struct MemoryBackendProperties {
     /// if true, include the memory in core dumps (default depends on
@@ -14305,8 +14323,11 @@ pub struct NetdevBridgeOptions {
 /// address is optional.
 ///
 /// .. table:: Valid parameters combination table
+/// ```text
 ///    :widths: auto
+/// ```
 ///
+/// ```text
 ///    =============  ========  =====
 ///    remote         local     okay?
 ///    =============  ========  =====
@@ -14318,6 +14339,7 @@ pub struct NetdevBridgeOptions {
 ///    not multicast  absent    no
 ///    not multicast  present   yes
 ///    =============  ========  =====
+/// ```
 #[qapi(added = "7.2.0")]
 pub struct NetdevDgramOptions {
     /// local address
@@ -14683,10 +14705,12 @@ pub struct NetdevUserDomainSuffix {
 }
 
 /// TODO: This string gets parsed by slirp_guestfwd().  We fail to
+/// ```text
 ///    document syntax and semantics here.  We do in qemu-options.hx.
 ///    Parsing structured configuration from strings is a no-no for QMP.
 ///    This should really be a struct.  Not sure it's worth the bother
 ///    now.
+/// ```
 #[qapi(added = "11.1.0")]
 pub struct NetdevUserGuestForward {
     /// Guest port forwarding rule
@@ -14694,10 +14718,12 @@ pub struct NetdevUserGuestForward {
 }
 
 /// TODO: This string gets parsed by slirp_hostfwd().  We fail to
+/// ```text
 ///    document syntax and semantics here.  We do in qemu-options.hx.
 ///    Parsing structured configuration from strings is a no-no for QMP.
 ///    This should really be a struct.  Not sure it's worth the bother
 ///    now.
+/// ```
 #[qapi(added = "11.1.0")]
 pub struct NetdevUserHostForward {
     /// Host port forwarding rule
@@ -15578,16 +15604,22 @@ pub struct ObjectPropertyInfo {
     /// four forms:
     ///
     /// 1) A primitive type such as 'u8', 'u16', 'bool', 'str', or
+    /// ```text
     ///    'double'.  These types are mapped to the appropriate JSON
     ///    type.
+    /// ```
     ///
     /// 2) A child type in the form 'child<subtype>' where subtype is a
+    /// ```text
     ///    qdev device type name.  Child properties create the
     ///    composition tree.
+    /// ```
     ///
     /// 3) A link type in the form 'link<subtype>' where subtype is a
+    /// ```text
     ///    qdev device type name.  Link properties form the device model
     ///    graph.
+    /// ```
     pub r#type: String,
 }
 
@@ -17932,7 +17964,9 @@ pub struct RockerOfDpaFlow {
 /// Rocker switch OF-DPA flow action
 ///
 /// .. note:: Optional members may or may not appear in the flow action
+/// ```text
 ///    depending if they're relevant to the flow action.
+/// ```
 #[qapi(added = "2.4.0")]
 pub struct RockerOfDpaFlowAction {
     /// next table ID
@@ -17958,7 +17992,9 @@ pub struct RockerOfDpaFlowAction {
 /// Rocker switch OF-DPA flow key
 ///
 /// .. note:: Optional members may or may not appear in the flow key
+/// ```text
 ///    depending if they're relevant to the flow key.
+/// ```
 #[qapi(added = "2.4.0")]
 pub struct RockerOfDpaFlowKey {
     /// Ethernet header destination MAC address
@@ -17998,7 +18034,9 @@ pub struct RockerOfDpaFlowKey {
 /// Rocker switch OF-DPA flow mask
 ///
 /// .. note:: Optional members may or may not appear in the flow mask
+/// ```text
 ///    depending if they're relevant to the flow mask.
+/// ```
 #[qapi(added = "2.4.0")]
 pub struct RockerOfDpaFlowMask {
     /// Ethernet header destination MAC address
@@ -18027,7 +18065,9 @@ pub struct RockerOfDpaFlowMask {
 /// Rocker switch OF-DPA group
 ///
 /// .. note:: Optional members may or may not appear in the group
+/// ```text
 ///    depending if they're relevant to the group type.
+/// ```
 #[qapi(added = "2.4.0")]
 pub struct RockerOfDpaGroup {
     /// next group ID
@@ -19945,8 +19985,10 @@ pub enum StrOrNull {
 /// time being.
 ///
 /// .. note:: The resulting QMP strings can be appended to the
+/// ```text
 ///    "qemu-system-" prefix to produce the corresponding QEMU
 ///    executable name.  This is true even for "qemu-system-x86_64".
+/// ```
 #[qapi(added = "3.0.0")]
 pub enum SysEmuTarget {
     #[qapi(name = "aarch64")]
@@ -20907,7 +20949,9 @@ pub struct UnixSocketAddressWrapper {
 ///
 ///
 /// .. note:: If no UUID was specified for the guest, the nil UUID (all
+/// ```text
 ///    zeroes) is returned.
+/// ```
 #[qapi(added = "1.0.0")]
 pub struct UuidInfo {
     /// the UUID of the guest
@@ -21643,7 +21687,9 @@ pub enum VncVencryptSubAuth {
 /// Captures a socket address in the vsock namespace.
 ///
 /// .. note:: String types are used to allow for possible future
+/// ```text
 ///    hostname or service resolution support.
+/// ```
 #[qapi(added = "2.8.0")]
 pub struct VsockSocketAddress {
     /// unique host identifier

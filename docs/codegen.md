@@ -155,6 +155,12 @@ needs a Rust `Option`. Explicit peer contexts enforce active required fields;
 unscoped record inspection remains lenient. Present nullable values retain
 `Some(null)` separately from absent fields.
 
+QAPI build conditions describe the remote QEMU or guest-agent build. They are
+retained in generated documentation, never translated into Rust host OS gates.
+Conditional fields use `Option` because a peer can omit them even when their
+schema declaration is required when enabled. Metadata retains that declaration's
+wire optionality; version checks cannot determine the peer's build configuration.
+
 `QEMU_MIN_VERSION`/`QEMU_MAX_VERSION` builds prune representations outside the
 requested range. Command associated return types use the newest shape within
 the configured maximum, or the newest pinned shape without a maximum.
