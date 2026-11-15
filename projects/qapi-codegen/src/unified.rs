@@ -2280,6 +2280,26 @@ mod schema_resolution_tests {
     }
 
     #[test]
+    fn primitive_type_names_cannot_be_redefined() {
+        for name in [
+            "str", "number", "int", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32",
+            "uint64", "size", "bool", "any", "null",
+        ] {
+            let input = format!("{{'struct':'{name}','data':{{}}}}");
+            let error = format!("{:#}", process(&input).unwrap_err());
+            assert!(error.contains("fixture.json"), "{error}");
+            assert!(error.contains("Predefined QAPI type"), "{error}");
+        }
+        let (_, structs) = process("{'struct':'Str','data':{'value':'str'}}").unwrap();
+        assert!(structs.contains_key("Str"));
+        crate::set_parser_version((1, 0, 0));
+        let error =
+            process_version_schema(&[("old.json".into(), "{'type':'str','data':{}}".into())])
+                .unwrap_err();
+        assert!(format!("{error:#}").contains("Predefined QAPI type 'str'"));
+    }
+
+    #[test]
     fn upstream_member_clash_fixtures_fail_before_codegen() {
         let root =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");

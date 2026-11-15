@@ -33,6 +33,27 @@ pub(crate) fn model(version: (u32, u32, u32)) -> u8 {
     }
 }
 
+fn reserved(name: &str, model: u8) -> bool {
+    matches!(name, "str" | "number" | "int" | "bool")
+        || model >= 1
+            && matches!(
+                name,
+                "int8"
+                    | "int16"
+                    | "int32"
+                    | "int64"
+                    | "uint8"
+                    | "uint16"
+                    | "uint32"
+                    | "uint64"
+                    | "size"
+                    | "any"
+                    | "QType"
+                    | "q_empty"
+            )
+        || model >= 2 && name == "null"
+}
+
 fn type_ref(value: &QapiTypeRef<'_>, used: &mut Usage) {
     match value {
         QapiTypeRef::Ref(name) | QapiTypeRef::ArrayRef(name) => {
@@ -69,9 +90,6 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
         })
         .collect::<Result<Vec<_>>>()?;
     let model = model(crate::parser_version());
-    if model == 0 {
-        return Ok(schemas);
-    }
     let mut used = Usage::default();
     for (path, schema) in &schemas {
         for token in &schema.0 {
@@ -86,7 +104,7 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
             };
             if let Some(name) = name {
                 ensure!(
-                    !matches!(name, "QType" | "q_empty"),
+                    !reserved(name, model),
                     "Predefined QAPI type '{name}' cannot be redefined in {}",
                     path.display()
                 );
@@ -125,6 +143,9 @@ pub(crate) fn parse_sources(sources: &[(PathBuf, String)]) -> Result<Vec<(&Path,
                 _ => {}
             }
         }
+    }
+    if model == 0 {
+        return Ok(schemas);
     }
     let mut predefined = Vec::new();
     if used.qtype {
