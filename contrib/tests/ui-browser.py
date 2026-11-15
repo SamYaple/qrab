@@ -1389,6 +1389,13 @@ with sync_playwright() as playwright:
                 for tab in ['overview', 'metrics', 'events', 'agent', 'config']:
                     page.locator('#tab-' + tab).click()
                     if tab == 'metrics':
+                        resources = page.locator('#service-resources')
+                        assert not resources.evaluate('e => e.open')
+                        resources.locator('summary').focus()
+                        page.keyboard.press('Enter')
+                        expect(page.locator('#resources')).to_be_visible()
+                        page.keyboard.press('Enter')
+                        expect(page.locator('#resources')).to_be_hidden()
                         expect(page.locator('svg.chart')).to_have_count(5)
                         expect(page.locator('[data-metric="nic-rx"] .chart-empty')).to_have_text('No samples over the last 1h.')
                         assert 'undefined' not in page.locator('#metric-history').inner_text()

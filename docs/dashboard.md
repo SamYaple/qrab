@@ -708,6 +708,8 @@ CPU history retains fractional millicores below one millicore; very small positi
 samples say `<0.01 mcores`, distinct from zero. Both history views break lines
 across missing intervals longer than two sample steps and visibly mark isolated
 samples instead of losing them or connecting through missing data.
+The BMC Metrics tab keeps service-resource counters in a native disclosure so
+the history charts are easier to reach; opening it explains cumulative CPU totals.
 Missing BMC configuration or guest-agent data is labelled unavailable; it is
 distinct from an explicitly empty disk/NIC list or a disabled channel. A successful
 System response without configuration clears the previous configuration values.
