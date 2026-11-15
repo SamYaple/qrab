@@ -109,6 +109,8 @@ generation and reply flags retain their historical handling, including
 Generated command constants describe the newest schema flags. The
 `allows_oob`, `allows_preconfig` and `sends_success_response` trait methods
 query their added/removed ranges for a particular peer release.
+Flags that disappear and return retain separate ranges, including historical
+simple-union layouts. Repeated macro ranges combine independently of order.
 From 8.1, conditional members in command/event argument objects require boxing,
 including members inherited from a base. Earlier schemas retain the older rules.
 Type references resolve against exact QAPI names across all source files before

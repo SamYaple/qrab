@@ -51,6 +51,35 @@ struct Transition {
     u: Option<Branch>,
 }
 
+#[qapi::qapi(simple_union(removed = "8.0.0"))]
+#[qapi(simple_union(added = "11.0.0"))]
+struct Recurrent {
+    #[qapi(name = "type", discriminator)]
+    kind: Kind,
+    #[qapi(flatten, union)]
+    u: Option<Branch>,
+}
+
+#[test]
+fn simple_union_layout_can_disappear_and_return() {
+    for (version, wire) in [
+        (
+            (6, 1, 0),
+            json!({"type":"object","data":{"required":"value"}}),
+        ),
+        ((8, 0, 0), json!({"type":"object","required":"value"})),
+        (
+            (11, 1, 3),
+            json!({"type":"object","data":{"required":"value"}}),
+        ),
+    ] {
+        qapi::with_version(version, || {
+            let value: Recurrent = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+}
+
 #[test]
 fn simple_unions_round_trip_scalar_array_object_and_null_payloads() {
     for (kind, payload) in [

@@ -1,5 +1,28 @@
 use qapi::QapiCommand;
 
+#[qapi::qapi(
+    command,
+    returns = "()",
+    allow_oob(added = "11.0.0"),
+    allow_preconfig(added = "11.0.0"),
+    no_success_response(added = "11.0.0")
+)]
+#[qapi(allow_oob(added = "6.0.0", removed = "8.0.0"))]
+#[qapi(allow_preconfig(added = "6.0.0", removed = "8.0.0"))]
+#[qapi(no_success_response(added = "6.0.0", removed = "8.0.0"))]
+struct Restored {}
+
+#[test]
+fn repeated_flag_ranges_combine_independently_of_attribute_order() {
+    for (version, enabled) in [((6, 0, 0), true), ((8, 0, 0), false), ((11, 0, 0), true)] {
+        assert_eq!(Restored::allows_oob(version), enabled);
+        assert_eq!(Restored::allows_preconfig(version), enabled);
+        assert_eq!(Restored::sends_success_response(version), !enabled);
+    }
+    assert_eq!(Restored::PRECONFIG_SINCE, Some((6, 0, 0)));
+    assert!(Restored::ALLOW_OOB && Restored::ALLOW_PRECONFIG && !Restored::SUCCESS_RESPONSE);
+}
+
 #[qapi::qapi(command, returns = "()")]
 #[qapi(allow_oob(added = "6.0.0", removed = "9.0.0"))]
 #[qapi(allow_preconfig(added = "7.0.0", removed = "10.0.0"))]

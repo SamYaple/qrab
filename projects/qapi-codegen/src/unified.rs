@@ -107,9 +107,10 @@ pub struct UnifiedStruct {
     pub field_versions: BTreeMap<String, VersionRange>,
     /// Earlier field payload types and wire spellings.
     pub field_history: Vec<(StructField, VersionRange)>,
-    /// Per-attribute version ranges for command/event flags that can appear/disappear
-    /// across versions (e.g. allow_preconfig, allow_oob, no_success_response, unstable).
+    /// Latest lifetime of each versioned boolean schema attribute.
     pub attr_versions: BTreeMap<String, VersionRange>,
+    /// Closed earlier lifetimes of flags that were later reintroduced.
+    pub attr_history: Vec<(String, VersionRange)>,
     /// Command return types in version order: each entry is the first merged
     /// version that returned that Rust type. Generated code uses the newest
     /// entry, the current QEMU contract; older entries record the lifecycle.
@@ -117,6 +118,19 @@ pub struct UnifiedStruct {
 }
 
 impl UnifiedStruct {
+    /// Whether a versioned boolean schema attribute is enabled in this release.
+    pub fn flag_enabled(&self, name: &str, version: Version) -> bool {
+        self.attr_versions
+            .get(name)
+            .into_iter()
+            .chain(
+                self.attr_history
+                    .iter()
+                    .filter_map(|(flag, range)| (flag == name).then_some(range)),
+            )
+            .any(|range| version >= range.since && range.until.is_none_or(|until| version < until))
+    }
+
     /// The return type served by the newest merged version, for commands.
     pub fn returns(&self) -> Option<&str> {
         returns_attr(&self.ir.meta)
@@ -1081,9 +1095,11 @@ fn merge_bool_attrs(existing: &mut UnifiedStruct, new_meta: &Metadata, version: 
             .any(|a| matches!(a, Attribute::Unit(n) if n == *attr_name));
 
         if present_in_new {
-            if existing.attr_versions.contains_key(*attr_name) {
-                // Already tracked — clear until (it's still present)
-                existing.attr_versions.get_mut(*attr_name).unwrap().until = None;
+            if let Some(range) = existing.attr_versions.get_mut(*attr_name) {
+                if range.until.is_some() {
+                    let old = std::mem::replace(range, VersionRange::new(version));
+                    existing.attr_history.push((attr_name.to_string(), old));
+                }
             } else {
                 // Newly appeared in this version — add to IR and track
                 existing
@@ -1574,6 +1590,7 @@ fn merge_struct(registry: &mut UnifiedRegistry, name: &str, s: &Struct, version:
                 field_versions,
                 field_history: Vec::new(),
                 attr_versions,
+                attr_history: Vec::new(),
                 returns_history,
             }),
         );
@@ -2096,17 +2113,24 @@ fn generate_unified_struct(
             .attributes
             .retain(|a| !matches!(a, Attribute::Nested { name, .. } if name == attr_name));
 
-        let mut inner = Vec::new();
-        if vr.since > us.versions.since {
-            inner.push(Attribute::with_value("added", version_str(vr.since)));
-        }
-        if let Some(until) = vr.until {
-            inner.push(Attribute::with_value("removed", version_str(until)));
-        }
-        if inner.is_empty() {
-            ir.meta.attributes.push(Attribute::new(attr_name));
-        } else {
-            ir.meta.attributes.push(Attribute::nested(attr_name, inner));
+        for range in us
+            .attr_history
+            .iter()
+            .filter_map(|(name, range)| (name == attr_name).then_some(range))
+            .chain(std::iter::once(vr))
+        {
+            let mut inner = Vec::new();
+            if range.since > us.versions.since {
+                inner.push(Attribute::with_value("added", version_str(range.since)));
+            }
+            if let Some(until) = range.until {
+                inner.push(Attribute::with_value("removed", version_str(until)));
+            }
+            if inner.is_empty() {
+                ir.meta.attributes.push(Attribute::new(attr_name));
+            } else {
+                ir.meta.attributes.push(Attribute::nested(attr_name, inner));
+            }
         }
     }
 
@@ -3314,6 +3338,31 @@ mod flag_timeline_tests {
     use super::*;
 
     #[test]
+    fn reintroduced_flags_start_a_new_lifetime() {
+        for flag in TRACKED_BOOL_ATTRS {
+            let mut registry = UnifiedRegistry::default();
+            for (major, present) in [(1, true), (2, false), (3, true)] {
+                let mut value = Struct {
+                    name: "Example".into(),
+                    fields: vec![],
+                    meta: Metadata::default(),
+                };
+                if present {
+                    value.meta.attributes.push(Attribute::new(flag));
+                }
+                merge_struct(&mut registry, "Example", &value, (major, 0, 0));
+            }
+            let UnifiedType::Struct(value) = &registry.types["Example"] else {
+                panic!()
+            };
+            assert_eq!(value.attr_versions[*flag].since, (3, 0, 0), "{flag}");
+            assert!(value.flag_enabled(flag, (1, 0, 0)));
+            assert!(!value.flag_enabled(flag, (2, 0, 0)));
+            assert!(value.flag_enabled(flag, (3, 0, 0)));
+        }
+    }
+
+    #[test]
     #[ignore = "compares every pinned QMP/QGA flag against its source release"]
     fn boolean_flag_ranges_match_each_source_release() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu");
@@ -3335,10 +3384,7 @@ mod flag_timeline_tests {
                     };
                     for flag in TRACKED_BOOL_ATTRS {
                         let expected = value.meta.attributes.contains(&Attribute::new(flag));
-                        let actual = merged.attr_versions.get(*flag).is_some_and(|range| {
-                            source.version >= range.since
-                                && range.until.is_none_or(|until| source.version < until)
-                        });
+                        let actual = merged.flag_enabled(flag, source.version);
                         if expected != actual {
                             mismatches.push(format!(
                                 "{} {name}.{flag}: source={expected}, merged={actual}",

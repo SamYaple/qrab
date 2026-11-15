@@ -40,13 +40,13 @@ struct TypeAttrs {
     condition: Option<String>,
     returns: Option<String>,
     returns_history: Vec<((u32, u32, u32), String)>,
-    allow_oob: AttrRange,
-    allow_preconfig: AttrRange,
-    no_success_response: AttrRange,
+    allow_oob: Vec<AttrRange>,
+    allow_preconfig: Vec<AttrRange>,
+    no_success_response: Vec<AttrRange>,
     is_command: bool,
     is_event: bool,
     is_union_branch: bool,
-    simple_union: AttrRange,
+    simple_union: Vec<AttrRange>,
 }
 
 #[derive(Default, Clone)]
@@ -210,31 +210,33 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                     }
                     attrs.is_command = true;
                 } else if list.path.is_ident("allow_oob") {
-                    attrs.allow_oob = parse_attr_range(&list.nested);
+                    attrs.allow_oob.push(parse_attr_range(&list.nested));
                     attrs.is_command = true;
                 } else if list.path.is_ident("allow_preconfig") {
-                    attrs.allow_preconfig = parse_attr_range(&list.nested);
+                    attrs.allow_preconfig.push(parse_attr_range(&list.nested));
                     attrs.is_command = true;
                 } else if list.path.is_ident("unstable") {
                     attrs.unstable = parse_attr_range(&list.nested);
                 } else if list.path.is_ident("simple_union") {
-                    attrs.simple_union = parse_attr_range(&list.nested);
+                    attrs.simple_union.push(parse_attr_range(&list.nested));
                 } else if list.path.is_ident("deprecated") {
                     attrs.deprecated = parse_attr_range(&list.nested);
                 } else if list.path.is_ident("no_success_response") {
-                    attrs.no_success_response = parse_attr_range(&list.nested);
+                    attrs
+                        .no_success_response
+                        .push(parse_attr_range(&list.nested));
                     attrs.is_command = true;
                 }
             }
             NestedMeta::Meta(Meta::Path(path)) => {
                 if path.is_ident("allow_oob") {
-                    attrs.allow_oob = AttrRange::bare();
+                    attrs.allow_oob.push(AttrRange::bare());
                     attrs.is_command = true;
                 } else if path.is_ident("allow_preconfig") {
-                    attrs.allow_preconfig = AttrRange::bare();
+                    attrs.allow_preconfig.push(AttrRange::bare());
                     attrs.is_command = true;
                 } else if path.is_ident("no_success_response") {
-                    attrs.no_success_response = AttrRange::bare();
+                    attrs.no_success_response.push(AttrRange::bare());
                     attrs.is_command = true;
                 } else if path.is_ident("command") {
                     attrs.is_command = true;
@@ -243,7 +245,7 @@ fn parse_type_attrs(args: &[NestedMeta]) -> TypeAttrs {
                 } else if path.is_ident("union_branch") {
                     attrs.is_union_branch = true;
                 } else if path.is_ident("simple_union") {
-                    attrs.simple_union = AttrRange::bare();
+                    attrs.simple_union.push(AttrRange::bare());
                 }
             }
             _ => {}
@@ -352,18 +354,17 @@ fn version_range_check(since: Option<&str>, until: Option<&str>) -> Option<Token
 
 // Unscoped decoding uses the latest layout; explicit contexts can select an older one.
 fn simple_union_layout(ta: &TypeAttrs, decoding: bool) -> TokenStream2 {
-    if !ta.simple_union.present {
+    if ta.simple_union.is_empty() {
         return quote! { false };
     }
-    let active = version_range_check(
-        ta.simple_union.added.as_deref(),
-        ta.simple_union.removed.as_deref(),
-    )
-    .unwrap_or_else(|| quote! { true });
-    if decoding && ta.simple_union.removed.is_some() {
-        quote! { qapi::qemu_version() != (0, 0, 0) && (#active) }
-    } else if decoding {
-        quote! { qapi::qemu_version() == (0, 0, 0) || (#active) }
+    let checks = ta.simple_union.iter().map(|range| {
+        version_range_check(range.added.as_deref(), range.removed.as_deref())
+            .unwrap_or_else(|| quote! { true })
+    });
+    let active = quote! { false #(|| (#checks))* };
+    if decoding {
+        let latest = flag_latest(&ta.simple_union);
+        quote! { (qapi::qemu_version() == (0, 0, 0) && #latest) || (qapi::qemu_version() != (0, 0, 0) && (#active)) }
     } else {
         active
     }
@@ -513,21 +514,13 @@ pub fn qapi(args: TokenStream, input: TokenStream) -> TokenStream {
                     ta.unstable = extra.unstable;
                 }
                 ta.returns_history.extend(extra.returns_history);
-                if extra.allow_oob.present {
-                    ta.allow_oob = extra.allow_oob;
-                }
-                if extra.allow_preconfig.present {
-                    ta.allow_preconfig = extra.allow_preconfig;
-                }
-                if extra.no_success_response.present {
-                    ta.no_success_response = extra.no_success_response;
-                }
+                ta.allow_oob.extend(extra.allow_oob);
+                ta.allow_preconfig.extend(extra.allow_preconfig);
+                ta.no_success_response.extend(extra.no_success_response);
                 ta.is_command = ta.is_command || extra.is_command;
                 ta.is_event = ta.is_event || extra.is_event;
                 ta.is_union_branch = ta.is_union_branch || extra.is_union_branch;
-                if extra.simple_union.present {
-                    ta.simple_union = extra.simple_union;
-                }
+                ta.simple_union.extend(extra.simple_union);
             }
         }
     }
@@ -1957,9 +1950,9 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
             ),
         )
     })?;
-    let oob = ta.allow_oob.present && ta.allow_oob.removed.is_none();
-    let preconfig = ta.allow_preconfig.present && ta.allow_preconfig.removed.is_none();
-    let success = !(ta.no_success_response.present && ta.no_success_response.removed.is_none());
+    let oob = flag_latest(&ta.allow_oob);
+    let preconfig = flag_latest(&ta.allow_preconfig);
+    let success = !flag_latest(&ta.no_success_response);
     let unstable = ta.unstable.present && ta.unstable.removed.is_none();
     let oob_at = command_flag_check(&ta.allow_oob);
     let preconfig_at = command_flag_check(&ta.allow_preconfig);
@@ -1979,25 +1972,26 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
         quote! { const REMOVED_IN: Option<(u32, u32, u32)> = None; }
     };
 
-    // PRECONFIG_SINCE: version when allow-preconfig was added for this command.
-    // Uses the explicit added version from the range, or falls back to the
-    // command's own since version if preconfig was present from the start.
-    let preconfig_since_const = if let Some(ref s) = ta.allow_preconfig.added {
-        let (maj, min, pat) = parse_version(s);
+    // Report the first introduction even when preconfig has several lifetimes.
+    let preconfig_since = ta
+        .allow_preconfig
+        .iter()
+        .map(|range| {
+            range
+                .added
+                .as_deref()
+                .or(ta.since.as_deref())
+                .map(parse_version)
+                .unwrap_or((0, 0, 0))
+        })
+        .min();
+    let preconfig_since_const = if let Some((maj, min, pat)) = preconfig_since {
         quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
-    } else if ta.allow_preconfig.present {
-        // Present from the start — use the command's own since version
-        if let Some(ref s) = ta.since {
-            let (maj, min, pat) = parse_version(s);
-            quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((#maj, #min, #pat)); }
-        } else {
-            quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = Some((0, 0, 0)); }
-        }
     } else {
         quote! { const PRECONFIG_SINCE: Option<(u32, u32, u32)> = None; }
     };
 
-    let preconfig_impl = if ta.allow_preconfig.present {
+    let preconfig_impl = if !ta.allow_preconfig.is_empty() {
         quote! {
             #[allow(deprecated)]
             impl qapi::PreconfigSafe for #name {}
@@ -2027,7 +2021,18 @@ fn gen_command_impl(name: &syn::Ident, wn: &str, ta: &TypeAttrs) -> syn::Result<
     })
 }
 
-fn command_flag_check(flag: &AttrRange) -> TokenStream2 {
+fn flag_latest(ranges: &[AttrRange]) -> bool {
+    ranges
+        .iter()
+        .any(|range| range.present && range.removed.is_none())
+}
+
+fn command_flag_check(ranges: &[AttrRange]) -> TokenStream2 {
+    let checks = ranges.iter().map(command_flag_range_check);
+    quote! { false #(|| (#checks))* }
+}
+
+fn command_flag_range_check(flag: &AttrRange) -> TokenStream2 {
     if !flag.present {
         return quote! { false };
     }
