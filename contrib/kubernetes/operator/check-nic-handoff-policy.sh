@@ -1,24 +1,18 @@
 #!/usr/bin/env bash
-# Live check of nic-handoff.yaml's admission policy with server-side dry runs:
-# nothing is created. A uniquely named copy of the policy is bound in place of
-# the operator's identity to a throwaway one (impersonated with system:masters
-# so RBAC never decides); the production policy and the operator are untouched.
+# Live check of the deployed nic-handoff.yaml admission policy with server-side
+# dry runs: nothing is created. The policy applies to every requester (only the
+# operator may set the annotation), so a renamed copy cannot be tested beside
+# it; the check impersonates the operator's own ServiceAccount and another one
+# (with system:masters, so RBAC never decides). Apply nic-handoff.yaml first.
 # Needs an admin context that may impersonate.
 #
 #   bash contrib/kubernetes/operator/check-nic-handoff-policy.sh
 set -euo pipefail
-here=$(cd "$(dirname "$0")" && pwd)
-suffix=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
-policy=qrab-nic-handoff-check-$suffix
-who=system:serviceaccount:qrab-nic-check-$suffix:qrab-operator
-other=system:serviceaccount:qrab-nic-check-$suffix:someone-else
+policy=qrab-nic-handoff
+who=system:serviceaccount:qrab:qrab-operator
+other=system:serviceaccount:qrab:someone-else
 as=(--as="$who" --as-group=system:masters --as-group=system:authenticated)
 as_other=(--as="$other" --as-group=system:masters --as-group=system:authenticated)
-cleanup() {
-  kubectl delete validatingadmissionpolicybinding "$policy" --ignore-not-found >/dev/null
-  kubectl delete validatingadmissionpolicy "$policy" --ignore-not-found >/dev/null
-}
-trap cleanup EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 expect_denied() {
   local what=$1 output; shift
@@ -34,14 +28,6 @@ expect_allowed() {
   echo "ok: $what allowed"
 }
 
-python3 - "$here/nic-handoff.yaml" "$policy" "$who" <<'EOF' | kubectl apply -f - >/dev/null
-import sys
-text, policy, who = open(sys.argv[1]).read(), sys.argv[2], sys.argv[3]
-out = text.replace('name: qrab-nic-handoff\n', f'name: {policy}\n')
-out = out.replace('policyName: qrab-nic-handoff\n', f'policyName: {policy}\n')
-assert out.count("'system:serviceaccount:qrab:qrab-operator'") == 1
-print(out.replace("'system:serviceaccount:qrab:qrab-operator'", f"'{who}'"))
-EOF
 
 # anchor namespace component source pool [extra annotation yaml]
 anchor() {
@@ -75,11 +61,7 @@ export -f create
 run() { bash -c "$2" -- "${@:3}"; }
 
 good="anchor qrab vm-nic qrab/qrab-nic-src qrab-nic-10-244-128-250"
-# Policies take effect asynchronously; wait until a known-bad write is refused.
-for _ in $(seq 1 60); do
-  if ! anchor qrab vm-nic qrab/x qrab-nic-10-244-3-5 | kubectl create --dry-run=server "${as[@]}" -f - >/dev/null 2>&1; then break; fi
-  sleep 1
-done
+kubectl get validatingadmissionpolicy "$policy" >/dev/null || fail "apply nic-handoff.yaml first"
 
 expect_allowed "an operator handoff anchor in the NIC range" run - "$good | create \"\$@\"" "${as[@]}"
 expect_allowed "a pod without the annotation, from anyone" run - "anchor qrab vm-nic qrab/x qrab-nic-10-244-128-250 | sed '/handoff-from/d' | create \"\$@\"" "${as_other[@]}"
