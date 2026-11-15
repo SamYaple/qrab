@@ -73,9 +73,15 @@ status() { # node-extra condition-type
     ${1:+--as-user-extra=authentication.kubernetes.io/node-name=$1} \
     -p "{\"status\":{\"conditions\":[{\"type\":\"$2\",\"status\":\"True\",\"reason\":\"Check\"}]}}"
 }
-# Policies take effect asynchronously; wait until a known-bad write is refused.
-for _ in $(seq 1 60); do
-  if ! status "$other" qrab.yapplesauce.com/nic-plumbed >/dev/null 2>&1; then break; fi
+# Policies take effect asynchronously on each API server; wait until a
+# known-bad write is refused five times in a row.
+refused=0
+for _ in $(seq 1 90); do
+  if status "$other" qrab.yapplesauce.com/nic-plumbed >/dev/null 2>&1; then
+    refused=0
+  else
+    refused=$((refused + 1)); [ "$refused" -ge 5 ] && break
+  fi
   sleep 1
 done
 

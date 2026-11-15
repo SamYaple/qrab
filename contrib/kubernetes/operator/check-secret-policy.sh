@@ -64,9 +64,15 @@ EOF
 }
 apply_as_operator() { kubectl -n "$ns" apply --server-side --force-conflicts --field-manager=qrab-operator --as="$sa" -f -; }
 
-# Policies take effect asynchronously; wait until a known-bad write is refused.
-for _ in $(seq 1 60); do
-  if ! disk_secret vm1-disk-x root "$uid" | apply_as_operator >/dev/null 2>&1; then break; fi
+# Policies take effect asynchronously on each API server; wait until a
+# known-bad write is refused five times in a row.
+refused=0
+for _ in $(seq 1 90); do
+  if disk_secret vm1-disk-x root "$uid" | apply_as_operator >/dev/null 2>&1; then
+    refused=0
+  else
+    refused=$((refused + 1)); [ "$refused" -ge 5 ] && break
+  fi
   kubectl -n "$ns" delete secret vm1-disk-x --ignore-not-found >/dev/null
   sleep 1
 done
