@@ -3136,6 +3136,7 @@ dependencies = [
  "getrandom 0.4.2",
  "k8s-openapi",
  "kube",
+ "qrab-netd",
  "qrab-spiffe",
  "reqwest 0.13.5",
  "rustls",

@@ -14,7 +14,9 @@ use std::{
 #[derive(Debug, Default)]
 pub(super) struct Inherited(Vec<(RawFd, OwnedFd)>);
 
-/// Fetch every tap NIC's descriptors (no-op without tap NICs).
+/// One attempt at every tap NIC's descriptors (no-op without tap NICs).
+/// The caller retries a refusal: the VM Pod starts before qrab-netd has
+/// plumbed its anchors, which are created once the Pod is scheduled.
 pub(super) async fn fetch(config: &Config) -> Result<Inherited> {
     let layout = config.tap_fds();
     if layout.is_empty() {
@@ -26,6 +28,11 @@ pub(super) async fn fetch(config: &Config) -> Result<Inherited> {
         .await
         .map_err(|e| Error::Spawn(e.to_string()))?
 }
+
+/// How long a QEMU start waits for qrab-netd, within the VM Pod's 90 s
+/// startup probe.
+pub(super) const PATIENCE: std::time::Duration = std::time::Duration::from_secs(60);
+pub(super) const RETRY: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn fetch_blocking(socket: &Path, layout: &[TapFds], queues: u8) -> Result<Inherited> {
     let mut held = Vec::new();
@@ -208,5 +215,46 @@ mod tests {
             ..config
         };
         assert!(fetch(&stream_only).await.unwrap().0.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_refused_fetch_succeeds_once_qrab_netd_has_plumbed_the_nic() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("kernel"), []).unwrap();
+        let config = config(
+            dir.path(),
+            serde_json::json!([{"id": "lan", "mac": "02:00:00:00:00:01", "datapath": "tap"}]),
+            1,
+        );
+        let listener = UnixListener::bind(&config.netd_socket).unwrap();
+        let files = dir.path().to_owned();
+        let netd = std::thread::spawn(move || {
+            let (first, _) = listener.accept().unwrap();
+            qrab_netd::wire::read_request(&first).unwrap();
+            qrab_netd::wire::send_refusal(&first, "NIC \"lan\" is not plumbed yet").unwrap();
+            let (second, _) = listener.accept().unwrap();
+            qrab_netd::wire::read_request(&second).unwrap();
+            let file =
+                |name: &str| -> OwnedFd { std::fs::File::create(files.join(name)).unwrap().into() };
+            qrab_netd::wire::send_grant(
+                &second,
+                "qt000000000000",
+                &[file("tap")],
+                &[file("vhost")],
+            )
+            .unwrap();
+        });
+        // The supervisor's retry loop, compressed: a refusal, then a grant.
+        assert!(fetch(&config)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("not plumbed yet"));
+        let inherited = fetch(&config).await.unwrap();
+        netd.join().unwrap();
+        assert_eq!(
+            inherited.0.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+            [3, 4]
+        );
     }
 }

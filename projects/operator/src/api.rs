@@ -118,6 +118,13 @@ pub struct VirtualMachineSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(length(max = 4))]
     pub nics: Vec<Nic>,
+    /// How guest NICs carry traffic. `stream` (default): QEMU's stream
+    /// netdev to a relay and passt in each NIC Pod. `tap`: a kernel tap with
+    /// vhost-net in a restricted anchor Pod on the VM Pod's node, built by
+    /// qrab-netd; it needs `accelerator: kvm` and stable NIC addresses.
+    /// Changing it restarts the VM.
+    #[serde(default, skip_serializing_if = "NicDatapath::is_stream")]
+    pub nic_datapath: NicDatapath,
     /// cloud-init NoCloud seed, attached as a read-only `cidata` disk.
     /// Opt-in; adding, changing or removing it restarts the VM.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -258,6 +265,22 @@ pub struct RedfishComponent {
     #[serde(default)]
     #[schemars(length(max = 16))]
     pub viewer_groups: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NicDatapath {
+    /// QEMU stream netdev → relay → passt (userspace) in each NIC Pod.
+    #[default]
+    Stream,
+    /// Kernel tap and vhost-net in an anchor Pod (docs/networking.md).
+    Tap,
+}
+
+impl NicDatapath {
+    pub fn is_stream(&self) -> bool {
+        *self == Self::Stream
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
@@ -612,6 +635,7 @@ pub fn crd() -> serde_json::Value {
         {"rule":"!has(oldSelf.spec.storageNode) || (has(self.spec.storageNode) && self.spec.storageNode == oldSelf.spec.storageNode)", "message":"storageNode is immutable; disk migration requires explicit fencing"},
         {"rule":"!has(self.spec.maxCpus) || self.spec.cpus <= self.spec.maxCpus", "message":"cpus must not exceed maxCpus"},
         {"rule":"!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB", "message":"memoryMiB must not exceed maxMemoryMiB"},
+        {"rule":"!has(self.spec.nicDatapath) || self.spec.nicDatapath != 'tap' || (has(self.spec.accelerator) && self.spec.accelerator == 'kvm')", "message":"nicDatapath tap needs accelerator kvm: the KVM device brings qrab-netd's socket into the VM Pod"},
         {"rule":"has(self.spec.console) || (has(self.spec.components) && has(self.spec.components.bmc) && has(self.spec.components.bmc.enabled) && !self.spec.components.bmc.enabled)", "message":"console is required while components.bmc is enabled"}
     ]);
     // On `components`, not the root: CRD validation ratcheting then keeps

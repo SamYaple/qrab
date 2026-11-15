@@ -1214,6 +1214,107 @@ fn nic_macs_are_deterministic_local_unicast_and_distinct() {
 }
 
 #[test]
+fn tap_mode_nics_are_restricted_anchors_pinned_to_the_vm_node_and_gated_on_qrab_netd() {
+    use qrab_operator::nic;
+    let mut vm = networked();
+    vm.spec.nic_datapath = qrab_operator::api::NicDatapath::Tap;
+    let pool = "qrab-nic-10-244-128-9";
+    let anchor = nic::render_anchor(&vm, &settings(), &vm.spec.nics[0], pool, "kube02").unwrap();
+    assert!(resources::owned(&anchor.pod, &vm));
+    let pod = serde_json::to_value(&anchor.pod).unwrap();
+    assert_eq!(pod["metadata"]["name"], "test-vm-nic-lan");
+    // The stream NIC Pod's labels exactly: nothing per Pod, so a second
+    // anchor of this NIC gets the same Cilium identity.
+    let stream =
+        serde_json::to_value(nic::render(&vm, &settings(), &vm.spec.nics[0]).unwrap().pod).unwrap();
+    assert_eq!(pod["metadata"]["labels"], stream["metadata"]["labels"]);
+    let annotations = &pod["metadata"]["annotations"];
+    assert_eq!(annotations["ipam.cilium.io/ip-pool"], pool);
+    assert_eq!(annotations["ipam.cilium.io/require-pool-match"], "true");
+    assert_eq!(annotations["qrab.yapplesauce.com/nic-datapath"], "tap");
+    assert_eq!(annotations[qrab_operator::resources::HASH], anchor.hash);
+    let spec = &pod["spec"];
+    assert_eq!(
+        spec["affinity"],
+        json!({"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[
+            {"matchFields":[{"key":"metadata.name","operator":"In","values":["kube02"]}]}]}}})
+    );
+    assert_eq!(
+        spec["readinessGates"],
+        json!([{"conditionType":"qrab.yapplesauce.com/nic-plumbed"}])
+    );
+    for (key, value) in [
+        ("hostNetwork", false),
+        ("hostPID", false),
+        ("hostIPC", false),
+        ("automountServiceAccountToken", false),
+    ] {
+        assert_eq!(spec[key], value, "{key}");
+    }
+    assert_eq!(spec["securityContext"]["runAsNonRoot"], true);
+    assert_eq!(
+        spec["securityContext"]["seccompProfile"]["type"],
+        "RuntimeDefault"
+    );
+    let containers = spec["containers"].as_array().unwrap();
+    assert_eq!(containers.len(), 1);
+    let container = &containers[0];
+    assert_eq!(container["command"], json!(["qrab-manager"]));
+    assert_eq!(container["args"], json!(["anchor"]));
+    assert_eq!(
+        container["securityContext"],
+        json!({"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}})
+    );
+    // The Pod IP is the guest's: no ports, no probes, no volumes.
+    for key in [
+        "ports",
+        "readinessProbe",
+        "livenessProbe",
+        "startupProbe",
+        "volumeMounts",
+    ] {
+        assert!(container.get(key).is_none(), "{key}");
+    }
+    assert!(spec.get("volumes").is_none());
+    // Another node is another template.
+    let elsewhere = nic::render_anchor(&vm, &settings(), &vm.spec.nics[0], pool, "kube03").unwrap();
+    assert_ne!(elsewhere.hash, anchor.hash);
+    assert!(
+        nic::anchor_matches(&anchor.pod, &anchor) && !nic::anchor_matches(&anchor.pod, &elsewhere)
+    );
+}
+
+#[test]
+fn tap_mode_vm_config_names_the_datapath_instead_of_a_relay() {
+    use qrab_operator::nic::NicEndpoint;
+    let mut vm = networked();
+    vm.spec.nic_datapath = qrab_operator::api::NicDatapath::Tap;
+    let boot = resources::GuestSize::of(&vm);
+    let endpoints =
+        [("lan", "10.244.128.9"), ("backup", "10.244.128.10")].map(|(name, ip)| NicEndpoint {
+            name: name.into(),
+            ip: ip.parse().unwrap(),
+        });
+    let desired = resources::render_attached(&vm, &settings(), &[], boot, &endpoints).unwrap();
+    let config: Value = serde_json::from_str(&desired.config.data.unwrap()["vm.json"]).unwrap();
+    assert_eq!(
+        config["nics"],
+        json!([
+            {"id":"lan","mac":qrab_operator::nic::mac("owner-one","lan"),"datapath":"tap"},
+            {"id":"backup","mac":qrab_operator::nic::mac("owner-one","backup"),"datapath":"tap"}
+        ])
+    );
+    // The guest-facing contract is the same: a static /32 per NIC in the seed.
+    assert!(config["seed"]["network_config"]
+        .as_str()
+        .unwrap()
+        .contains("10.244.128.9/32"));
+    // The CRD refuses tap without kvm, which brings qrab-netd's socket.
+    let crd = qrab_operator::api::crd().to_string();
+    assert!(crd.contains("nicDatapath tap needs accelerator kvm"));
+}
+
+#[test]
 fn vm_config_carries_nics_only_once_every_nic_pod_has_an_address() {
     use qrab_operator::nic::NicEndpoint;
     let vm = networked();

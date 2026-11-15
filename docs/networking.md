@@ -215,7 +215,8 @@ The relay rule below keeps working under such a baseline.
 
 ## The relay policy
 
-For each NIC the operator owns a CiliumNetworkPolicy `<vm>-nic-<name>-relay`
+Stream mode only; a tap-mode NIC has no relay port. For each NIC the
+operator owns a CiliumNetworkPolicy `<vm>-nic-<name>-relay`
 with two rules. Both set `enableDefaultDeny: {ingress: false, egress: false}`,
 so they only add rules and never switch an endpoint into default deny.
 
@@ -347,9 +348,27 @@ survive the NIC moving to another node. Beyond the cluster:
 ## Tap datapath
 
 The kernel datapath replacing passt is being built (container
-`nic-kernel-datapath` in towl). `qrab-netd` is running, and the manager
-accepts tap-mode NICs ([manager.md](manager.md)). The operator does not
-create tap-mode anchors yet, so every NIC still runs on passt.
+`nic-kernel-datapath` in towl). A VM opts in with `spec.nicDatapath: tap`
+(it needs `accelerator: kvm` and stable NIC addresses); the default remains
+`stream` until the throughput and policy benchmark
+(`nic-datapath-bench`) passes. Live migration of a tap-mode VM is not
+implemented yet.
+
+In tap mode the path is guest virtqueue → vhost-net → tap in the NIC's
+anchor Pod's network namespace → Cilium, as for any Pod. Guest frames
+never enter the VM Pod. The pieces:
+
+- **The anchor** (operator, [operator.md](operator.md#tap-datapath-specnicdatapath-tap))
+  is a restricted Pod on the VM Pod's node. It holds the NIC's Cilium
+  endpoint, the /32 from the NIC's pool and the security-group labels.
+- **qrab-netd**, described below, builds the tap in the anchor's network
+  namespace and sets the anchor's readiness gate.
+- **The manager** ([manager.md](manager.md)) asks qrab-netd for the
+  queues before each QEMU start.
+
+The guest-facing contract is unchanged: the NoCloud seed's /32, gateway and
+DNS `169.254.1.1`. Security groups select the anchor exactly as they select
+a stream NIC Pod, and the relay policy below does not exist in tap mode.
 
 `qrab-netd` (`projects/qrab-netd`) is a privileged per-node agent with host
 PIDs. It runs as a DaemonSet in `qrab-node` (`contrib/kubernetes/netd/`) and

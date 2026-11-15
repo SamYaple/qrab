@@ -25,3 +25,5 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 rustls-pemfile = "2"
 qrab-spiffe = { path = "../qrab-spiffe" }
+# Shared tap-datapath names: the anchor annotation and plumbed condition.
+qrab-netd = { path = "../qrab-netd", default-features = false }

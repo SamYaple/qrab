@@ -1380,7 +1380,10 @@ pub fn render_incarnation(
     if !nics.is_empty() {
         config["nics"] = json!(nics
             .iter()
-            .map(|n| json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"host":n.ip.to_string(),"port":RELAY_PORT}))
+            .map(|n| match vm.spec.nic_datapath {
+                crate::api::NicDatapath::Stream => json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"host":n.ip.to_string(),"port":RELAY_PORT}),
+                crate::api::NicDatapath::Tap => json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"datapath":"tap"}),
+            })
             .collect::<Vec<_>>());
     }
     // Absent without spec.cloudInit or NICs, so existing template hashes are unchanged.

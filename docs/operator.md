@@ -356,6 +356,29 @@ spec:
 - **RBAC.** The operator needs `ciliumnetworkpolicies.cilium.io` get, list,
   watch, create, patch and delete in `rbac.yaml`.
 
+### Tap datapath (`spec.nicDatapath: tap`)
+
+Everything above describes the default, `stream`. With `nicDatapath: tap`,
+which the CRD allows only with `accelerator: kvm` and the operator only with
+stable NIC addresses:
+
+- **Anchor Pods.** Each NIC's Pod `<vm>-nic-<name>` is an anchor that runs
+  `qrab-manager anchor`, which waits for SIGTERM. It has the same labels and
+  pool annotations as a stream NIC Pod, plus
+  `qrab.yapplesauce.com/nic-datapath: tap`. It is restricted, with no ports,
+  probes or volumes.
+- **Placement.** The anchor is created once the VM Pod is scheduled and is
+  pinned to that node (`matchFields metadata.name`). A VM Pod on another node
+  gets new anchors.
+- **Readiness and status.** The anchor's readiness gate
+  `qrab.yapplesauce.com/nic-plumbed` is set by qrab-netd. `status.nics[].ready`
+  is that readiness, and `status.nics[].ip` is the pool address.
+- **No relay policy.** None is created, and an existing one is deleted.
+- **Startup.** The VM Pod does not wait for anchors. Its config gets
+  `nics: [{id, mac, datapath: tap}]` and the same seed, and the manager waits
+  for qrab-netd before starting QEMU.
+- **Changing the mode** changes the VM config, so the VM restarts.
+
 ## cloud-init seed
 
 `spec.cloudInit` is opt-in. With it, the VM gets a read-only cloud-init NoCloud

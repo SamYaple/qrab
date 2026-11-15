@@ -244,13 +244,78 @@ fn relay_policy(
 /// A NIC Pod is current when its template hash matches; security-group
 /// labels are reconciled in place.
 pub fn pod_matches(actual: &Pod, desired: &DesiredNic) -> bool {
-    actual.annotations().get(HASH) == Some(&desired.hash)
+    template_matches(actual, &desired.pod, &desired.hash)
+}
+
+/// [`pod_matches`] for a tap-mode anchor.
+pub fn anchor_matches(actual: &Pod, desired: &DesiredAnchor) -> bool {
+    template_matches(actual, &desired.pod, &desired.hash)
+}
+
+/// Whether a live NIC Pod still matches a rendered template and its hash.
+pub fn template_matches(actual: &Pod, desired: &Pod, hash: &str) -> bool {
+    actual.annotations().get(HASH).map(String::as_str) == Some(hash)
         && desired
-            .pod
             .labels()
             .iter()
             .filter(|(k, _)| !k.starts_with(SECURITY_GROUP_PREFIX))
             .all(|(k, v)| actual.labels().get(k) == Some(v))
+}
+
+/// A tap-mode NIC anchor (docs/networking.md, "Tap datapath").
+pub struct DesiredAnchor {
+    pub pod: Pod,
+    pub hash: String,
+}
+
+/// The NIC's anchor Pod in tap mode: a restricted Pod that only holds the
+/// NIC's Cilium endpoint, /32 (from its one-address `pool`) and security
+/// groups, pinned to `node`, the VM Pod's node. qrab-netd builds the tap in
+/// its network namespace and sets the readiness gate. It has no ports, no
+/// probes (its IP is the guest's, so a network probe would reach the guest)
+/// and no relay policy; its labels are the stream NIC Pod's, with no
+/// per-Pod value, so a second anchor of the same NIC shares its Cilium
+/// identity.
+pub fn render_anchor(
+    vm: &VirtualMachine,
+    settings: &Settings,
+    nic: &Nic,
+    pool: &str,
+    node: &str,
+) -> Result<DesiredAnchor> {
+    let owner = owner_json(vm)?;
+    let image = vm.spec.image.as_deref().unwrap_or(&settings.vm_image);
+    let mut labels = identity_labels(vm, &nic.name)?;
+    let security = json!({"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}});
+    let mut annotations = serde_json::Map::from_iter([
+        (crate::address::POOL_ANNOTATION.to_owned(), json!(pool)),
+        (crate::address::REQUIRE_POOL_MATCH.to_owned(), json!("true")),
+        (
+            qrab_netd::DATAPATH_ANNOTATION.to_owned(),
+            json!(qrab_netd::DATAPATH_TAP),
+        ),
+    ]);
+    let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":pod_name(vm,&nic.name),"namespace":settings.namespace,"labels":labels,"annotations":annotations,"ownerReferences":[owner]},"spec":{
+        "serviceAccountName":"qrab-manager","automountServiceAccountToken":false,"enableServiceLinks":false,
+        "hostNetwork":false,"hostPID":false,"hostIPC":false,
+        "restartPolicy":"Always","terminationGracePeriodSeconds":2,
+        "securityContext":{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"seccompProfile":{"type":"RuntimeDefault"}},
+        "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}],
+        "affinity":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchFields":[{"key":"metadata.name","operator":"In","values":[node]}]}]}}},
+        "readinessGates":[{"conditionType":qrab_netd::PLUMBED_CONDITION}],
+        "containers":[{"name":"anchor","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],"args":["anchor"],
+            "resources":{"requests":{"cpu":"5m","memory":"16Mi"},"limits":{"cpu":"100m","memory":"32Mi"}},
+            "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError"}]
+    }});
+    let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&pod)?));
+    annotations.insert(HASH.into(), json!(hash));
+    pod["metadata"]["annotations"] = Value::Object(annotations);
+    labels.extend(security_group_labels(nic));
+    pod["metadata"]["labels"] = json!(labels);
+    Ok(DesiredAnchor {
+        pod: serde_json::from_value(pod)?,
+        hash,
+    })
 }
 
 /// The relay endpoint of a Running, Ready NIC Pod.

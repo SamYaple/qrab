@@ -205,12 +205,22 @@ async fn provision_disks(
 /// announce, fence and release each NIC's address pool. Returns the relay
 /// endpoints once every NIC Pod is Ready, `Ok(None)` while one is pending, or
 /// `Err(action)` after publishing a change.
+///
+/// In tap mode (`spec.nicDatapath: tap`) each NIC is an anchor Pod pinned to
+/// the VM Pod's node, created once that Pod is scheduled, with no relay
+/// policy. The VM Pod does not wait for anchors: the guest's address is the
+/// NIC's pool address, and the manager waits for qrab-netd before QEMU
+/// starts. `status.nics[].ready` is the anchor's readiness (qrab-netd's
+/// plumbed condition).
 async fn reconcile_nics(
     vm: &VirtualMachine,
     ctx: &Context,
     vms: &Api<VirtualMachine>,
     pods: &Api<Pod>,
+    vm_pod: Option<&Pod>,
 ) -> Result<std::result::Result<Option<Vec<NicEndpoint>>, Action>> {
+    let tap = vm.spec.nic_datapath == crate::api::NicDatapath::Tap;
+    let vm_node = vm_pod.and_then(|p| p.spec.as_ref()?.node_name.as_deref());
     let addressing = ctx.settings.nic_addresses.as_ref();
     if vm.spec.nics.is_empty()
         && vm.status.as_ref().is_none_or(|s| s.nics.is_empty())
@@ -257,36 +267,65 @@ async fn reconcile_nics(
         let address = pool
             .as_ref()
             .and_then(|p| address::pool_address(&p.name_any()));
-        let desired = nic::render_in_pool(
-            vm,
-            &ctx.settings,
-            spec,
-            pool.as_ref().map(|p| p.name_any()).as_deref(),
-        )?;
-        let policy_name = desired.policy.name_any();
-        match policies.get_opt(&policy_name).await? {
-            Some(actual) if !resources::owned_meta(&actual.metadata, vm) => {
+        // The Pod template (None: a tap anchor waiting for the VM Pod's node)
+        // and, in stream mode only, the relay policy.
+        let (template, relay) = if tap {
+            let pool = pool.as_ref().map(|p| p.name_any()).ok_or_else(|| {
+                Error::Invalid(
+                    "nicDatapath tap needs stable NIC addresses (QRAB_NIC_ADDRESS_RANGE)".into(),
+                )
+            })?;
+            let anchor = vm_node
+                .map(|node| nic::render_anchor(vm, &ctx.settings, spec, &pool, node))
+                .transpose()?;
+            (anchor.map(|a| (a.pod, a.hash)), None)
+        } else {
+            let desired = nic::render_in_pool(
+                vm,
+                &ctx.settings,
+                spec,
+                pool.as_ref().map(|p| p.name_any()).as_deref(),
+            )?;
+            (Some((desired.pod, desired.hash)), Some(desired.policy))
+        };
+        let policy_name = nic::policy_name(vm, &spec.name);
+        match (policies.get_opt(&policy_name).await?, relay) {
+            (Some(actual), _) if !resources::owned_meta(&actual.metadata, vm) => {
                 return Err(Error::Ownership(format!(
                     "CiliumNetworkPolicy {policy_name} belongs to another owner"
                 )))
             }
-            Some(actual) if nic::policy_matches(&actual, &desired.policy) => {}
-            Some(_) => {
+            (Some(actual), Some(relay)) if nic::policy_matches(&actual, &relay) => {}
+            (Some(_), Some(relay)) => {
                 policies
                     .patch(
                         &policy_name,
                         &PatchParams::apply("qrab-operator").force(),
-                        &Patch::Apply(&desired.policy),
+                        &Patch::Apply(&relay),
                     )
                     .await?;
             }
-            None => {
+            (None, Some(relay)) => {
+                policies.create(&PostParams::default(), &relay).await?;
+            }
+            // A tap NIC has no relay port to protect.
+            (Some(actual), None) => {
                 policies
-                    .create(&PostParams::default(), &desired.policy)
+                    .delete(
+                        &policy_name,
+                        &DeleteParams {
+                            preconditions: Some(Preconditions {
+                                uid: actual.uid(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        },
+                    )
                     .await?;
             }
+            (None, None) => {}
         }
-        let name = desired.pod.name_any();
+        let name = nic::pod_name(vm, &spec.name);
         let mut endpoint = None;
         let live = pods.get_opt(&name).await?;
         match &live {
@@ -297,7 +336,9 @@ async fn reconcile_nics(
             }
             Some(actual) if actual.metadata.deletion_timestamp.is_some() => {}
             Some(actual)
-                if !nic::pod_matches(actual, &desired)
+                if template
+                    .as_ref()
+                    .is_some_and(|(pod, hash)| !nic::template_matches(actual, pod, hash))
                     || matches!(
                         actual.status.as_ref().and_then(|s| s.phase.as_deref()),
                         Some("Failed" | "Succeeded")
@@ -315,8 +356,17 @@ async fn reconcile_nics(
             }
             // NIC Pods hold no VM state; a missing one is simply recreated.
             None => {
-                pods.create(&PostParams::default(), &desired.pod).await?;
+                if let Some((pod, _)) = &template {
+                    pods.create(&PostParams::default(), pod).await?;
+                }
             }
+        }
+        let anchor_ready = endpoint.is_some();
+        if tap {
+            endpoint = address.map(|a| NicEndpoint {
+                name: spec.name.clone(),
+                ip: std::net::IpAddr::V4(a),
+            });
         }
         if let (Some(addresses), Some(pool), Some(ip)) = (&addresses, &pool, address) {
             let holder = live.as_ref().filter(|p| {
@@ -335,7 +385,7 @@ async fn reconcile_nics(
             mac: nic::mac(&uid, &spec.name),
             pod_name: name,
             ip: endpoint.as_ref().map(|e| e.ip.to_string()),
-            ready: endpoint.is_some(),
+            ready: anchor_ready,
             address: address.map(|a| a.to_string()),
         });
         endpoints.extend(endpoint);
@@ -639,7 +689,7 @@ async fn synchronize(
         }
     }
     // NIC Pods stay up while the VM is off, so their IPs survive a restart.
-    let nics = match reconcile_nics(vm, ctx, vms, &pods).await? {
+    let nics = match reconcile_nics(vm, ctx, vms, &pods, pod.as_ref()).await? {
         Ok(nics) => nics,
         Err(action) => return Ok(action),
     };

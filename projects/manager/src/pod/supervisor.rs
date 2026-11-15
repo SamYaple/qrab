@@ -450,15 +450,28 @@ async fn run_qemu(
     let mut migrated = false;
     // Tap NICs get fresh queues from qrab-netd for every QEMU start; the
     // previous QEMU's queues closed when it exited.
-    let inherited = match super::tap::fetch(config).await {
-        Ok(inherited) => inherited,
-        Err(error) => {
-            state.phase = Phase::Failed;
-            state.detail = Some(error.to_string());
-            let _ = publish(config, state);
-            return Err(error);
+    // Refusals are retried (the anchors may still be plumbing), publishing
+    // each wait so the heartbeat stays fresh and the reason is visible.
+    let waiting_since = tokio::time::Instant::now();
+    let inherited = loop {
+        match super::tap::fetch(config).await {
+            Ok(inherited) => break inherited,
+            Err(error) if waiting_since.elapsed() < super::tap::PATIENCE => {
+                state.detail = Some(format!("waiting for qrab-netd: {error}"));
+                publish(config, state)?;
+                tokio::time::sleep(super::tap::RETRY).await;
+            }
+            Err(error) => {
+                state.phase = Phase::Failed;
+                state.detail = Some(error.to_string());
+                let _ = publish(config, state);
+                return Err(error);
+            }
         }
     };
+    if !config.tap_fds().is_empty() {
+        state.detail = None;
+    }
     let mut command = Command::new(&config.qemu_binary);
     command
         .args(config.arguments(socket))

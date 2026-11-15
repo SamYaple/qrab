@@ -5,6 +5,7 @@ const USAGE: &str = "qrab-manager <run|ready|live|status|check> --config /path/t
 qrab-manager control --socket /run/qrab-control/manager/control.sock < typed-operation.json\nqrab-manager inspect <inventory|metrics|network|boot|firmware|secure-boot|settings|resources|media|config> --socket /run/qrab-control/manager/control.sock\nqrab-manager agent <status|ping|freeze-status|freeze|thaw|update-status|update-trigger> --config /path/to/vm.json [ARG...]
 qrab-manager nic --listen 0.0.0.0:7700 --socket /run/nic/passt.sock [--passt /usr/bin/passt] [--guest-mac 02:..]
 qrab-manager nic-ready --socket /run/nic/passt.sock
+qrab-manager anchor
 
 agent talks to the guest agent through the running manager's control socket
 (control_socket must be enabled). freeze takes optional mountpoints and
@@ -12,7 +13,10 @@ update-trigger optional hook arguments.
 
 nic runs passt for one guest NIC and relays one TCP connection at a time from
 the VM's QEMU to it; it exits non-zero when passt exits. nic-ready is its
-readiness probe.";
+readiness probe.
+
+anchor is a tap-mode NIC anchor Pod's only process: it holds the Pod (and so
+its network namespace, where qrab-netd builds the tap) until SIGTERM.";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
@@ -36,6 +40,12 @@ async fn execute() -> manager::Result<()> {
         Some("inspect") => return inspect(&args[1..]).await,
         Some("control") => return control(&args[1..]).await,
         Some("nic") => return nic(&args[1..]).await,
+        Some("anchor") if args.len() == 1 => {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! { _ = term.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+            return Ok(());
+        }
         Some("nic-ready") => {
             let options = flags(&args[1..], &["--socket"])?;
             pod::nic::probe(Path::new(&options["--socket"]))?;
