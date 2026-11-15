@@ -115,6 +115,20 @@ async fn main() -> Result<()> {
         bmc_bearer,
         nic_addresses,
     };
+    qrab_spiffe::http::install_tls13_provider()?;
+    let identity = qrab_spiffe::Identity::from_env()
+        .await
+        .context("operator workload identity")?;
+    ensure!(
+        identity.id()?
+            == qrab_spiffe::id(&format!(
+                "spiffe://{}/kubernetes/{}/qrab-operator",
+                identity.id()?.trust_domain(),
+                settings.namespace
+            ))?,
+        "unexpected operator SPIFFE identity"
+    );
+    let metrics = Some(qrab_operator::power::Client::new(identity));
     let client = Client::try_default().await?;
     let vms: Api<VirtualMachine> = Api::namespaced(client.clone(), &settings.namespace);
     vms.list(&kube::api::ListParams::default().limit(1))
@@ -153,6 +167,7 @@ async fn main() -> Result<()> {
         client,
         settings,
         storage,
+        metrics,
     });
     let controller = Controller::new(vms, watcher::Config::default())
         .owns(

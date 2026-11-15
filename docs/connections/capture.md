@@ -58,7 +58,7 @@ owned ones. Multiple rows may observe the same bytes at different boundaries.
 | M10 | Manager's QMP Unix read/write and sendmsg/recvmsg boundary | Greeting, commands, replies and events; SCM_RIGHTS ancillary metadata for NIC FDs. This requires local process/Unix tracing, not another QMP connection. |
 | M11 | Manager/QEMU VNC Unix boundary; corresponding WS frames | RFB frames/input/audio. No additional VNC encryption locally. WS message boundaries can split/coalesce RFB messages. |
 | M12 | Manager QGA Unix boundary or guest virtio-serial daemon boundary | JSON, `0xFF` synchronization and replies. Guest agent has a fixed allowlist. A guest NIC pcap cannot see QGA. |
-| M13 | Workload/client interface, BMC8443/Redfish8444 and app boundary | TLS 1.3 records, not plaintext Redfish. Decrypted access requires endpoint-side evidence/session traffic secrets if deliberately supported; ordinary backend8081/8080 are different connections; enabling workload TLS does not implicitly encrypt ingress or metrics. |
+| M13 | Workload/client interface, BMC8443/Redfish8444 and app boundary | TLS 1.3 records, not plaintext Redfish. Decrypted access requires endpoint-side evidence/session traffic secrets if deliberately supported; ordinary backend8081/8080 are different connections; ingress and observability use their separately configured transports. |
 | N1 | netd and manager Unix sendmsg/recvmsg | Queue/grant/probe/handoff control and ancillary FD numbers/types. It does **not** contain guest Ethernet packets. |
 | N2, N3, N4 | Anchor netns TAP and `eth0`; DHCP/DNS/gateway filters | Guest packets on TAP and routed traffic on `eth0`. ARP and DHCP stay near TAP; application TLS remains ciphertext. Capture all NIC anchors, not just the VM Pod. |
 | N5 | VPN anchor TAP, `wg0` and `eth0`; provider if controlled | TAP/`wg0` show inner packets; `eth0` shows WireGuard UDP. Inner application TLS is still encrypted. Provider control API captures do not decrypt WireGuard packet traffic. |
@@ -80,8 +80,9 @@ owned ones. Multiple rows may observe the same bytes at different boundaries.
 | I7, I8 | Workstation/broker HTTPS egress to Proton and challenge site | Encrypted SRP/token/catalog/certificate transactions. Provider APIs and raw user login data are separate from WG inner traffic. Broker logs/status should report result/reason without session/key material. |
 | P1–P4 | API client egress, Kubernetes audit logs and workload logs | TLS wire metadata; object identity/verb/result from audit policy. Request/response bodies are available only if deliberately logged; Secret bodies should not be assumed safe audit evidence. |
 | P5 | API patches, projected ConfigMap/downward files and manager resize/NIC status | API TLS plus local file changes. Projection is asynchronous, so API write time and QMP action time differ. There is no hidden operator-to-manager TCP stream to capture. |
-| P6, P7 | VM Pod `:9181`, Prometheus/operator interfaces | Plain metrics request/response. Identify scrape caller, since operator and Prometheus read the same port. |
-| P8 | Redfish egress and Prometheus `:9090` | Plain query_range request/JSON answer, no bearer by default. Query scope is namespace/Pod, not user-provided arbitrary PromQL. |
+| P6, P7 | VM Pod `:9181`, adapter/operator interfaces; Prometheus Pod loopback19993 | TLS 1.3 records on the network. Only the Prometheus-to-adapter local leg exposes plain metrics. Identify caller SVID, VM UID and current owned Pod/IP. |
+| P8 | Redfish egress and telemetry gateway `:9091`; Prometheus Pod loopback9090 | TLS 1.3 records on the network; plain query_range only on Pod-local loopback. Gateway binds exact client SVID to current VM-owned Pod templates. |
+| P15 | Adapter interface → API443 | HTTPS list responses, correlated by current VM UID/owner references, Pod IP and refresh age. Capture files do not themselves expose API JSON. |
 | P9 | Redfish/BMC/dashboard HTTP and browser SSE boundary | Text event records and cursors at each plaintext/decrypted hop; public TLS pcap stays encrypted. Record gaps and epoch changes, not just events received. |
 | P10 | Redfish egress to exact event receiver; receiver application | HTTPS records on wire, redacted Event JSON at endpoints. Creator token is not delivered to receiver. Events can replay after a crash; deduplicate by event ID. |
 | P11 | Kubelet-to-Pod HTTP; exec probe records/status files for manager | Unauthenticated health HTTP or local probe execution. Probes are not real guest application checks. |
@@ -130,7 +131,7 @@ mkdir -p "$capture_dir"
 # 'any' inside this netns includes loopback M8 as well as eth0.
 sudo timeout --signal=INT 60s nsenter -t "$vm_pid" -n \
   tcpdump -i any -nn -s 0 -U -c 100000 -w "$capture_dir/vm.pcap" \
-  'tcp port 8080 or tcp port 8081 or tcp port 8443 or tcp port 8444 or tcp port 9181 or tcp port 7800 or tcp port 3260 or tcp port 443 or port 53'
+  'tcp port 8080 or tcp port 8081 or tcp port 8443 or tcp port 8444 or tcp port 9181 or tcp port 9091 or tcp port 7800 or tcp port 3260 or tcp port 443 or port 53'
 
 # Unfiltered Ethernet on the TAP: all queues, ARP/DHCP/DNS and guest apps.
 sudo timeout --signal=INT 60s nsenter -t "$anchor_pid" -n \

@@ -1,5 +1,5 @@
 //! The guest power state of a Ready VM Pod, read from its Redfish sidecar's
-//! unauthenticated Prometheus export (`qrab_vm_power_state`, port 9181).
+//! SPIFFE mTLS Prometheus export (`qrab_vm_power_state`, port 9181).
 //!
 //! The read is bounded and best effort: a failure reports the state as
 //! unknown and never fails, replaces or restarts the Pod.
@@ -11,7 +11,6 @@ use k8s_openapi::api::core::v1::Pod;
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
-    sync::{Arc, OnceLock},
     time::Duration,
 };
 
@@ -111,31 +110,47 @@ pub fn parse(exposition: &str) -> Option<PowerState> {
 /// What the operator knows about a Ready Pod's guest power.
 pub type Reading = std::result::Result<PowerState, String>;
 
-fn client() -> std::result::Result<&'static reqwest::Client, String> {
-    static CLIENT: OnceLock<std::result::Result<reqwest::Client, String>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            // Plain HTTP only; the TLS backend is configured so building the
-            // client never depends on a process-wide crypto provider.
-            let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
-                rustls::crypto::ring::default_provider(),
-            ))
-            .with_safe_default_protocol_versions()
+/// Rotating operator identity; the remote ID is always derived from the
+/// Kubernetes VM UID, never from an HTTP response or Pod annotation.
+#[derive(Clone)]
+pub struct Client(qrab_spiffe::Identity);
+impl Client {
+    pub fn new(identity: qrab_spiffe::Identity) -> Self {
+        Self(identity)
+    }
+    pub async fn read(&self, vm: &VirtualMachine, pod: &Pod) -> Reading {
+        let domain = self
+            .0
+            .id()
             .map_err(|e| e.to_string())?
-            .with_root_certificates(rustls::RootCertStore::empty())
-            .with_no_client_auth();
-            reqwest::Client::builder()
-                .no_proxy()
-                .redirect(reqwest::redirect::Policy::none())
-                .http1_only()
-                .pool_max_idle_per_host(0)
-                .timeout(READ_TIMEOUT)
-                .tls_backend_preconfigured(tls)
-                .build()
-                .map_err(|e| e.to_string())
-        })
-        .as_ref()
-        .map_err(Clone::clone)
+            .trust_domain()
+            .to_string();
+        let peer = qrab_spiffe::vm_service_id(
+            &domain,
+            &vm.metadata
+                .namespace
+                .clone()
+                .ok_or("the VM has no namespace")?,
+            &vm.metadata.uid.clone().ok_or("the VM has no UID")?,
+            "redfish",
+        )
+        .map_err(|e| e.to_string())?;
+        let tls = self
+            .0
+            .client_config(&[peer], &[b"http/1.1"])
+            .map_err(|e| e.to_string())?;
+        let client = reqwest::Client::builder()
+            .https_only(true)
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .http1_only()
+            .pool_max_idle_per_host(0)
+            .timeout(READ_TIMEOUT)
+            .tls_backend_preconfigured(tls)
+            .build()
+            .map_err(|e| e.to_string())?;
+        fetch(&client, &metrics_url(pod)?).await
+    }
 }
 
 /// The metrics URL of a Pod, from its IP.
@@ -148,19 +163,13 @@ pub fn metrics_url(pod: &Pod) -> std::result::Result<String, String> {
         .parse()
         .map_err(|_| "the VM Pod IP is malformed")?;
     Ok(format!(
-        "http://{}/metrics",
+        "https://{}/metrics",
         SocketAddr::new(ip, REDFISH_METRICS_PORT)
     ))
 }
 
-/// Read the guest power state from the Pod's metrics export, within
-/// [`READ_TIMEOUT`] and [`BODY_LIMIT`].
-pub async fn read(pod: &Pod) -> Reading {
-    fetch(&metrics_url(pod)?).await
-}
-
-async fn fetch(url: &str) -> Reading {
-    let client = client()?;
+/// Read a bounded export. Production callers supply an exact-peer HTTPS-only client.
+async fn fetch(client: &reqwest::Client, url: &str) -> Reading {
     let fetch = async {
         let mut response = client
             .get(url)
@@ -540,11 +549,11 @@ mod tests {
         };
         assert_eq!(
             metrics_url(&pod(json!("10.244.1.5"))).unwrap(),
-            "http://10.244.1.5:9181/metrics"
+            "https://10.244.1.5:9181/metrics"
         );
         assert_eq!(
             metrics_url(&pod(json!("fd00::5"))).unwrap(),
-            "http://[fd00::5]:9181/metrics"
+            "https://[fd00::5]:9181/metrics"
         );
         assert!(metrics_url(&pod(json!("not-an-ip"))).is_err());
         assert!(metrics_url(&pod(json!(null))).is_err());
@@ -626,25 +635,43 @@ mod tests {
             );
         tokio::spawn(async move { axum::serve(listener, app).await });
         assert_eq!(
-            fetch(&format!("{origin}/metrics")).await,
+            fetch(
+                &reqwest::Client::builder().no_proxy().build().unwrap(),
+                &format!("{origin}/metrics")
+            )
+            .await,
             Ok(PowerState::Off)
         );
-        assert!(fetch(&format!("{origin}/empty"))
-            .await
-            .unwrap_err()
-            .contains("no current"));
-        assert!(fetch(&format!("{origin}/busy"))
-            .await
-            .unwrap_err()
-            .contains("503"));
-        assert!(fetch(&format!("{origin}/huge"))
-            .await
-            .unwrap_err()
-            .contains("bound"));
+        assert!(fetch(
+            &reqwest::Client::builder().no_proxy().build().unwrap(),
+            &format!("{origin}/empty")
+        )
+        .await
+        .unwrap_err()
+        .contains("no current"));
+        assert!(fetch(
+            &reqwest::Client::builder().no_proxy().build().unwrap(),
+            &format!("{origin}/busy")
+        )
+        .await
+        .unwrap_err()
+        .contains("503"));
+        assert!(fetch(
+            &reqwest::Client::builder().no_proxy().build().unwrap(),
+            &format!("{origin}/huge")
+        )
+        .await
+        .unwrap_err()
+        .contains("bound"));
         let started = std::time::Instant::now();
-        assert!(fetch(&format!("{origin}/stalled")).await.is_err());
+        assert!(fetch(
+            &reqwest::Client::builder().no_proxy().build().unwrap(),
+            &format!("{origin}/stalled")
+        )
+        .await
+        .is_err());
         assert!(started.elapsed() < READ_TIMEOUT * 2);
         let pod: Pod = serde_json::from_value(json!({"metadata":{"name":"test-vm"}})).unwrap();
-        assert_eq!(read(&pod).await, Err("the VM Pod has no IP".into()));
+        assert_eq!(metrics_url(&pod), Err("the VM Pod has no IP".into()));
     }
 }

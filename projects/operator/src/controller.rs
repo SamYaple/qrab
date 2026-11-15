@@ -28,6 +28,8 @@ pub struct Context {
     pub settings: Settings,
     /// Storage-service client for `spec.disks`; absent blocks provisioning.
     pub storage: Option<SharedStorage>,
+    /// Exact-VM authenticated metrics reader; absent only in isolated controller fixtures.
+    pub metrics: Option<power::Client>,
 }
 
 pub(crate) fn state(
@@ -1076,7 +1078,10 @@ async fn synchronize(
         // A guest powered off in place keeps its Pod Ready so Redfish can
         // power it on again; only its metrics export tells the two apart.
         let reading = if ready && vm.spec.components.redfish_enabled() {
-            Some(power::read(pod).await)
+            Some(match &ctx.metrics {
+                Some(client) => client.read(vm, pod).await,
+                None => Err("workload metrics identity unavailable".into()),
+            })
         } else {
             None
         };

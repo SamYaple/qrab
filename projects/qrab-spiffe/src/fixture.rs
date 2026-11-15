@@ -79,12 +79,18 @@ impl Authority {
 
     /// An SVID for `id`, valid for ten minutes.
     pub fn svid(&self, id: &str) -> Svid {
+        self.svid_for(id, 600)
+    }
+
+    /// A short-lived certificate for expiry checks on established connections.
+    pub fn svid_for(&self, id: &str, seconds: i64) -> Svid {
+        assert!((1..=3600).contains(&seconds));
         let key = KeyPair::generate().expect("SVID key");
         let mut params = CertificateParams::new(Vec::<String>::new()).expect("SVID params");
         params.distinguished_name = DistinguishedName::new();
         params.subject_alt_names = vec![SanType::URI(id.try_into().expect("URI SAN"))];
         params.not_before = OffsetDateTime::now_utc() - Duration::minutes(1);
-        params.not_after = OffsetDateTime::now_utc() + Duration::minutes(10);
+        params.not_after = OffsetDateTime::now_utc() + Duration::seconds(seconds);
         // spiffe rejects a leaf without an explicit CA=false constraint.
         params.is_ca = IsCa::ExplicitNoCa;
         params.key_usages = vec![KeyUsagePurpose::DigitalSignature];

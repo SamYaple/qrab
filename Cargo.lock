@@ -3903,6 +3903,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrab-observability"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "k8s-openapi",
+ "kube",
+ "qrab-operator",
+ "qrab-redfish",
+ "qrab-spiffe",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "qrab-operator"
 version = "0.1.0"
 dependencies = [
@@ -4006,6 +4027,7 @@ dependencies = [
  "tonic-prost",
  "tower",
  "tracing",
+ "x509-parser",
 ]
 
 [[package]]

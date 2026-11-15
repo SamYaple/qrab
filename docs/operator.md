@@ -264,7 +264,7 @@ CiliumNetworkPolicy admits 8081 from the ingress, as
 port a VM's Redfish is reachable only by the dashboard. A Redfish-only VM needs
 the same explicit infrastructure; see [redfish.md](redfish.md#exposure).
 
-The Redfish sidecar also declares port `metrics` (9181), its unauthenticated
+The Redfish sidecar also declares port `metrics` (9181), its SPIFFE mTLS
 Prometheus listener ([redfish.md](redfish.md#prometheus-export)). For each
 Redfish-enabled VM the operator keeps an owned, additive CiliumNetworkPolicy
 `<vm>-redfish-metrics`: it admits 9181 from Prometheus Pods
@@ -278,12 +278,13 @@ Redfish-enabled VM Pod once. `contrib/kubernetes/monitoring/` holds the one
 static PodMonitor and the Grafana dashboard ConfigMap.
 
 For [metric history](redfish.md#metric-history) the Redfish sidecar also
-receives `REDFISH_PROMETHEUS_URL=http://kube-prometheus-stack-prometheus.monitoring.svc:9090`
+receives `REDFISH_PROMETHEUS_URL=https://qrab-prometheus-history.monitoring.svc:9091`
 and its own `QRAB_POD_NAME` / `QRAB_POD_NAMESPACE` (downward API), and the
 operator keeps a second owned, additive CiliumNetworkPolicy
 `<vm>-redfish-prometheus` selecting the VM Pod: egress to Prometheus Pods
-(`app.kubernetes.io/name=prometheus`) in `monitoring` on TCP 9090 and nothing
-else. It never enables default deny; the Service name resolves through the
+(`app.kubernetes.io/name=prometheus`) in `monitoring` on SPIFFE mTLS TCP9091 and nothing
+else, while explicitly denying the raw Prometheus9090 bypass. It never enables
+default deny; the Service name resolves through the
 VM's existing kube-dns egress (as in a console's `console.yaml`). It is deleted when
 Redfish is disabled. The new environment changes the Pod template, so the
 first operator rollout with it replaces each Redfish-enabled VM Pod once.
@@ -484,9 +485,9 @@ reported as Blocked rather than mutating unrelated resources.
 
 While the VM Pod is Ready and the VM has Redfish, every reconcile (about every
 15 s) reads the guest's Redfish `PowerState` from the Pod's metrics port
-(`GET http://<pod IP>:9181/metrics`, `qrab_vm_power_state`, three-second
+(`GET https://<pod IP>:9181/metrics`, `qrab_vm_power_state`, three-second
 bound) into `status.powerState`, which `kubectl get qvm` shows as `Power`. The
-read is unauthenticated and read-only; the operator has no exec or control
+read uses exact-VM SPIFFE mTLS and is read-only; the operator has no exec or control
 socket access to the Pod. The phase follows the guest:
 
 | Pod and guest | `phase` | `ready` | `reason` | `PoweredOff` condition |
@@ -859,3 +860,6 @@ Redfish defaults to on-request telemetry. Set
 periodic history. Active numeric triggers still sample every five seconds.
 All work remains within independent manager/BMC/Redfish CPU and memory budgets;
 no Redis or firmware helper daemon is added.
+
+VM scrape and history identity, Pod/IP binding, raw9090 denial and the Pod-local
+Prometheus adapter are described in [observability](observability.md).

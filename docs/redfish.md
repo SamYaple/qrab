@@ -31,9 +31,9 @@ qrab-redfish --socket /run/qrab-control/manager/control.sock
 | `REDFISH_ADMIN_GROUPS` | Comma-separated Kanidm group UUIDs whose members may read and reset the VM |
 | `REDFISH_VIEWER_GROUPS` | Comma-separated Kanidm group UUIDs with read-only access |
 | `REDFISH_LISTEN` | Listener; defaults to `0.0.0.0:8081` |
-| `REDFISH_METRICS_LISTEN` | Unauthenticated Prometheus listener serving only `/metrics`; defaults to `0.0.0.0:9181` and must use another port ([Prometheus export](#prometheus-export)) |
+| `REDFISH_METRICS_LISTEN` | Dedicated Prometheus listener serving only `/metrics`; defaults to `127.0.0.1:9181`; a remote bind requires workload identity and `REDFISH_METRICS_PEERS` and must use another port ([Prometheus export](#prometheus-export)) |
 | `REDFISH_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
-| `REDFISH_PROMETHEUS_URL` | Prometheus for [metric history](#metric-history); defaults to `http://kube-prometheus-stack-prometheus.monitoring.svc:9090`. HTTP(S) without credentials, query or fragment |
+| `REDFISH_PROMETHEUS_URL` | Prometheus for [metric history](#metric-history); defaults to `https://qrab-prometheus-history.monitoring.svc:9091`. Workload mode requires exact `REDFISH_PROMETHEUS_SPIFFE_ID`; no plaintext/WebPKI fallback |
 | `QRAB_POD_NAMESPACE`, `QRAB_POD_NAME` | This VM Pod's namespace and name (downward API); set both or neither. Without them metric history answers 503 |
 | `REDFISH_LOCAL_ACCOUNTS_FILE` | Optional read-only JSON Secret file containing Argon2id password hashes; enables Basic authentication and password-based session creation |
 | `REDFISH_PUBLIC_DISCOVERY` | Optional `true` permits static anonymous version/root/OData discovery; default `false` preserves the deployed OIDC-only discovery policy |
@@ -426,8 +426,9 @@ Physical temperature, power and fan readings are not synthesized.
 A second listener (`REDFISH_METRICS_LISTEN`, port name `metrics`, 9181) serves
 `GET /metrics` in the Prometheus text format (`version=0.0.4`) and nothing
 else: no Redfish routes, probes or other methods. The 8081 API does not serve
-`/metrics`. The listener is unauthenticated, so it carries only viewer-level
-values, and the operator's `<vm>-redfish-metrics` CiliumNetworkPolicy admits
+`/metrics`. The operator enables SPIFFE TLS1.3 mTLS, accepting exactly its own
+identity and the Prometheus Pod's qrab telemetry identity. It carries only
+viewer-level values. The operator's `<vm>-redfish-metrics` CiliumNetworkPolicy admits
 it only from Prometheus Pods (`app.kubernetes.io/name=prometheus`) in the
 `monitoring` namespace and the operator's Pods, which read
 `qrab_vm_power_state` into the VM's `status.powerState`, and denies it to
@@ -525,10 +526,11 @@ four queries run at once, inside the service's 32-request admission.
 For a Redfish-enabled VM the operator renders `REDFISH_PROMETHEUS_URL` and the
 downward-API Pod identity, and keeps the owned, additive CiliumNetworkPolicy
 `<vm>-redfish-prometheus`, which allows the VM Pod egress to Prometheus Pods
-(`app.kubernetes.io/name=prometheus`) in `monitoring` on TCP 9090 only
-([operator.md](operator.md#components)). Resolving the Service name uses the
-VM's existing kube-dns egress. Prometheus in this cluster has no query
-authentication, so this is an [admin-bucket concern](bmc.md#admin-bucket).
+(`app.kubernetes.io/name=prometheus`) in `monitoring` on SPIFFE mTLS TCP9091,
+while explicitly denying raw9090. The adapter validates the exact current VM
+identity and only that VM's owned-Pod query templates before forwarding to
+Pod-local Prometheus. Resolving the Service uses existing kube-dns egress.
+See [observability](observability.md) for identities, bounds and deployment order.
 
 ### Numeric thresholds
 
@@ -777,8 +779,9 @@ sum by (namespace,pod,container) (container_memory_working_set_bytes{namespace="
 ```
 
 No Prometheus credentials or Kubernetes API tokens are introduced into VM Pods;
-[metric history](#metric-history) queries the unauthenticated in-cluster
-Prometheus.
+[metric history](#metric-history) uses its container-scoped SVID to query the
+workload-authenticated telemetry adapter. Unencrypted forwarding to Prometheus
+is confined to that adapter's Pod-local loopback.
 
 ## Remaining full-stack lifecycle work
 
@@ -840,5 +843,5 @@ and [DMTF SecureBoot](https://redfish.dmtf.org/schemas/v1/SecureBoot.v1_1_0.json
 The operator management mTLS release uses BMC8443 and Redfish8444, with independent
 container-scoped per-VM identities and the existing user-token/role checks.
 See [management enrollment and live diagnostics](dashboard.md#workload-tls-enrollment-and-verification).
-Metrics9181, Prometheus history and ingress-facing HTTP have their own transport
+Metrics9181 and Prometheus history now use [observability workload TLS](observability.md); ingress-facing HTTP has its own transport
 boundaries and do not become mTLS through this workload listener.

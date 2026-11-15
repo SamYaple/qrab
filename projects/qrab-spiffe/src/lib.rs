@@ -9,6 +9,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub use spiffe::{SpiffeId, X509Source};
+pub use spiffe_rustls::Authorizer;
 pub use tokio_rustls::{client, server};
 
 #[cfg(feature = "http")]
@@ -112,6 +113,19 @@ impl Identity {
             .with_alpn_protocols(alpn.iter().map(|p| p.to_vec()))
             .build()
             .map_err(config)
+    }
+
+    /// A server with a caller-owned dynamic exact-ID policy. The caller must
+    /// fail closed when its authoritative inventory is unavailable or stale.
+    /// Cryptographic verification and the local trust-domain restriction still
+    /// run before this policy; TLS session resumption remains disabled.
+    pub fn acceptor_with_authorizer(&self, authorize: impl Authorizer) -> Result<Acceptor> {
+        let config = spiffe_rustls::mtls_server(self.source.clone())
+            .authorize(authorize)
+            .trust_domain_policy(self.local()?)
+            .build()
+            .map_err(config)?;
+        Ok(Acceptor(tokio_rustls::TlsAcceptor::from(Arc::new(config))))
     }
 
     /// A connector for raw streams to servers holding one of `peers`.

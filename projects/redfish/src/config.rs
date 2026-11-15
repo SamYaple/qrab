@@ -4,7 +4,7 @@ use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
 #[derive(Clone)]
 pub struct Config {
     pub listen: SocketAddr,
-    /// Unauthenticated Prometheus listener; serves only `/metrics`.
+    /// Dedicated Prometheus listener; remote binds require SPIFFE mTLS.
     pub metrics_listen: SocketAddr,
     /// Trusted ID-token sources, one per issuer, `REDFISH_OIDC_ISSUER` first.
     pub sources: Vec<TokenSource>,
@@ -150,7 +150,7 @@ impl Config {
             .parse()
             .context("REDFISH_LISTEN must be a socket address")?;
         let metrics_listen: SocketAddr = std::env::var("REDFISH_METRICS_LISTEN")
-            .unwrap_or_else(|_| "0.0.0.0:9181".into())
+            .unwrap_or_else(|_| "127.0.0.1:9181".into())
             .parse()
             .context("REDFISH_METRICS_LISTEN must be a socket address")?;
         ensure!(

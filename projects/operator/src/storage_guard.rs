@@ -860,6 +860,7 @@ mod tests {
                 nic_addresses: None,
             },
             storage,
+            metrics: None,
         });
         (
             store,

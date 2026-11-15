@@ -114,7 +114,10 @@ The ordinary HTTP API and metrics sockets remain distinct. The updated operator
 enables Redfish on 8444 and BMC on 8443, mounts each
 container's Workload API socket, and asserts `QRAB_EXPECTED_SPIFFE_ID` at startup.
 Its examples require separate GitOps enrollments before rollout. Ordinary
-ingress-facing HTTP and metrics remain distinct protection tasks.
+ingress-facing HTTP remains a separate protection task. Metrics9181 admits exact
+operator and qrab telemetry SVIDs, while the telemetry gateway admits exact current
+Redfish SVIDs from API discovery and checks owned-Pod history scope; see
+[observability identity and local trust boundaries](../observability.md).
 
 ## OIDC browser login and downstream user tokens
 

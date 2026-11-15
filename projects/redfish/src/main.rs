@@ -22,7 +22,46 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     ensure!(args.len() == 2 && args[0] == "--socket", USAGE);
+    qrab_spiffe::http::install_tls13_provider()?;
     let config = qrab_redfish::config::Config::from_env()?;
+    let workload = qrab_redfish::workload::Config::from_env(config.listen, config.metrics_listen)?;
+    let identity = match &workload {
+        Some(c) => Some(c.identity().await?),
+        None => None,
+    };
+    let metrics_config = qrab_spiffe::http::Config::parse(
+        Some(&config.metrics_listen.to_string()),
+        std::env::var("REDFISH_METRICS_PEERS").ok().as_deref(),
+        &[config.listen.port()],
+    );
+    let metrics_tls = match (&identity, metrics_config) {
+        (Some(id), Ok(Some(c))) => Some(c.bind(id).await?),
+        (_, _)
+            if config.metrics_listen.ip().is_loopback()
+                && std::env::var_os("REDFISH_METRICS_PEERS").is_none() =>
+        {
+            None
+        }
+        _ => anyhow::bail!(
+            "remote metrics requires workload identity and exact REDFISH_METRICS_PEERS"
+        ),
+    };
+    let history = match (&identity, config.pod.is_some()) {
+        (_, false) => Ok(qrab_redfish::HistoryStore::default()),
+        (Some(id), true) => qrab_redfish::HistoryStore::mtls(
+            config.prometheus_url.clone(),
+            config.pod.clone(),
+            id,
+            qrab_spiffe::id(
+                &std::env::var("REDFISH_PROMETHEUS_SPIFFE_ID")
+                    .context("REDFISH_PROMETHEUS_SPIFFE_ID is required with workload TLS")?,
+            )?,
+        ),
+        (None, true) => {
+            qrab_redfish::HistoryStore::new(config.prometheus_url.clone(), config.pod.clone())
+        }
+    }
+    .map_err(anyhow::Error::msg)?;
     let auth = qrab_redfish::auth::Authenticator::discover(&config)
         .await
         .context("OIDC discovery")?;
@@ -37,33 +76,50 @@ async fn main() -> Result<()> {
         triggers: Default::default(),
         subscriptions: qrab_redfish::SubscriptionStore::from_env().map_err(anyhow::Error::msg)?,
         exporter: Default::default(),
-        history: qrab_redfish::HistoryStore::new(config.prometheus_url.clone(), config.pod.clone())
-            .map_err(anyhow::Error::msg)?,
+        history,
     };
     let sampler = qrab_redfish::spawn_sampler(state.clone());
     let subscriptions = qrab_redfish::spawn_subscriptions(state.clone());
     let metrics = qrab_redfish::metrics_router(state.clone());
     let app = qrab_redfish::router(state);
-    let workload =
-        match qrab_redfish::workload::Config::from_env(config.listen, config.metrics_listen)? {
-            Some(workload) => Some(
-                workload
-                    .bind()
-                    .await
-                    .context("Redfish workload mTLS listener")?,
-            ),
-            None => None,
-        };
+    let workload = match (workload, identity.as_ref()) {
+        (Some(config), Some(id)) => Some(config.bind_identity(id).await?),
+        _ => None,
+    };
     let workload_app = app.clone();
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
-    let metrics_listener = tokio::net::TcpListener::bind(config.metrics_listen).await?;
+    let metrics_listener = if metrics_tls.is_none() {
+        Some(tokio::net::TcpListener::bind(config.metrics_listen).await?)
+    } else {
+        None
+    };
     let (stop, stopped) = watch::channel(false);
     let shutdown = |mut stopped: watch::Receiver<bool>| async move {
         let _ = stopped.wait_for(|v| *v).await;
     };
     let api = axum::serve(listener, app).with_graceful_shutdown(shutdown(stopped.clone()));
-    let exporter =
-        axum::serve(metrics_listener, metrics).with_graceful_shutdown(shutdown(stopped.clone()));
+    let metrics_stopped = stopped.clone();
+    let exporter = async move {
+        match metrics_tls {
+            Some(tls) => {
+                axum::serve(
+                    tls,
+                    metrics
+                        .layer(axum::middleware::from_fn(
+                            qrab_spiffe::http::require_valid_peer,
+                        ))
+                        .into_make_service_with_connect_info::<qrab_spiffe::http::Peer>(),
+                )
+                .with_graceful_shutdown(shutdown(metrics_stopped))
+                .await
+            }
+            None => {
+                axum::serve(metrics_listener.expect("local metrics listener"), metrics)
+                    .with_graceful_shutdown(shutdown(metrics_stopped))
+                    .await
+            }
+        }
+    };
     let workloads = async move {
         match workload {
             Some(listener) => {

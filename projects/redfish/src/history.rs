@@ -9,8 +9,7 @@ use tokio::time::Instant;
 
 pub const PATH: &str = "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory";
 /// kube-prometheus-stack's in-cluster query endpoint.
-pub const DEFAULT_PROMETHEUS_URL: &str =
-    "http://kube-prometheus-stack-prometheus.monitoring.svc:9090";
+pub const DEFAULT_PROMETHEUS_URL: &str = "https://qrab-prometheus-history.monitoring.svc:9091";
 /// One upstream query, connection and body included.
 pub const DEADLINE: Duration = Duration::from_secs(2);
 /// Successful answers are reused per (metric, range) for this long.
@@ -317,15 +316,16 @@ pub struct HistoryStore(Option<Arc<Upstream>>);
 
 impl HistoryStore {
     pub fn new(prometheus: Url, pod: Option<PodIdentity>) -> Result<Self, String> {
-        let Some(pod) = pod else {
+        if pod.is_none() {
             return Ok(Self(None));
-        };
-        let mut endpoint = prometheus;
-        endpoint
-            .path_segments_mut()
-            .map_err(|_| "REDFISH_PROMETHEUS_URL cannot be a base URL")?
-            .pop_if_empty()
-            .extend(["api", "v1", "query_range"]);
+        }
+        // Standalone compatibility is restricted to the same host's literal
+        // loopback. Cluster startup uses mtls(), with no WebPKI/plain fallback.
+        if !matches!(prometheus.host(), Some(openidconnect::url::Host::Ipv4(ip)) if ip.is_loopback())
+            && !matches!(prometheus.host(), Some(openidconnect::url::Host::Ipv6(ip)) if ip.is_loopback())
+        {
+            return Err("nonlocal Prometheus history requires SPIFFE mTLS".into());
+        }
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
@@ -333,7 +333,37 @@ impl HistoryStore {
             .timeout(DEADLINE)
             .pool_max_idle_per_host(2)
             .build()
-            .map_err(|e| format!("Prometheus client: {e}"))?;
+            .map_err(|e| e.to_string())?;
+        Self::with_client(prometheus, pod, client)
+    }
+
+    pub fn mtls(
+        prometheus: Url,
+        pod: Option<PodIdentity>,
+        identity: &qrab_spiffe::Identity,
+        peer: qrab_spiffe::SpiffeId,
+    ) -> Result<Self, String> {
+        if prometheus.scheme() != "https" || prometheus.path() != "/" {
+            return Err("workload Prometheus history requires a bare HTTPS origin".into());
+        }
+        let client = qrab_spiffe::http::client(identity, peer).map_err(|e| e.to_string())?;
+        Self::with_client(prometheus, pod, client)
+    }
+
+    fn with_client(
+        prometheus: Url,
+        pod: Option<PodIdentity>,
+        client: reqwest::Client,
+    ) -> Result<Self, String> {
+        let Some(pod) = pod else {
+            return Ok(Self(None));
+        };
+        let mut endpoint = prometheus;
+        endpoint
+            .path_segments_mut()
+            .map_err(|_| "invalid Prometheus origin")?
+            .pop_if_empty()
+            .extend(["api", "v1", "query_range"]);
         Ok(Self(Some(Arc::new(Upstream {
             endpoint,
             pod,

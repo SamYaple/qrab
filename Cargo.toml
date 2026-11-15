@@ -18,6 +18,7 @@ default-members = [
     "projects/qrab-netd",
     "projects/qrab-spiffe",
     "projects/proton",
+    "projects/qrab-observability",
 ]
 members = [
     "projects/qapi-codegen",
@@ -36,6 +37,7 @@ members = [
     "projects/qrab-netd",
     "projects/qrab-spiffe",
     "projects/proton",
+    "projects/qrab-observability",
 ]
 
 [workspace.dependencies]

@@ -192,6 +192,7 @@ async fn server_with(store: &Store, settings: Settings) -> Arc<Context> {
     Arc::new(Context {
         client,
         settings,
+        metrics: None,
         storage: None,
     })
 }

@@ -75,8 +75,8 @@ impl Config {
         }))
     }
 
-    /// Fails closed if no rotating identity or exact-peer TLS config is available.
-    pub async fn bind(self) -> Result<Listener> {
+    /// Connect once for API, metrics and history; all use rotating SVIDs.
+    pub async fn identity(&self) -> Result<Identity> {
         let identity = Identity::connect(&self.endpoint).await?;
         if let Ok(expected) = std::env::var("QRAB_EXPECTED_SPIFFE_ID") {
             ensure!(
@@ -84,7 +84,15 @@ impl Config {
                 "unexpected Redfish SPIFFE identity"
             );
         }
-        Ok(Listener::bind(self.listen, &identity, &self.peers).await?)
+        Ok(identity)
+    }
+    pub async fn bind_identity(self, identity: &Identity) -> Result<Listener> {
+        Ok(Listener::bind(self.listen, identity, &self.peers).await?)
+    }
+    /// Fails closed if no rotating identity or exact-peer TLS config is available.
+    pub async fn bind(self) -> Result<Listener> {
+        let identity = self.identity().await?;
+        self.bind_identity(&identity).await
     }
 }
 

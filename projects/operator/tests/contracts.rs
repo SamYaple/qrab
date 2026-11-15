@@ -1811,7 +1811,8 @@ fn redfish_metrics_port_is_declared_and_admitted_only_from_prometheus_and_the_op
     );
     // Probes stay on the API listener; the metrics listener serves only /metrics.
     assert_eq!(redfish["readinessProbe"]["httpGet"]["port"], "redfish");
-    assert!(!env(&redfish).contains_key("REDFISH_METRICS_LISTEN"));
+    assert_eq!(env(&redfish)["REDFISH_METRICS_LISTEN"], "0.0.0.0:9181");
+    assert_eq!(env(&redfish)["REDFISH_METRICS_PEERS"], "spiffe://yapplesauce.com/kubernetes/qrab/qrab-operator,spiffe://yapplesauce.com/kubernetes/monitoring/qrab-telemetry");
     assert!(!sidecar(&pod, "bmc")["ports"]
         .to_string()
         .contains("metrics"));
@@ -1952,7 +1953,7 @@ fn admin_bucket_is_default_off_and_renders_only_enabled_features() {
 }
 
 #[test]
-fn redfish_may_reach_only_monitoring_prometheus_on_9090_for_its_own_pods_history() {
+fn redfish_history_uses_workload_tls_9091_and_denies_raw_prometheus_9090() {
     let machine = with_components(false, true);
     let pod = serde_json::to_value(&resources::render(&machine, &settings()).unwrap().pod).unwrap();
     let redfish = pod["spec"]["initContainers"]
@@ -1965,7 +1966,7 @@ fn redfish_may_reach_only_monitoring_prometheus_on_9090_for_its_own_pods_history
     let env = env(&redfish);
     assert_eq!(
         env["REDFISH_PROMETHEUS_URL"],
-        "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
+        "https://qrab-prometheus-history.monitoring.svc:9091"
     );
     // History queries are scoped to the Pod's own downward-API identity.
     assert_eq!(
@@ -2000,7 +2001,12 @@ fn redfish_may_reach_only_monitoring_prometheus_on_9090_for_its_own_pods_history
     assert_eq!(
         spec["egress"],
         json!([{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"monitoring","app.kubernetes.io/name":"prometheus"}}],
-            "toPorts":[{"ports":[{"port":"9090","protocol":"TCP"}]}]}])
+            "toPorts":[{"ports":[{"port":"9091","protocol":"TCP"}]}]}])
+    );
+    assert_eq!(
+        spec["egressDeny"],
+        json!([{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":"monitoring","app.kubernetes.io/name":"prometheus"}}],
+        "toPorts":[{"ports":[{"port":"9090","protocol":"TCP"}]}]}])
     );
     // The BMC brings Redfish, so it gets the policy too; neither means none.
     assert!(

@@ -51,7 +51,19 @@ impl Listener {
                 "workload peers must belong to the local SPIFFE trust domain".into(),
             ));
         }
-        let acceptor = identity.acceptor(peers)?;
+        Self::bind_acceptor(address, identity.acceptor(peers)?).await
+    }
+
+    /// Bounded listener with a dynamic exact-ID admission policy.
+    pub async fn bind_authorized(
+        address: SocketAddr,
+        identity: &Identity,
+        authorize: impl crate::Authorizer,
+    ) -> crate::Result<Self> {
+        Self::bind_acceptor(address, identity.acceptor_with_authorizer(authorize)?).await
+    }
+
+    async fn bind_acceptor(address: SocketAddr, acceptor: Acceptor) -> crate::Result<Self> {
         let tcp = TcpListener::bind(address).await?;
         Ok(Self {
             tcp,
@@ -89,7 +101,8 @@ impl AxumListener for Listener {
                             let acceptor = self.acceptor.clone();
                             self.handshakes.push(Box::pin(async move {
                                 let stream = acceptor.accept(socket).await?;
-                                Ok((Connection { stream, _permit: permit }, address))
+                                let peer = Peer::from_stream(&stream)?;
+                                Ok((Connection { stream, peer, _permit: permit }, address))
                             }));
                         }
                         Err(error) => {
@@ -111,7 +124,62 @@ impl AxumListener for Listener {
 /// mandatory certificates, exact peer IDs, local trust domain and handshake timeout.
 pub struct Connection {
     stream: crate::server::TlsStream<TcpStream>,
+    peer: Peer,
     _permit: OwnedSemaphorePermit,
+}
+
+/// Verified certificate identity for request-time authorization, never an HTTP
+/// header. `valid()` also expires established keep-alive connections.
+#[derive(Clone, Debug)]
+pub struct Peer {
+    pub id: SpiffeId,
+    not_before: i64,
+    not_after: i64,
+}
+impl Peer {
+    fn from_stream(stream: &crate::server::TlsStream<TcpStream>) -> crate::Result<Self> {
+        let der = stream
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(|c| c.first())
+            .ok_or_else(|| crate::Error::Config("client certificate required".into()))?;
+        let bad = || crate::Error::Config("invalid verified peer certificate".into());
+        let id = spiffe::cert::spiffe_id_from_der(der.as_ref()).map_err(|_| bad())?;
+        let (_, cert) = x509_parser::parse_x509_certificate(der.as_ref()).map_err(|_| bad())?;
+        Ok(Self {
+            id,
+            not_before: cert.validity().not_before.timestamp(),
+            not_after: cert.validity().not_after.timestamp(),
+        })
+    }
+    pub fn valid(&self) -> bool {
+        let Ok(now) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+            return false;
+        };
+        let Ok(now) = i64::try_from(now.as_secs()) else {
+            return false;
+        };
+        self.not_before <= now && now < self.not_after
+    }
+}
+impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, Listener>> for Peer {
+    fn connect_info(stream: axum::serve::IncomingStream<'_, Listener>) -> Self {
+        stream.io().peer.clone()
+    }
+}
+
+/// Request-time certificate expiry guard for long-lived HTTP connections.
+/// Apply only with into_make_service_with_connect_info::<Peer>().
+pub async fn require_valid_peer(
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<Peer>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if !peer.valid() {
+        return axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED);
+    }
+    next.run(request).await
 }
 
 impl AsyncRead for Connection {

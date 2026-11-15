@@ -241,7 +241,7 @@ pub fn redfish_policy_name(vm: &VirtualMachine) -> String {
     format!("{}-redfish-events", vm.name_any())
 }
 
-/// The Redfish sidecar's unauthenticated Prometheus listener.
+/// The Redfish sidecar's SPIFFE mTLS Prometheus listener.
 pub const REDFISH_METRICS_PORT: u16 = 9181;
 /// kube-prometheus-stack's Prometheus Pods, the only metrics scrapers.
 pub const PROMETHEUS_NAMESPACE: &str = "monitoring";
@@ -315,8 +315,8 @@ pub fn redfish_metrics_policy(
 }
 
 /// The Prometheus query port and in-cluster URL Redfish reads history from.
-pub const PROMETHEUS_PORT: u16 = 9090;
-pub const PROMETHEUS_URL: &str = "http://kube-prometheus-stack-prometheus.monitoring.svc:9090";
+pub const PROMETHEUS_PORT: u16 = 9091;
+pub const PROMETHEUS_URL: &str = "https://qrab-prometheus-history.monitoring.svc:9091";
 
 pub fn redfish_prometheus_policy_name(vm: &VirtualMachine) -> String {
     format!("{}-redfish-prometheus", vm.name_any())
@@ -348,7 +348,9 @@ pub fn redfish_prometheus_policy(
                 "endpointSelector":{"matchLabels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",crate::nic::OWNER_UID:uid}},
                 "enableDefaultDeny":{"ingress":false,"egress":false},
                 "egress":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":PROMETHEUS_NAMESPACE,"app.kubernetes.io/name":PROMETHEUS_NAME}}],
-                    "toPorts":[{"ports":[{"port":PROMETHEUS_PORT.to_string(),"protocol":"TCP"}]}]}]}
+                    "toPorts":[{"ports":[{"port":PROMETHEUS_PORT.to_string(),"protocol":"TCP"}]}]}],
+                "egressDeny":[{"toEndpoints":[{"matchLabels":{"k8s:io.kubernetes.pod.namespace":PROMETHEUS_NAMESPACE,"app.kubernetes.io/name":PROMETHEUS_NAME}}],
+                    "toPorts":[{"ports":[{"port":"9090","protocol":"TCP"}]}]}]}
         }),
     )?))
 }
@@ -1262,6 +1264,12 @@ fn sidecars(
                 env.push(json!({"name":name,"value":subject_list(list)}));
             }
         }
+        // Metrics and history use a separate container-scoped Prometheus adapter.
+        env.extend([
+            json!({"name":"REDFISH_METRICS_LISTEN","value":"0.0.0.0:9181"}),
+            json!({"name":"REDFISH_METRICS_PEERS","value":format!("spiffe://yapplesauce.com/kubernetes/{}/qrab-operator,spiffe://yapplesauce.com/kubernetes/monitoring/qrab-telemetry",settings.namespace)}),
+            json!({"name":"REDFISH_PROMETHEUS_SPIFFE_ID","value":"spiffe://yapplesauce.com/kubernetes/monitoring/qrab-telemetry"}),
+        ]);
         // Metric history: fixed PromQL scoped to this Pod (redfish_prometheus_policy).
         env.extend([
             json!({"name":"REDFISH_PROMETHEUS_URL","value":PROMETHEUS_URL}),
@@ -1292,7 +1300,7 @@ fn sidecars(
             .as_array_mut()
             .unwrap()
             .push(json!({"name":"redfish-mtls","containerPort":8444}));
-        // Prometheus-only and unauthenticated; see redfish_metrics_policy.
+        // Authenticated Prometheus/operator export; see redfish_metrics_policy.
         container["ports"]
             .as_array_mut()
             .unwrap()
