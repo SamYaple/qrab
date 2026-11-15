@@ -158,6 +158,9 @@ natively disabled. If the focused action becomes unavailable after settling,
 focus moves to the power state; unrelated navigation focus is preserved.
 Power-state and sign-in recovery targets are brought into view, including in
 a scrolled 320×320 window.
+Activation keys pressed while blocked remain suppressed through key release,
+even if the request settles in between. Enter autorepeat does not count as
+another confirmation gesture.
 
 Dashboard HTML errors keep their HTTP status and provide a next step: sign-in
 after expiry, a VM/list link for failed requests, and an explanation for access

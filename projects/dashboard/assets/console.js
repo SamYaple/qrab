@@ -393,7 +393,20 @@ async function send(button) {
         render();
     }
 }
-for (const button of buttons) button.addEventListener('click', () => send(button));
+for (const button of buttons) {
+    const suppressedKeys = new Set();
+    button.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return; }
+        if ((event.key === 'Enter' || event.key === ' ') &&
+            (button.getAttribute('aria-disabled') === 'true' || suppressedKeys.has(event.key))) {
+            suppressedKeys.add(event.key);
+            event.preventDefault();
+        }
+    });
+    button.addEventListener('keyup', event => { if (suppressedKeys.delete(event.key)) event.preventDefault(); });
+    button.addEventListener('blur', () => suppressedKeys.clear());
+    button.addEventListener('click', () => send(button));
+}
 morePower?.addEventListener('toggle', () => {
     if (!morePower.open && armed && morePower.contains(armed)) disarm();
 });

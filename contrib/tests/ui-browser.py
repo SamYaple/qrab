@@ -318,7 +318,10 @@ def console_state_checks(browser, width, theme):
         expect(reset).to_be_visible()
         no_overflow(page, 'console-more-actions', width)
         capture(page, args.output / f'console-more-actions-{theme}-{width}.png')
-        reset.click()
+        reset.focus()
+        page.keyboard.down('Enter')
+        page.keyboard.down('Enter')
+        page.keyboard.up('Enter')
         assert fixture['posts'] == [], 'First click only arms the action'
         more.locator('summary').click()
         expect(reset).to_have_text('Reset')
@@ -371,9 +374,19 @@ def console_state_checks(browser, width, theme):
         assert len(fixture['pending_power']) == 1, 'Follow-up state reads must coalesce'
         fixture['hold_power'] = False
         pending_read, data = fixture['pending_power'].pop()
+        if width == 1440:
+            # A key pressed while blocked must not activate on release after
+            # the request settles, even when the first read still says On.
+            data['power_state'] = 'On'
+            page.keyboard.down('Space')
         if width == 390:
             page.locator('.back').focus()
         pending_read.fulfill(json=data)
+        if width == 1440:
+            expect(pause).to_be_enabled()
+            page.keyboard.up('Space')
+            page.clock.fast_forward(3100)
+            assert len(fixture['posts']) == previous_posts + 1, 'A blocked held key must not send after settlement'
         expect(page.locator('[data-power=Resume]')).to_be_enabled()
         focused_in_view(page.locator('.back' if width == 390 else '#power-chip'))
         expect(pause).to_have_text('Pause')
