@@ -404,7 +404,10 @@ pub fn history_value(value: f64, unit: &str) -> String {
         "cores" if value > 0.0 && value < 0.00001 => "<0.01 mcores".into(),
         "cores" if value > 0.0 && value < 0.001 => {
             let milli = format!("{:.2}", (value * 100_000.0).round() / 100.0);
-            format!("{} mcores", milli.trim_end_matches('0').trim_end_matches('.'))
+            format!(
+                "{} mcores",
+                milli.trim_end_matches('0').trim_end_matches('.')
+            )
         }
         "cores" if value.abs() < 1.0 => format!("{:.0} mcores", value * 1000.0),
         "cores" => format!("{value:.2} cores"),
@@ -435,9 +438,8 @@ pub fn spark_path(points: &[(f64, f64)], start: f64, end: f64, max: f64, step: u
     let mut segment_len = 0;
     let mut mark = "h1";
     for ((time, _), position) in points.iter().zip(geometry.split_whitespace()) {
-        let connected = previous.is_some_and(|last| {
-            *time >= last && (step == 0 || *time - last <= 2.0 * step as f64)
-        });
+        let connected = previous
+            .is_some_and(|last| *time >= last && (step == 0 || *time - last <= 2.0 * step as f64));
         if connected {
             path.push('L');
         } else {
@@ -450,7 +452,11 @@ pub fn spark_path(points: &[(f64, f64)], start: f64, end: f64, max: f64, step: u
         path.push_str(position);
         segment_len += 1;
         previous = Some(*time);
-        mark = if *time > (start + end) / 2.0 { "h-1" } else { "h1" };
+        mark = if *time > (start + end) / 2.0 {
+            "h-1"
+        } else {
+            "h1"
+        };
     }
     if segment_len == 1 {
         path.push_str(mark);
