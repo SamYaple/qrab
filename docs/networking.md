@@ -592,6 +592,37 @@ provider Pod on kube01, the VM on kube03):
 - After a live migration kube03 → kube01 the tunnel resumed from the new
   anchor with the same boot id.
 
+### ProtonVPN
+
+ProtonVPN is the supported provider; qrab keeps its `vpn-*` Secrets itself
+instead of having them pasted in (container `protonvpn-nics` in towl tracks
+the parts still being built: the broker, the login command, port forwarding
+and the dashboard page).
+
+- **Account access.** The Proton account is a full account (Mail, Drive), so
+  its password and TOTP never enter the cluster. `qrab-proton login` runs on
+  a workstation and stores only the session (UID and refresh token) in
+  Secret `qrab/proton-session`. Proton rotates the refresh token on every
+  refresh, so its holder writes the new one back before using it.
+- **Keys.** Each profile has its own Ed25519 key; its X25519 form is the
+  WireGuard key. Proton certifies the Ed25519 public key
+  (`/vpn/v1/certificate`, at least a day, renewed with the same key), and the
+  certificate binds the connection features: NetShield level, port
+  forwarding, Moderate NAT and VPN Accelerator. A certified key works on any
+  Proton server, so changing servers changes only the peer.
+- **Servers.** `/vpn/v1/logicals` and `/vpn/v1/loads` need a session.
+  Auto selection filters by the account's tier, status, features and
+  location, then takes the lowest Score, Proton's own ranking; Secure Core
+  and Tor servers only when asked for, and port forwarding only on P2P
+  servers. A working server is kept while it stays eligible.
+- **The API is not public.** The `x-pm-appversion` header
+  (`qrab_proton::api::APP_VERSION`) breaks when Proton retires a client
+  version: a 5003 reply is reported as such, never retried in a loop.
+- `cargo test -p qrab-proton` runs the client against an in-process fake
+  Proton API with real SRP and a modulus signed by Proton's key: login, TOTP,
+  human verification, refresh rotation, the catalog and certificates, and a
+  `wg.conf` that qrab-netd's own parser accepts.
+
 ## Security
 
 What is tested, and how:

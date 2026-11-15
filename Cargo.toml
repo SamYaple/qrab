@@ -17,6 +17,7 @@ default-members = [
     "projects/kvm-device-plugin",
     "projects/qrab-netd",
     "projects/qrab-spiffe",
+    "projects/proton",
 ]
 members = [
     "projects/qapi-codegen",
@@ -34,6 +35,7 @@ members = [
     "projects/kvm-device-plugin",
     "projects/qrab-netd",
     "projects/qrab-spiffe",
+    "projects/proton",
 ]
 
 [workspace.dependencies]
