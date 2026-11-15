@@ -203,6 +203,7 @@ footer { padding: 12px 2vw; color: var(--faint); font-size: 12px; }
 .panel dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; white-space: pre-wrap; color: var(--text-data); }
 #config dd { font-family: ui-monospace, monospace; font-size: 12px; }
 .agent-actions { margin-top: 4px; }
+.agent-output { margin: 0; padding: 10px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 ui-monospace,monospace; color: var(--text-data); background: var(--bg); border: 1px solid var(--border-subtle); border-radius: 5px; }
 
 /* Metric history: hand-written SVG charts drawn by renderMetricHistory */
 .slot { margin-top: 6px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: 6px; }

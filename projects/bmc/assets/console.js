@@ -199,13 +199,36 @@ const node = (tag, text, className) => {
     if (className) item.className = className;
     return item;
 };
-const pairs = rows => rows.flatMap(([key, value]) => [node('dt', key), node('dd', String(value))]);
-// Replace a list only when its content changed, so polling keeps selections.
+const pairs = rows => rows.flatMap(([key, value, format]) => {
+    const definition = node('dd');
+    if (format === 'output') {
+        const output = node('pre', String(value), 'agent-output');
+        output.tabIndex = 0;
+        output.setAttribute('role', 'region');
+        output.setAttribute('aria-label', key);
+        definition.append(output);
+    } else definition.textContent = String(value);
+    return [node('dt', key), definition];
+});
+// Update individual values while the rows stay the same. A changing timestamp
+// must not replace selected output or reset its keyboard focus and scroll.
 function render(id, rows) {
     const key = JSON.stringify(rows);
-    if (rendered[id] === key) return;
-    rendered[id] = key;
-    element(id).replaceChildren(...pairs(rows));
+    if (rendered[id]?.key === key) return;
+    const shape = JSON.stringify(rows.map(([name, , format]) => [name, format]));
+    const list = element(id);
+    if (rendered[id]?.shape === shape) {
+        rows.forEach(([, value], index) => {
+            const definition = list.children[index * 2 + 1];
+            updateText(definition.firstElementChild || definition, String(value));
+        });
+    } else {
+        const hadFocus = list.contains(document.activeElement);
+        list.replaceChildren(...pairs(rows));
+        const panel = list.closest('[role=tabpanel]');
+        if (hadFocus && panel) focusInView(panel);
+    }
+    rendered[id] = {key, shape};
 }
 
 // ── Two-step confirmation: a disruptive button first turns into
@@ -535,9 +558,14 @@ function updateSummary(update) {
     return `${update.State.toLowerCase()}${update.RunId ? ` · run ${update.RunId}` : ''}${exit}${ended}${update.HookInstalled ? '' : ' · no hook installed'}`;
 }
 function showAgent(status) {
+    let connected = 'Unavailable';
+    if (status?.connected) {
+        const since = stamp(status.connected_since_unix_ms);
+        connected = since === '—' || since === 'Time unavailable' ? 'yes' : `yes, since ${since}`;
+    } else if (status?.connected === false) connected = 'no';
     const rows = [
         ['Channel', status?.enabled == null ? 'Unavailable' : status.enabled ? 'enabled' : 'disabled'],
-        ['Connected', status?.connected == null ? 'Unavailable' : status.connected ? `yes, since ${stamp(status.connected_since_unix_ms)}` : 'no'],
+        ['Connected', connected],
         ['Version', status?.version || '—'],
         ['Last seen', stamp(status?.last_seen_unix_ms)],
     ];
@@ -548,7 +576,7 @@ function showAgent(status) {
     if (update) {
         rows.push(['Last update', updateSummary(update)]);
         if (update.Error) rows.push(['Update error', update.Error]);
-        if (update.Output) rows.push([update.OutputTruncated ? 'Update output (tail)' : 'Update output', update.Output]);
+        if (update.Output) rows.push([update.OutputTruncated ? 'Update output (tail)' : 'Update output', update.Output, 'output']);
     }
     render('agent', [...rows, ...agentResult]);
     updateText(element('agent-note'), status?.connected == null ? 'Unavailable' : status.connected ? 'Connected' : 'Not connected');

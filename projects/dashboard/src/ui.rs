@@ -287,7 +287,7 @@ fn dl(rows: Vec<(&'static str, String)>) -> Element {
     rsx! { dl { class: "identity-details",
         for (key, value) in rows {
             dt { "{key}" }
-            if value.contains('\n') { dd { pre { class: "output", "{value}" } } }
+            if value.contains('\n') || key.starts_with("Update output") { dd { pre { class: "output", role: "region", aria_label: key, tabindex: "0", "{value}" } } }
             else if CODE_KEYS.contains(&key) { dd { code { "{value}" } } }
             else { dd { "{value}" } }
         }
@@ -535,7 +535,12 @@ fn agent_card(agent: Option<&redfish::AgentStatus>) -> Element {
         (
             "Connected",
             if s.connected {
-                format!("yes, since {}", stamp(s.connected_since_unix_ms))
+                let since = stamp(s.connected_since_unix_ms);
+                if since == "—" {
+                    "yes".into()
+                } else {
+                    format!("yes, since {since}")
+                }
             } else {
                 "no".into()
             },

@@ -693,6 +693,11 @@ SSR usage is a page-load snapshot, not a poll; the BMC provides continuing updat
 Missing BMC configuration or guest-agent data is labelled unavailable; it is
 distinct from an explicitly empty disk/NIC list or a disabled channel. A successful
 System response without configuration clears the previous configuration values.
+Polling updates individual BMC list values so a changing timestamp preserves
+unchanged text selections and update-output focus and scroll. Long guest update
+output has a bounded, labelled keyboard-scrollable region. If that output is
+removed, focus returns to the Guest agent panel. SSR multiline diagnostic output
+also has a labelled keyboard focus target.
 Long VM names wrap in the BMC header, which scrolls normally in short windows so
 it does not cover the useful panel area.
 

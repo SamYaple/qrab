@@ -647,6 +647,45 @@ def bmc_state_checks(browser, width, theme):
     page.locator('#tab-config').click()
     expect(page.locator('#config-note')).to_have_text('Full view')
     expect(page.locator('#config')).to_contain_text('web-1')
+    page.locator('#tab-agent').click()
+    update = agent['LastUpdate']
+    agent['LastUpdate'] = {**update, 'Output': '\n'.join(f'output line {n:03d} <script>inert</script>' for n in range(300))}
+    page.clock.fast_forward(3100)
+    output = page.locator('#agent dt').filter(has_text='Update output').locator('xpath=following-sibling::dd[1]')
+    output.evaluate('''dd => {
+        window.updateOutputNode = dd;
+        const text = document.createTreeWalker(dd, NodeFilter.SHOW_TEXT).nextNode();
+        const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 6);
+        getSelection().removeAllRanges(); getSelection().addRange(range);
+    }''')
+    agent['last_seen_unix_ms'] = 1794715200000
+    page.clock.fast_forward(3100)
+    last_seen = page.locator('#agent dt').filter(has_text='Last seen').locator('xpath=following-sibling::dd[1]')
+    expect(last_seen).not_to_have_text('—')
+    assert output.evaluate('dd => dd === window.updateOutputNode'), 'A changing timestamp must not replace unchanged update output'
+    assert page.evaluate('getSelection().toString()') == 'output'
+    expect(page.locator('#agent dt').filter(has_text='Connected').locator('xpath=following-sibling::dd[1]')).to_have_text('yes')
+    output_area = output.locator('pre')
+    expect(output_area).to_have_attribute('role', 'region')
+    expect(output_area).to_have_attribute('aria-label', 'Update output')
+    output_area.focus()
+    output_area.evaluate('e => e.scrollTop = 150')
+    previous_seen = last_seen.inner_text()
+    agent['last_seen_unix_ms'] += 1000
+    page.clock.fast_forward(3100)
+    expect(last_seen).not_to_have_text(previous_seen)
+    expect(output_area).to_be_focused()
+    assert output_area.evaluate('e => e.scrollTop') == 150
+    assert output_area.bounding_box()['height'] <= 260
+    assert output.locator('script').count() == 0
+    capture(page, args.output / f'bmc-agent-output-{theme}-{width}.png')
+    agent['connected'] = False
+    page.clock.fast_forward(3100)
+    expect(page.locator('#panel-agent')).to_be_focused()
+    expect(output_area).to_have_count(0)
+    agent['connected'] = True
+    agent['LastUpdate'] = update
+    page.clock.fast_forward(3100)
     page.locator('#tab-overview').click()
 
     fixture['fail_system'] = {'json': {'error': {'message': 'The VM has no running Pod.'}}}
