@@ -539,6 +539,7 @@ where
     });
     let mut switch: Option<(Channel, Ipv4Addr)> = None;
     let mut switched = false;
+    let mut downtime_ms: Option<u64> = None;
     let attempt = async {
         let machine = machine_type(qmp).await?;
         write_frame(
@@ -594,7 +595,15 @@ where
             interval.tick().await;
             let (state, error) = status(qmp).await?;
             match state.as_str() {
-                "completed" => break,
+                "completed" => {
+                    // QEMU's own measure of the guest's pause.
+                    downtime_ms = qmp
+                        .execute_raw(json!({"execute":"query-migrate"}))
+                        .await
+                        .ok()
+                        .and_then(|info| info["downtime"].as_u64());
+                    break;
+                }
                 "failed" | "cancelled" => {
                     splice.abort();
                     return Err(failure(error.unwrap_or(state)));
@@ -637,7 +646,9 @@ where
     }
     match outcome {
         Ok(()) => {
-            log(json!({"event":"migration_completed","migration":hello.migration}));
+            log(
+                json!({"event":"migration_completed","migration":hello.migration,"downtime_ms":downtime_ms}),
+            );
             Sent::Completed
         }
         Err(error) => {
