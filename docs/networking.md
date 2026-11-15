@@ -312,6 +312,42 @@ Checks:
 - A VM with NICs cannot be live-migrated by the operator yet (see
   [Tap datapath](#tap-datapath)).
 
+## Benchmark (2026-11-15)
+
+`contrib/check-nic-datapath.sh` measured the removed passt datapath and the tap
+datapath under the same conditions before passt was removed:
+
+- the same node (kube03), the operator 2b9633da with qrab-netd 1deec81;
+- one CirrOS guest per datapath with 2 vCPUs, KVM and 512 MiB;
+- 256 MiB per TCP transfer, using busybox `dd | nc` in the guest against a
+  timed sink on the VM host (10.203.0.1);
+- 50 pings each from the VM host and from a Pod on kube01.
+
+| | passt (stream) | tap + vhost-net |
+|---|---|---|
+| guest → VM host, 1 TCP stream | 1.40 Gbit/s | 2.90 Gbit/s |
+| guest → VM host, 4 TCP streams | 2.83 Gbit/s | 3.11 Gbit/s |
+| VM host → guest, 1 TCP stream | 3.30 Gbit/s | 11.0 Gbit/s |
+| ICMP RTT from the VM host | 0.24 ms | 0.48 ms |
+| ICMP RTT from a Pod on another node | 0.38 ms | 0.67 ms |
+
+Notes on reading the table:
+
+- Guest sends are bounded by CirrOS's single-threaded busybox tools, which
+  is why 4 streams add little over 1 in tap mode.
+- passt answers ICMP echo itself in the NIC Pod, so its RTT never reached the
+  guest. The tap RTT is the guest's own round trip.
+
+Both datapaths passed the same probes:
+
+- ingress from the VM host on an allowed port;
+- a denied port dropped, shown in Hubble as `Policy denied DROPPED`;
+- denied egress to the API server's ClusterIP;
+- no reach from the guest to the VM Pod's BMC (8080) or Redfish (8081).
+
+In tap mode the VM Pod's network namespace also held no tap and no guest
+address. On these numbers tap became the only datapath.
+
 ## History: rollout records of the former datapath
 
 The records below predate the tap-only datapath and describe the former
