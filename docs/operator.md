@@ -334,8 +334,10 @@ Without stable addresses the VM is `Blocked` with reason `InvalidSpec`.
 - **Anchor Pods.** For each NIC the operator creates an anchor Pod
   `<vm>-nic-<name>-<node>`, controller-owned by the VM, which runs
   `qrab-manager anchor` (it waits for SIGTERM) as the `qrab-manager`
-  ServiceAccount with no API token. It is restricted, with no ports, probes or
-  volumes: its IP is the guest's. It is annotated with the NIC's address pool
+  ServiceAccount with no API token. It is restricted, with no ports or probes
+  and, except for a VPN NIC's tunnel Secret, no volumes: its IP is the
+  guest's (a VPN NIC's tunnel's outer address). It is annotated with the
+  NIC's address pool
   (`ipam.cilium.io/ip-pool`, `ipam.cilium.io/require-pool-match: "true"`) and
   `qrab.yapplesauce.com/nic-datapath: tap`, which selects it for qrab-netd.
 - **Anchor labels.** `app.kubernetes.io/component: vm-nic`,
@@ -364,7 +366,17 @@ Without stable addresses the VM is `Blocked` with reason `InvalidSpec`.
   `nics: [{id, mac}]` and the seed's static addresses, and the manager waits
   for qrab-netd before starting QEMU. The MAC is `02:` plus five bytes of
   SHA-256 over the VM UID and NIC name.
+- **VPN NICs.** With `vpn.secretName` (a Secret named `vpn-*`) the anchor
+  mounts the Secret's `wg.conf` read-only at `/run/qrab-vpn` (mode 0400, so
+  only qrab-netd, as root, reads it) and is annotated
+  `qrab.yapplesauce.com/nic-vpn: wireguard`; the seed configures that NIC by
+  DHCP ([networking.md](networking.md#vpn-nics)).
 - **Changes.**
+  - Adding or removing a NIC patches the VM ConfigMap without replacing the
+    VM Pod: the template hash and the restart decision leave out `nics` and
+    the seed's network-config, and KVM VMs with stable addresses get
+    `nic_slots: 4` root ports, so the manager plugs NICs live
+    ([networking.md](networking.md#hot-attach-and-detach)).
   - Security-group changes patch anchor labels in place.
   - A missing or failed anchor is recreated on the VM Pod's node with the
     same address.

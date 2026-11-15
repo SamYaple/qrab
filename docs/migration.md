@@ -112,7 +112,10 @@ else `spec.storageNode`).
    target node's InternalIP), the source enables `pause-before-switchover`,
    and at `pre-switchover` it switches the NICs over (forward route, target
    `activate` over a second hello on channel `switchover`, source `standby`)
-   before `migrate-continue`, undoing them on failure
+   before `migrate-continue`, undoing them on failure. Before `migrate` and
+   again after `completed` it sends `Conntrack { nic }` on that channel: the
+   target's qrab-netd then pulls the NIC's conntrack entries from the source
+   node's qrab-netd, node to node, and the managers never carry them
    ([networking.md](networking.md#live-migration)).
 4. Both managers poll `query-migrate` every 250 ms (20 ms with NICs, since the
    pre-switchover wait is guest downtime) and keep publishing status,
