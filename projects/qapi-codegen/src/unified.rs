@@ -258,6 +258,16 @@ fn process_version_schema_with_names(
         .collect::<Result<Vec<_>>>()?;
     crate::schema_validation::validate(&schemas)?;
     let declared = crate::symbols::SchemaNames::declared_names(&schemas);
+    let source_paths: HashMap<_, _> = schemas
+        .iter()
+        .flat_map(|(path, schema)| {
+            schema.0.iter().filter_map(move |token| match token {
+                QapiSchemaToken::Struct(value) => Some((value.name, *path)),
+                QapiSchemaToken::Union(value) => Some((value.name, *path)),
+                _ => None,
+            })
+        })
+        .collect();
     let mut local = crate::symbols::SchemaNames::default();
     let symbols = if let Some(shared) = shared {
         shared
@@ -339,6 +349,11 @@ fn process_version_schema_with_names(
                     }
                     let (processed, extracted) =
                         process_struct_with_names(v, &structs_lookup, &mut names);
+                    for value in std::iter::once(&processed).chain(extracted.iter()) {
+                        crate::schema_validation::ir_members(&value.fields).with_context(|| {
+                            format!("Invalid QAPI struct '{}' in {}", value.name, path.display())
+                        })?;
+                    }
                     structs_lookup.insert(processed.name.clone(), processed);
                     for e in extracted {
                         structs_lookup.insert(e.name.clone(), e);
@@ -378,8 +393,14 @@ fn process_version_schema_with_names(
                 pending.push(value);
                 continue;
             }
+            let path = source_paths[value.name];
             let (processed, extracted) =
                 process_struct_with_names(value, &structs_lookup, &mut names);
+            for value in std::iter::once(&processed).chain(extracted.iter()) {
+                crate::schema_validation::ir_members(&value.fields).with_context(|| {
+                    format!("Invalid QAPI struct '{}' in {}", value.name, path.display())
+                })?;
+            }
             structs_lookup.insert(processed.name.clone(), processed);
             for value in extracted {
                 structs_lookup.insert(value.name.clone(), value);
@@ -405,6 +426,30 @@ fn process_version_schema_with_names(
             );
         }
         if let Some(discriminator) = v.discriminator {
+            let base_fields = match &v.base {
+                crate::MembersOrRef::Ref(base) => structs_lookup[*base].fields.clone(),
+                crate::MembersOrRef::Members(members) => {
+                    members.iter().cloned().map(process_member).collect()
+                }
+                crate::MembersOrRef::Unset => Vec::new(),
+            };
+            for branch in &v.data.0 {
+                if let crate::QapiTypeRef::Ref(name) = &branch.r#type {
+                    if let Some(payload) = structs_lookup.get(*name) {
+                        crate::schema_validation::ir_members(
+                            base_fields.iter().chain(&payload.fields),
+                        )
+                        .with_context(|| {
+                            format!(
+                                "Invalid QAPI union '{}' branch '{}' in {}",
+                                v.name,
+                                branch.name,
+                                source_paths[v.name].display()
+                            )
+                        })?;
+                    }
+                }
+            }
             let (discriminator_type, optional, array) = match &v.base {
                 crate::MembersOrRef::Ref(base) => structs_lookup[*base]
                     .fields
@@ -2208,6 +2253,38 @@ pub fn generate_qga_code(qemu_repo: &Path, version_tags: &[&str]) -> Result<Gene
 #[cfg(test)]
 mod schema_resolution_tests {
     use super::*;
+
+    #[test]
+    fn upstream_member_clash_fixtures_fail_before_codegen() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in [
+            "struct-base-clash",
+            "struct-base-clash-deep",
+            "struct-member-name-clash",
+            "union-clash-member",
+            "enum-clash-member",
+            "alternate-clash",
+        ] {
+            let path = root.join(format!("{name}.json"));
+            let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{name}: {error}");
+            assert!(error.contains("collid"), "{name}: {error}");
+        }
+    }
+
+    #[test]
+    fn separate_union_branches_can_reuse_member_names() {
+        let (_, structs) = process(concat!(
+            "{'enum':'Kind','data':['left','right']}\n",
+            "{'struct':'Base','data':{'kind':'Kind'}}\n",
+            "{'struct':'Left','data':{'value':'str'}}\n",
+            "{'struct':'Right','data':{'value':'int'}}\n",
+            "{'union':'Choice','base':'Base','discriminator':'kind','data':{'left':'Left','right':'Right'}}",
+        )).unwrap();
+        assert!(structs.contains_key("Choice"));
+    }
 
     #[test]
     fn upstream_positive_schema_fixtures_lower() {

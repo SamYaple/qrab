@@ -82,6 +82,9 @@ Empty enums and structs are valid, but their `data` key is still required.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.
+Member clash checks include inherited fields and each flat-union branch against
+its base. Alternative branches retain independent member namespaces. Names
+that collapse to the same QAPI C member identifier fail with source context.
 Historical anonymous structs lower recursively, including optional and empty
 objects. Extracted type names avoid declared types and generated role names,
 so anonymous objects cannot overwrite unrelated schema definitions.

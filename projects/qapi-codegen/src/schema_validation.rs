@@ -2,7 +2,52 @@
 
 use crate::{MembersOrRef, QapiMembers, QapiSchema, QapiSchemaToken, QapiTypeRef};
 use anyhow::{Context, Result, ensure};
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
+
+fn member_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<()> {
+    let mut seen = HashMap::new();
+    for name in names {
+        let key: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if let Some(previous) = seen.insert(key, name) {
+            anyhow::bail!("Member '{name}' collides with '{previous}'");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn ir_members<'a>(
+    fields: impl IntoIterator<Item = &'a crate::qapi_ir::StructField>,
+) -> Result<()> {
+    use crate::qapi_ir::Attribute;
+    member_names(
+        fields
+            .into_iter()
+            .filter(|field| !field.meta.attributes.contains(&Attribute::new("flatten")))
+            .map(|field| {
+                field
+                    .meta
+                    .attributes
+                    .iter()
+                    .find_map(|attr| match attr {
+                        Attribute::Item { name, value } if name == "name" => Some(value.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or(field.name.as_str())
+            }),
+    )
+}
 
 fn known_type(name: &str, types: &HashSet<&str>) -> Result<()> {
     ensure!(
@@ -47,6 +92,7 @@ fn type_ref(value: &QapiTypeRef<'_>, types: &HashSet<&str>, inline: bool) -> Res
 }
 
 fn members(fields: &QapiMembers<'_>, types: &HashSet<&str>, inline: bool) -> Result<()> {
+    member_names(fields.0.iter().map(|field| field.name))?;
     for field in &fields.0 {
         type_ref(&field.r#type, types, inline)
             .with_context(|| format!("Invalid member '{}'", field.name))?;
@@ -78,6 +124,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
     for (path, schema) in schemas {
         for token in &schema.0 {
             let (kind, name) = match token {
+                QapiSchemaToken::Enum(value) => ("enum", value.name),
                 QapiSchemaToken::Struct(value) => ("struct", value.name),
                 QapiSchemaToken::Union(value) => ("union", value.name),
                 QapiSchemaToken::Alternate(value) => ("alternate", value.name),
@@ -87,6 +134,9 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
             };
             let check = || -> Result<()> {
                 match token {
+                    QapiSchemaToken::Enum(value) => {
+                        member_names(value.data.iter().map(|value| value.name))?;
+                    }
                     QapiSchemaToken::Struct(value) => {
                         if let Some(base) = value.base {
                             known_type(base, &types).context("Invalid base")?;
@@ -94,6 +144,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         members(&value.data, &types, true)?;
                     }
                     QapiSchemaToken::Union(value) => {
+                        member_names(value.data.0.iter().map(|branch| branch.name))?;
                         members_or_ref(&value.base, &types).context("Invalid base")?;
                         for branch in &value.data.0 {
                             type_ref(&branch.r#type, &types, false)
@@ -101,6 +152,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                         }
                     }
                     QapiSchemaToken::Alternate(value) => {
+                        member_names(value.data.0.iter().map(|branch| branch.name))?;
                         for branch in &value.data.0 {
                             type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;
