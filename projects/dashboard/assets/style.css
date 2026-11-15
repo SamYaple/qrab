@@ -138,7 +138,7 @@ button.armed { color: #fff; background: var(--armed); border-color: var(--armed-
 button:disabled, .button.disabled { cursor: not-allowed; color: var(--muted); border-color: var(--border); background: var(--surface-raised); filter: none; }
 input, select, textarea { color: var(--text); border: 1px solid var(--border-strong); background: var(--surface); border-radius: 6px; padding: 10px 12px; min-width: 0; min-height: 42px; }
 input::placeholder, textarea::placeholder { color: var(--faint); }
-input[type=checkbox] { min-height: 0; width: 18px; height: 18px; padding: 0; margin: 0; flex-shrink: 0; }
+input[type=checkbox], input[type=radio] { min-height: 0; width: 18px; height: 18px; padding: 0; margin: 0; flex-shrink: 0; }
 .confirm { display: inline-flex; gap: 8px; align-items: center; font-size: .8rem; color: var(--muted); }
 .count, .badge, .chip { display: inline-block; font-size: .8rem; line-height: 1.4; color: var(--muted); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px; white-space: nowrap; }
 .count { margin-top: 6px; }
@@ -191,7 +191,7 @@ td .muted { margin: 3px 0 0; }
 .launch fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin: 0 0 24px; display: grid; gap: 10px; min-width: 0; }
 .launch legend { padding: 0 8px; font-weight: 650; }
 .launch label { font-size: .93rem; color: var(--text-data); }
-.launch input:not([type=checkbox]), .launch select { width: 100%; }
+.launch input:not([type=checkbox]):not([type=radio]), .launch select { width: 100%; }
 .launch p { max-width: 80ch; }
 .pair { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); gap: 16px; }
 .pair > div { display: grid; gap: 6px; align-content: start; }

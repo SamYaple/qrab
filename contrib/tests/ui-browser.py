@@ -102,6 +102,12 @@ with sync_playwright() as playwright:
             for name in ['list', 'detail', 'detail-viewer', 'images', 'launch', 'launch-os', 'launched']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 no_overflow(page, name, width)
+                if name in ['launch', 'launch-os']:
+                    for radio in page.locator('input[type=radio]').all():
+                        bounds = radio.bounding_box()
+                        assert bounds['width'] <= 24 and bounds['height'] <= 24, bounds
+                    page.locator('input[name=os]').nth(1).check()
+                    assert page.locator('input[name=os]').nth(1).is_checked()
                 page.screenshot(path=str(args.output / f'{name}-{theme}-{width}.png'), full_page=True)
             context.close()
             for role in ['admin', 'viewer']:
