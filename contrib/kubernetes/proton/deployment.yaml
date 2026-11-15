@@ -32,7 +32,8 @@ spec:
       - name: broker
         # The operator image carries qrab-proton; updated by the release pin commit.
         image: zot.yapplesauce.com/qrab/operator@sha256:d3ed6543cd9f612b7a8b607321bfa12c80f3a15b8e019bda57585d37437a649e
-        imagePullPolicy: IfNotPresent
+        # Zot images must be pulled Always (cluster policy zot-delegated-pulls).
+        imagePullPolicy: Always
         command: [/usr/local/bin/qrab-proton, broker]
         env:
         - name: QRAB_NAMESPACE
