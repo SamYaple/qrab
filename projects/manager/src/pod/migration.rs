@@ -110,6 +110,14 @@ enum Switch {
     /// The switch is undone: the target stands its anchors down again.
     Abort,
     Failed(String),
+    /// After the switch: the source node's conntrack entries for one NIC,
+    /// for the target node to import (qrab_netd::ct).
+    Conntrack {
+        nic: String,
+        export: qrab_netd::ct::Export,
+    },
+    /// How many entries the target node imported.
+    Imported(usize),
 }
 
 type Channel = qrab_spiffe::server::TlsStream<TcpStream>;
@@ -404,6 +412,75 @@ async fn switch_over(
     netd_all(config, nics, Op::Standby, None).await
 }
 
+/// Best effort, after the switch: export each NIC's conntrack entries on
+/// this node and have the target node import them, so established flows keep
+/// their verdicts there (a flow only the guest sends on would otherwise be
+/// new, and refused by groups that deny new egress). Failures are logged.
+async fn copy_conntrack(config: &Config, nics: &[String], channel: &mut Channel) {
+    let started = tokio::time::Instant::now();
+    let mut copied = 0;
+    for nic in nics {
+        let socket = config.netd_socket.clone();
+        let name = nic.clone();
+        let export = match tokio::task::spawn_blocking(move || {
+            qrab_netd::wire::conntrack_export(&socket, &name)
+        })
+        .await
+        {
+            Ok(Ok(export)) => export,
+            Ok(Err(error)) => {
+                log(
+                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"export","error":error.to_string()}),
+                );
+                continue;
+            }
+            Err(error) => {
+                log(
+                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"export","error":error.to_string()}),
+                );
+                continue;
+            }
+        };
+        let exported = export.entries.len();
+        let truncated = export.truncated;
+        if write_frame(
+            channel,
+            &Switch::Conntrack {
+                nic: nic.clone(),
+                export,
+            },
+        )
+        .await
+        .is_err()
+        {
+            log(json!({"event":"migration_conntrack_failed","nic":nic,"step":"send"}));
+            return;
+        }
+        match read_frame(channel, SWITCH_TIMEOUT).await {
+            Ok(Switch::Imported(count)) => {
+                copied += count;
+                log(
+                    json!({"event":"migration_conntrack","nic":nic,"exported":exported,"imported":count,"truncated":truncated}),
+                );
+            }
+            Ok(Switch::Failed(reason)) => {
+                log(
+                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"import","error":reason}),
+                );
+            }
+            other => {
+                log(
+                    json!({"event":"migration_conntrack_failed","nic":nic,"step":"import","error":format!("{other:?}")}),
+                );
+                return;
+            }
+        }
+    }
+    log(
+        json!({"event":"migration_conntrack_copied","entries":copied,"ms":started.elapsed().as_millis()}),
+    );
+}
+
 /// Undo a partial or complete switch so the source keeps serving the guest:
 /// this node's anchors active again, the target's standing by, no forward.
 async fn switch_back(config: &Config, nics: &[String], channel: &mut Channel) {
@@ -442,6 +519,22 @@ async fn serve_switchover(
         let (op, reply_ok) = match frame {
             Switch::Activate => (Op::Activate, Switch::Activated),
             Switch::Abort => (Op::Standby, Switch::Abort),
+            Switch::Conntrack { nic, export } => {
+                let socket = config.netd_socket.clone();
+                let imported = tokio::task::spawn_blocking(move || {
+                    qrab_netd::wire::conntrack_import(&socket, &nic, &export)
+                })
+                .await;
+                let reply = match imported {
+                    Ok(Ok(count)) => Switch::Imported(count),
+                    Ok(Err(error)) => Switch::Failed(error.to_string()),
+                    Err(error) => Switch::Failed(error.to_string()),
+                };
+                if write_frame(&mut channel, &reply).await.is_err() {
+                    return;
+                }
+                continue;
+            }
             _ => return,
         };
         let reply = match netd_all(&config, &nics, op, None).await {
@@ -633,6 +726,10 @@ where
                 splice.abort();
                 return Err(failure("cancelled by shutdown"));
             }
+        }
+        // The guest runs on the target: carry its NICs' established flows over.
+        if let (true, Some((connection, _))) = (switched, switch.as_mut()) {
+            copy_conntrack(config, &nics, connection).await;
         }
         // QEMU closes its end after the last byte; wait for it to drain.
         match tokio::time::timeout(Duration::from_secs(30), splice).await {
@@ -1092,6 +1189,21 @@ mod tests {
                 record.lock().unwrap().push((request.op, request.via));
                 if Some(request.op) == refuse {
                     qrab_netd::wire::send_refusal(&stream, "no").unwrap();
+                } else if request.op == Op::CtExport {
+                    let entries = (0..2)
+                        .map(|i| ('t', format!("{i:028x}"), "00".repeat(56)))
+                        .collect();
+                    let export = qrab_netd::ct::Export {
+                        now: 7,
+                        entries,
+                        truncated: false,
+                    };
+                    qrab_netd::wire::send_conntrack(&stream, &export).unwrap();
+                } else if request.op == Op::CtImport {
+                    qrab_netd::wire::send_ok(&stream).unwrap();
+                    let export: qrab_netd::ct::Export =
+                        qrab_netd::wire::read_payload(&stream).unwrap();
+                    qrab_netd::wire::send_imported(&stream, export.entries.len()).unwrap();
                 } else {
                     qrab_netd::wire::send_ok(&stream).unwrap();
                 }
@@ -1200,6 +1312,32 @@ mod tests {
         assert_eq!(
             *target_ops.lock().unwrap(),
             [(Op::Activate, None), (Op::Standby, None)]
+        );
+        serving.abort();
+    }
+
+    #[tokio::test]
+    async fn after_the_switch_the_sources_conntrack_entries_reach_the_target_node() {
+        let ca = Authority::new();
+        let (source, target) = (
+            Workload::serve(vec![ca.svid(VM)]),
+            Workload::serve(vec![ca.svid(VM)]),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let (source_config, source_ops) = fake_netd(dir.path(), "source", None);
+        let (target_config, target_ops) = fake_netd(dir.path(), "target", None);
+        let (mut channel, _, client) = switchover_pair(&source, &target, "m-conntrack").await;
+        let serving = tokio::spawn(serve_switchover(target_config, vec!["lan".into()], client));
+        copy_conntrack(&source_config, &["lan".into()], &mut channel).await;
+        assert_eq!(*source_ops.lock().unwrap(), [(Op::CtExport, None)]);
+        assert_eq!(*target_ops.lock().unwrap(), [(Op::CtImport, None)]);
+        // The channel still serves the switchover afterwards.
+        write_frame(&mut channel, &Switch::Abort).await.unwrap();
+        assert_eq!(
+            read_frame::<_, Switch>(&mut channel, SWITCH_TIMEOUT)
+                .await
+                .unwrap(),
+            Switch::Abort
         );
         serving.abort();
     }

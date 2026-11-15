@@ -120,6 +120,11 @@ impl Agent {
                 request.nic
             ));
         }
+        if matches!(request.op, wire::Op::CtExport | wire::Op::CtImport) {
+            return self
+                .conntrack(stream, anchor, &request)
+                .map(|s| format!("pid {pid}: {s}"));
+        }
         if request.op != wire::Op::Fds {
             let summary = self.control(anchor, &request)?;
             wire::send_ok(stream).map_err(|e| e.to_string())?;
@@ -148,6 +153,41 @@ impl Agent {
             "pid {pid} received {queues} queue(s) of {} for NIC {:?}",
             plan.tap, request.nic
         ))
+    }
+
+    /// Conntrack handoff for `anchor`'s address: export this node's entries,
+    /// or import a source node's (only entries of this NIC whose other side
+    /// is not local here; see `qrab_netd::ct::importable`).
+    fn conntrack(
+        &self,
+        stream: &UnixStream,
+        anchor: &Pod,
+        request: &wire::Request,
+    ) -> Result<String, String> {
+        let ip: std::net::Ipv4Addr = anchor
+            .status
+            .as_ref()
+            .and_then(|s| s.pod_ip.as_deref())
+            .and_then(|ip| ip.parse().ok())
+            .ok_or("the anchor has no IPv4 address")?;
+        let (root, host) = (self.proc_root.clone(), sys::host_netns(&self.proc_root));
+        if request.op == wire::Op::CtExport {
+            let export = sys::in_netns(&host, move || sys::export_conntrack(&root, ip))
+                .map_err(|e| e.to_string())?;
+            wire::send_conntrack(stream, &export).map_err(|e| e.to_string())?;
+            return Ok(format!(
+                "exported {} conntrack entries of {ip}{}",
+                export.entries.len(),
+                if export.truncated { " (truncated)" } else { "" }
+            ));
+        }
+        wire::send_ok(stream).map_err(|e| e.to_string())?;
+        let export: qrab_netd::ct::Export =
+            wire::read_payload(stream).map_err(|e| e.to_string())?;
+        let imported = sys::in_netns(&host, move || sys::import_conntrack(&root, ip, &export))
+            .map_err(|e| e.to_string())?;
+        wire::send_imported(stream, imported).map_err(|e| e.to_string())?;
+        Ok(format!("imported {imported} conntrack entries of {ip}"))
     }
 
     /// A live-migration handoff step for `anchor`, the requester's NIC here.
