@@ -9,7 +9,9 @@
 # conntrack entry came along: without it the guest's next data segment is a
 # new egress flow the group denies, the client has nothing to acknowledge, and
 # the stream stalls. The check requires the stream to keep flowing (no gap
-# over MAX_GAP_S) across MOVES live migrations (default 2).
+# over MAX_GAP_S) across MOVES live migrations (default 2), and the source
+# manager to report imported entries for each move (REQUIRE_COPY=0 skips
+# that, to show the oracle failing on a release without the copy).
 #
 #   bash contrib/check-nic-ct-handoff.sh [vm-name]
 set -euo pipefail
@@ -106,6 +108,7 @@ log "guest $address on $(field virtualmachine "$vm" '{.status.nodeName}'); the c
 summary=()
 for i in $(seq 1 "$moves"); do
   source_node=$(field virtualmachine "$vm" '{.status.nodeName}')
+  source_pod=$(field virtualmachine "$vm" '{.status.podName}')
   target=kube0$(( (${source_node#kube0} % 3) + 1 ))
   start=$(date +%s.%N)
   log "move $i: $source_node -> $target"
@@ -122,6 +125,11 @@ EOF
     sleep 1
   done
   [ "$phase" = Succeeded ] || fail "move $i did not finish"
+  # The source manager's copy events, read before its Pod goes:
+  # phase=entries per copy, e.g. "precopy=1 delta=1".
+  events=$(kubectl -n "$ns" logs "$source_pod" -c manager 2>/dev/null | grep '"event":"migration_conntrack"' || true)
+  copies=$(echo "$events" | sed -n 's/.*"imported":\([0-9]*\).*"phase":"\([a-z]*\)".*/\2=\1/p' | tr '\n' ' ')
+  copied=$(echo "$events" | grep -o '"imported":[0-9]*' | cut -d: -f2 | awk '{s+=$1} END {print s+0}')
   if [ -n "${CT_DEBUG:-}" ]; then
     a=$(kubectl -n kube-system get pods -l k8s-app=cilium --field-selector "spec.nodeName=$target" -o name | head -1)
     for t in 0 10 20; do
@@ -138,7 +146,10 @@ EOF
   awk -v l="$last" -v n="$now" -v m="$max_gap" 'BEGIN {exit !(n - l <= m)}' \
     || fail "move $i: the guest's server-push stream stalled (last line $(awk -v l="$last" -v n="$now" 'BEGIN {printf "%.0f", n-l}')s ago)"
   awk -v g="$gap" -v m="$max_gap" 'BEGIN {exit !(g <= m)}' || fail "move $i: stream gap ${gap}s"
-  summary+=("move $i $source_node->$target: stream kept flowing, gap ${gap}s")
+  # The copy itself, not a re-created entry: the source manager saw the
+  # target import entries before the move streamed and after it.
+  [ "${REQUIRE_COPY:-1}" = 0 ] || [ "$copied" -ge 1 ] || fail "move $i: no conntrack entry was imported (copies: ${copies:-none})"
+  summary+=("move $i $source_node->$target: stream kept flowing, gap ${gap}s; copies: ${copies:-none}")
   log "${summary[-1]}"
 done
 keep
