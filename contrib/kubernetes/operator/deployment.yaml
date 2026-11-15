@@ -37,7 +37,7 @@ spec:
       containers:
       - name: operator
         # Updated from published immutable references by the release pin commit.
-        image: zot.yapplesauce.com/qrab/operator@sha256:3db5c0748b7349c65e97382f1a061cd465f57f15bc8bde64265a8f21c4d3fdea
+        image: zot.yapplesauce.com/qrab/operator@sha256:5e920da2a3a681d2361badbc465e936177da46a59dda532ed0aa37a10d5a4516
         imagePullPolicy: Always
         args: [run]
         env:
