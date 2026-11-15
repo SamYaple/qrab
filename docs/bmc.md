@@ -103,6 +103,12 @@ modules):
   - *Guest agent*: agent status, the filesystem freeze state and the last
     update run from `Oem.Qrab.GuestAgent` (update output and errors for
     admins only), and the freeze (two-step confirm), thaw and update actions.
+    Known prerequisites disable freeze while frozen or while an update runs,
+    and update while frozen, already running or reporting no installed hook.
+    Reasons are visible beside the controls. Thaw stays available whenever the
+    agent is connected, including recovery of freezes outside its recorded state.
+    Missing optional status leaves backend validation in charge; no extra reads
+    or permissions are added.
   - *Configuration*: `Oem.Qrab.Configuration`, redacted for viewers.
 
 Viewers get the same header and rail, but the console toolbar, power group,

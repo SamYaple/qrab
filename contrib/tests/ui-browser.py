@@ -963,6 +963,60 @@ def bmc_state_checks(browser, width, theme):
     context.close()
 
 
+def agent_action_checks(browser):
+    context = browser_context(browser, viewport={'width': 390, 'height': 1000})
+    fixture = install_bmc(context)
+    agent = fixture['system']['Oem']['Qrab']['GuestAgent']
+    page = context.new_page()
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc')
+    page.locator('#tab-agent').click()
+    freeze = page.locator('[data-agent=freeze]')
+    thaw = page.locator('[data-agent=thaw]')
+    update = page.locator('[data-agent=update]')
+    expect(freeze).to_be_enabled()
+    expect(thaw).to_be_enabled()
+    expect(update).to_be_enabled()
+    freeze.click()
+    expect(freeze).to_have_text('Confirm freeze filesystems')
+    agent['FreezeState'] = 'Frozen'
+    page.clock.fast_forward(3100)
+    expect(freeze).to_be_disabled()
+    expect(freeze).to_have_text('Freeze filesystems')
+    expect(update).to_be_disabled()
+    expect(thaw).to_be_enabled()
+    expect(page.locator('#tab-agent')).to_be_focused()
+    expect(page.locator('#agent-requirement')).to_contain_text('Thaw filesystems before running an update.')
+    freeze.dispatch_event('click')
+    update.dispatch_event('click')
+    assert fixture['posts'] == []
+    capture(page, args.output / 'bmc-agent-frozen-actions.png')
+    agent['FreezeState'] = 'Thawed'
+    agent['LastUpdate'] = {'State': 'Running', 'RunId': 8, 'HookInstalled': True}
+    page.clock.fast_forward(3100)
+    expect(freeze).to_be_disabled()
+    expect(update).to_be_disabled()
+    expect(thaw).to_be_enabled()
+    expect(page.locator('#agent-requirement')).to_contain_text('Wait for the current update to finish.')
+    agent['LastUpdate'] = {'State': 'Idle', 'RunId': 0, 'HookInstalled': False}
+    page.clock.fast_forward(3100)
+    expect(freeze).to_be_enabled()
+    expect(update).to_be_disabled()
+    expect(page.locator('#agent-requirement')).to_contain_text('Install the guest update hook before running an update.')
+    agent['LastUpdate']['HookInstalled'] = True
+    page.clock.fast_forward(3100)
+    expect(update).to_be_enabled()
+    agent['FreezeState'] = None
+    agent['LastUpdate'] = None
+    page.clock.fast_forward(3100)
+    expect(freeze).to_be_enabled()
+    expect(thaw).to_be_enabled()
+    expect(update).to_be_enabled()
+    expect(page.locator('#agent-requirement')).to_be_hidden()
+    assert fixture['posts'] == []
+    context.close()
+
+
 def event_recovery_checks(browser):
     context = browser_context(browser, viewport={'width': 320, 'height': 1000})
     context.add_init_script('''
@@ -1636,6 +1690,7 @@ with sync_playwright() as playwright:
                 context.close()
             long_content_checks(browser, width, theme)
     timezone_checks(browser)
+    agent_action_checks(browser)
     event_recovery_checks(browser)
     access_recovery_checks(browser)
     action_discovery_checks(browser)

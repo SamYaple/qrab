@@ -465,6 +465,16 @@ function showStatus() {
     chip.hidden = false;
     updateActionControls();
 }
+function agentActionReason(operation, agent) {
+    if (!agent?.connected) return 'Guest actions need a connected guest agent.';
+    if (operation === 'freeze' && agent.FreezeState === 'Frozen') return 'Filesystems are already frozen.';
+    if (operation === 'update' && agent.FreezeState === 'Frozen') return 'Thaw filesystems before running an update.';
+    if (operation !== 'thaw' && agent.LastUpdate?.State === 'Running') return 'Wait for the current update to finish.';
+    if (operation === 'update' && agent.LastUpdate?.HookInstalled === false) return 'Install the guest update hook before running an update.';
+    // Thaw remains available while connected, including recovery of freezes
+    // not recorded by the agent. Missing optional status is not a denial.
+    return '';
+}
 function updateActionControls() {
     const focused = document.activeElement;
     const available = (button, allowed) => {
@@ -512,8 +522,23 @@ function updateActionControls() {
             : 'No power actions are currently offered.');
         unavailable.hidden = !session || !system || !power?.children.length || Boolean(anyOffered);
     }
-    const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
-    for (const button of document.querySelectorAll('[data-agent]')) available(button, connected);
+    const agentReasons = [];
+    for (const button of document.querySelectorAll('[data-agent]')) {
+        const reason = agentActionReason(button.dataset.agent, agent);
+        available(button, !reason);
+        button.title = reason || button.dataset.hint || '';
+        const description = [button.dataset.description || '', reason ? 'agent-requirement' : ''].filter(Boolean).join(' ');
+        if (description) button.setAttribute('aria-describedby', description);
+        else button.removeAttribute('aria-describedby');
+        if (reason) agentReasons.push(`${button.dataset.label?.replace(/…$/, '') || 'Guest action'}: ${reason}`);
+    }
+    const requirement = element('agent-requirement');
+    if (requirement) {
+        const message = !session || !system ? '' : !agent?.connected
+            ? 'Guest actions need a connected guest agent.' : agentReasons.join(' ');
+        updateText(requirement, message);
+        requirement.hidden = !message;
+    }
     const connect = element('connect');
     if (connect && !rfb) connect.disabled = !session || !system || system.PowerState === 'Off';
     if (armed?.disabled) disarm();
@@ -616,6 +641,8 @@ function wireAgentActions() {
             button.classList.add('danger');
             button.title = 'Writes block until thawed or the agent watchdog thaws them';
         }
+        button.dataset.hint = button.title;
+        button.dataset.description = button.getAttribute('aria-describedby') || '';
         button.addEventListener('click', async () => {
             if (pendingAction || !session || button.disabled) return;
             const operation = button.dataset.agent;

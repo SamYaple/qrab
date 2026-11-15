@@ -194,6 +194,10 @@ to console controls, leaving console full screen first; Right Alt/AltGr remains
 available to the guest. Leaving display focus releases held keys. Shared static
 keyboard handling is served at `/assets/console-keyboard.js`; it adds no management
 endpoint and uses no private noVNC API.
+The full BMC also reflects known guest-agent prerequisites for freeze and update,
+with visible action-specific reasons. Thaw remains available for connected-agent
+recovery. These checks use the existing System snapshot; missing optional status
+does not become a denial, and the backend remains authoritative.
 The active pending control uses `aria-disabled` with the existing busy guard,
 so keyboard focus survives the request. Other unavailable controls remain
 natively disabled. If the focused action becomes unavailable after settling,
