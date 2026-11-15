@@ -142,6 +142,9 @@ provides the fallback. If discovery fails, the power area explains how to retry,
 and a later System list can restore controls through the existing poll. Missing
 inline values use the initial successful list. No extra polling request or new
 action type is added. Server authorization is unchanged.
+While discovery is pending, the power area says it is loading; known controls
+can recover from System polling before that request finishes. Metric polling
+also starts independently of optional startup reads.
 Power and guest-agent requests retain keyboard focus while pending, using
 `aria-disabled` with the existing request guard. A focused action that becomes
 unavailable moves to the VM state or guest-agent tab. Blocked held keys cannot

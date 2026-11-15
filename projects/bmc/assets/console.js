@@ -497,10 +497,11 @@ function updateActionControls() {
     if (power) power.hidden = !anyOffered;
     const unavailable = element('power-unavailable');
     if (unavailable) {
-        updateText(unavailable, !Array.isArray(reportedTypes) && initialPowerError
+        updateText(unavailable, !Array.isArray(reportedTypes) && initialPowerTypes === null ? 'Loading power actions…'
+            : !Array.isArray(reportedTypes) && initialPowerError
             ? `Power actions unavailable: ${initialPowerError} Reload to retry.`
             : 'No power actions are currently offered.');
-        unavailable.hidden = !session || !system || initialPowerTypes === null || Boolean(anyOffered);
+        unavailable.hidden = !session || !system || !power?.children.length || Boolean(anyOffered);
     }
     const connected = system?.Oem?.Qrab?.GuestAgent?.connected;
     for (const button of document.querySelectorAll('[data-agent]')) available(button, connected);
@@ -1038,16 +1039,6 @@ function loadMetrics() {
 // optional discovery request is only a fallback; failure must not prevent
 // controls from recovering with a later successful System poll.
 async function loadPower() {
-    const reportedTypes = system?.Actions?.['#ComputerSystem.Reset']?.['ResetType@Redfish.AllowableValues'];
-    try {
-        const info = Array.isArray(reportedTypes) ? null : await request(RESET_INFO);
-        initialPowerTypes = new Set(Array.isArray(reportedTypes) ? reportedTypes
-            : info?.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
-    } catch (error) {
-        if (!session) throw error;
-        initialPowerTypes = new Set();
-        initialPowerError = error.message;
-    }
     const target = () => system?.Actions?.['#ComputerSystem.Reset']?.target || `${SYSTEM}/Actions/ComputerSystem.Reset`;
     const buttons = RESETS.map(([type, label, disruptive]) => {
         const button = node('button', label, disruptive ? 'danger' : undefined);
@@ -1083,6 +1074,17 @@ async function loadPower() {
         primary.push(more);
     }
     element('power').replaceChildren(...primary);
+    showStatus();
+    const reportedTypes = system?.Actions?.['#ComputerSystem.Reset']?.['ResetType@Redfish.AllowableValues'];
+    try {
+        const info = Array.isArray(reportedTypes) ? null : await request(RESET_INFO);
+        initialPowerTypes = new Set(Array.isArray(reportedTypes) ? reportedTypes
+            : info?.Parameters?.find(parameter => parameter.Name === 'ResetType')?.AllowableValues || []);
+    } catch (error) {
+        if (!session) throw error;
+        initialPowerTypes = new Set();
+        initialPowerError = error.message;
+    }
     showStatus();
 }
 
@@ -1229,8 +1231,8 @@ try {
     await refresh();
     if (!session) throw new Error('Your session ended. Sign in to reconnect.');
     polling = setInterval(() => { if (!document.hidden) refresh(); }, 3000);
+    metricsTimer = setInterval(() => { if (!document.hidden) loadMetrics(); }, 5000);
     await Promise.all([admin ? loadPower() : null, startEvents()]).catch(error => { if (session) showError(error.message); });
-    if (session) metricsTimer = setInterval(() => { if (!document.hidden) loadMetrics(); }, 5000);
 } catch (error) { signedOut(); if (!error.message.startsWith('Your session ended')) showError(error.message); }
 
 document.addEventListener('visibilitychange', () => {

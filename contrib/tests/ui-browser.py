@@ -67,7 +67,8 @@ def system(power='On'):
 def install_bmc(context, role='admin', power='On', legacy=False, origin='http://ui.test'):
     fixture = {'system': system(power), 'posts': [], 'expired': False,
                'hold_posts': False, 'pending_posts': [], 'post_received': Event(), 'post_error': None, 'hold_power': False, 'pending_power': [],
-               'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
+               'fail_system': None, 'fail_reset_info': None, 'reset_types': list(resets), 'hold_reset_info': False, 'pending_reset_info': [],
+               'fail_metrics': False, 'fail_history': False, 'empty_metrics': False, 'hold_session': False, 'pending_session': [], 'empty_events': False, 'extra_events': [], 'requests': [],
                'vm_name': 'web-1', 'user_name': 'sam'}
     fixture['system']['Oem']['Qrab']['Configuration']['redacted'] = role == 'viewer'
 
@@ -140,6 +141,9 @@ def install_bmc(context, role='admin', power='On', legacy=False, origin='http://
                 return
             data = fixture['system']
         elif path.endswith('/ResetActionInfo'):
+            if fixture['hold_reset_info']:
+                fixture['pending_reset_info'].append(request_route)
+                return
             if fixture['fail_reset_info']:
                 request_route.fulfill(status=fixture.get('reset_info_status', 503), json={'error': {'message': fixture['fail_reset_info']}})
                 return
@@ -891,6 +895,35 @@ def action_discovery_checks(browser):
         assert fixture['posts'] == []
         assert not errors, errors
         context.close()
+
+    context = browser_context(browser, viewport={'width': 390, 'height': 1000})
+    fixture = install_bmc(context)
+    advertised = fixture['system']['Actions']['#ComputerSystem.Reset']
+    advertised.pop('ResetType@Redfish.AllowableValues')
+    fixture['hold_reset_info'] = True
+    page = context.new_page()
+    page.clock.install()
+    page.goto('http://ui.test' + base + '/bmc')
+    expect(page.locator('#power-unavailable')).to_have_text('Loading power actions…')
+    expect(page.locator('#connect')).to_be_enabled()
+    page.locator('#tab-metrics').click()
+    expect(page.locator('#metrics-note')).to_contain_text('Sampled')
+    metric_reads = sum(path.endswith('/MetricReports/VM') for _, path in fixture['requests'])
+    page.clock.fast_forward(5100)
+    page.wait_for_timeout(100)
+    assert sum(path.endswith('/MetricReports/VM') for _, path in fixture['requests']) > metric_reads, 'Pending discovery must not delay metric polling'
+    advertised['ResetType@Redfish.AllowableValues'] = ['Pause']
+    page.clock.fast_forward(3100)
+    expect(page.locator('#power button[data-type=Pause]')).to_be_enabled()
+    expect(page.locator('#power-unavailable')).to_be_hidden()
+    assert len(fixture['pending_reset_info']) == 1
+    fixture['hold_reset_info'] = False
+    fixture['pending_reset_info'].pop().fulfill(status=503, json={'error': {'message': 'Late discovery failure.'}})
+    page.wait_for_timeout(100)
+    expect(page.locator('#power button[data-type=Pause]')).to_be_enabled()
+    expect(page.locator('#error')).to_be_hidden()
+    assert sum(path.endswith('/ResetActionInfo') for _, path in fixture['requests']) == 1
+    context.close()
 
     context = browser_context(browser, viewport={'width': 390, 'height': 1000})
     fixture = install_bmc(context)
