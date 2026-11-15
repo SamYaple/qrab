@@ -82,6 +82,14 @@ fn main() -> Result<()> {
         ("metadata.rs", output.metadata),
     ] {
         let path = options.output_dir.join(name);
+        match std::fs::read(&path) {
+            Ok(existing) if existing == content.as_bytes() => continue,
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("Failed to read {}", path.display()));
+            }
+        }
         std::fs::write(&path, content)
             .with_context(|| format!("Failed to write {}", path.display()))?;
     }
