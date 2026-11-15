@@ -276,8 +276,9 @@ State, media and Redfish claims on `zfs-block` behave the same way. The
 `zfs-block.csi.yaple.net` provisioner refuses `DeleteVolume` ("Retain-only
 storage: retire preserved datasets through the host operator"), so changing a
 Released PV's reclaim policy to `Delete` only makes it retry. Destroy the
-Released PV's zvol under `tank/kubernetes-block-storage` with `zfs destroy` on
-`bb`, then delete the PV object.
+Released PV's zvol, `tank/kubernetes-block-storage/<spec.csi.volumeHandle>`
+(`kubectl get pv <name> -o jsonpath='{.spec.csi.volumeHandle}'`), with
+`zfs destroy` on `bb`, then delete the PV object.
 
 ## Checks
 
