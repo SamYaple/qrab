@@ -1057,4 +1057,142 @@ mod tests {
         }
         assert!(refusal(&config, &hello("uid-1"), false).is_none());
     }
+
+    /// What a fake qrab-netd was asked, in order.
+    type Seen = std::sync::Arc<std::sync::Mutex<Vec<(Op, Option<Ipv4Addr>)>>>;
+
+    /// A stand-in qrab-netd: answers each control request with `ok` unless
+    /// `refuse` names its op, and records what it was asked.
+    fn fake_netd(dir: &Path, name: &str, refuse: Option<Op>) -> (Config, Seen) {
+        let socket = dir.join(format!("{name}.sock"));
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let record = seen.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                let request = qrab_netd::wire::read_request(&stream).unwrap();
+                record.lock().unwrap().push((request.op, request.via));
+                if Some(request.op) == refuse {
+                    qrab_netd::wire::send_refusal(&stream, "no").unwrap();
+                } else {
+                    qrab_netd::wire::send_ok(&stream).unwrap();
+                }
+            }
+        });
+        let mut config = config();
+        config.nics =
+            serde_json::from_value(json!([{"id":"lan","mac":"02:00:00:00:00:01"}])).unwrap();
+        config.netd_socket = socket;
+        (config, seen)
+    }
+
+    /// The switchover connection of `migration`: the target dials the
+    /// source's listener, which hands the connection to the waiting slot.
+    async fn switchover_pair(
+        source: &Workload,
+        target: &Workload,
+        migration: &str,
+    ) -> (
+        Channel,
+        Option<Ipv4Addr>,
+        qrab_spiffe::client::TlsStream<TcpStream>,
+    ) {
+        let (port, _pending) = listening(source).await;
+        let (slot, waiting) = oneshot::channel();
+        // Slots are process-wide: each test uses its own migration.
+        switchovers().lock().unwrap().insert(migration.into(), slot);
+        let (identity, id) = identity(Some(&target.endpoint)).await.unwrap();
+        let connector = identity.connector(std::slice::from_ref(&id)).unwrap();
+        let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let mut client = connector.connect(tcp).await.unwrap();
+        let mut hello = hello("uid-1");
+        hello.migration = migration.into();
+        hello.channel = Some(SWITCHOVER.into());
+        hello.node_ip = Some("10.203.0.12".parse().unwrap());
+        write_frame(&mut client, &hello).await.unwrap();
+        let (server, node_ip) = tokio::time::timeout(Duration::from_secs(5), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+        (server, node_ip, client)
+    }
+
+    #[tokio::test]
+    async fn the_switch_forwards_activates_the_target_and_stands_the_source_down_in_that_order() {
+        let ca = Authority::new();
+        let (source, target) = (
+            Workload::serve(vec![ca.svid(VM)]),
+            Workload::serve(vec![ca.svid(VM)]),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let (source_config, source_ops) = fake_netd(dir.path(), "source", None);
+        let (target_config, target_ops) = fake_netd(dir.path(), "target", None);
+        let (mut channel, node_ip, client) = switchover_pair(&source, &target, "m-forward").await;
+        assert_eq!(
+            node_ip,
+            Some("10.203.0.12".parse().unwrap()),
+            "the target names its node"
+        );
+        let serving = tokio::spawn(serve_switchover(target_config, vec!["lan".into()], client));
+        let via = node_ip.unwrap();
+        switch_over(&source_config, &["lan".into()], &mut channel, via)
+            .await
+            .unwrap();
+        assert_eq!(
+            *source_ops.lock().unwrap(),
+            [(Op::Forward, Some(via)), (Op::Standby, None)]
+        );
+        assert_eq!(*target_ops.lock().unwrap(), [(Op::Activate, None)]);
+        serving.abort();
+    }
+
+    #[tokio::test]
+    async fn a_target_that_cannot_activate_leaves_the_network_with_the_source() {
+        let ca = Authority::new();
+        let (source, target) = (
+            Workload::serve(vec![ca.svid(VM)]),
+            Workload::serve(vec![ca.svid(VM)]),
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let (source_config, source_ops) = fake_netd(dir.path(), "source", None);
+        let (target_config, target_ops) = fake_netd(dir.path(), "target", Some(Op::Activate));
+        let (mut channel, node_ip, client) = switchover_pair(&source, &target, "m-refused").await;
+        let serving = tokio::spawn(serve_switchover(target_config, vec!["lan".into()], client));
+        let error = switch_over(
+            &source_config,
+            &["lan".into()],
+            &mut channel,
+            node_ip.unwrap(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("the target could not activate"), "{error}");
+        // The source never stood down; the rollback restores it and drops the forward.
+        assert_eq!(*source_ops.lock().unwrap(), [(Op::Forward, node_ip)]);
+        switch_back(&source_config, &["lan".into()], &mut channel).await;
+        assert_eq!(
+            *source_ops.lock().unwrap(),
+            [
+                (Op::Forward, node_ip),
+                (Op::Activate, None),
+                (Op::Unforward, None)
+            ]
+        );
+        assert_eq!(
+            *target_ops.lock().unwrap(),
+            [(Op::Activate, None), (Op::Standby, None)]
+        );
+        serving.abort();
+    }
+
+    #[test]
+    fn only_tap_migrations_pause_before_switchover() {
+        // Without NICs nothing switches, so the stream path is unchanged.
+        assert!(tap_nics(&config()).is_empty());
+        let dir = tempfile::tempdir().unwrap();
+        let (with_nic, _) = fake_netd(dir.path(), "netd", None);
+        assert_eq!(tap_nics(&with_nic), ["lan"]);
+    }
 }
