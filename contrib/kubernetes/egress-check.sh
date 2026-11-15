@@ -8,20 +8,17 @@
 #   2. a listener on the VM host (10.203.0.1) sees the guest's /32, not a node IP;
 #   3. the guest reaches the internet (1.1.1.1's trace reports some address);
 #   4. an ordinary pod still arrives at the same listener as its node's IP.
+# It also requires the NIC's anchor to be plumbed by qrab-netd, to run on the VM
+# Pod's node and to have no relay policy.
 # Everything it creates is deleted on exit, except the VM's root disk: the
 # storage service never destroys a disk, so every run keeps one 1 GiB CoW clone
 # that counts against the block-storage budget at its logical size
 # (contrib/storage/README.md). Run it sparingly; a run refused with
 # StorageRefused budget-exhausted needs an administrator, not a retry.
 #
-# With NIC_DATAPATH=tap the VM uses the tap datapath (spec.nicDatapath: tap),
-# and the check also requires its anchor to be plumbed by qrab-netd, to run on
-# the VM Pod's node and to have no relay policy.
-#
-#   [NIC_DATAPATH=tap] bash contrib/kubernetes/egress-check.sh [vm-name]
+#   bash contrib/kubernetes/egress-check.sh [vm-name]
 set -euo pipefail
 vm=${1:-egresscheck}
-datapath=${NIC_DATAPATH:-stream}
 ns=qrab
 host_ip=${HOST_IP:-10.203.0.1}
 host_port=${HOST_PORT:-18180}
@@ -94,7 +91,6 @@ spec:
   components: {bmc: {enabled: false}}
   disks: [{id: root, sizeBytes: 1073741824, bootIndex: 0, baseImage: {name: cirros, generation: 1}}]
   nics: [{name: eth0, securityGroups: [$vm]}]
-  nicDatapath: $datapath
   cloudInit:
     hostname: $vm
     userData: |
@@ -111,15 +107,13 @@ nic_pod=$(field virtualmachine "$vm" '{.status.nics[0].podName}')
 [ -n "$address" ] || fail "the NIC has no stable address (QRAB_NIC_ADDRESS_RANGE unset?)"
 node=$(field pod "$nic_pod" '{.spec.nodeName}')
 agent=$(kubectl -n kube-system get pods -l k8s-app=cilium --field-selector "spec.nodeName=$node" -o jsonpath='{.items[0].metadata.name}')
-log "running: NIC $address in $nic_pod on $node (agent $agent), datapath $datapath"
-if [ "$datapath" = tap ]; then
-  plumbed=$(field pod "$nic_pod" '{.status.conditions[?(@.type=="qrab.yapplesauce.com/nic-plumbed")].status}')
-  [ "$plumbed" = True ] || fail "anchor $nic_pod is not plumbed by qrab-netd ($plumbed)"
-  vm_node=$(field pod "$vm" '{.spec.nodeName}')
-  [ "$vm_node" = "$node" ] || fail "anchor on $node, VM Pod on $vm_node"
-  ! kubectl -n "$ns" get ciliumnetworkpolicy "$nic_pod-relay" >/dev/null 2>&1 || fail "a tap NIC has relay policy $nic_pod-relay"
-  log "ok: anchor plumbed on the VM Pod's node, no relay policy: $(field pod "$nic_pod" '{.status.conditions[?(@.type=="qrab.yapplesauce.com/nic-plumbed")].message}')"
-fi
+log "running: NIC $address in $nic_pod on $node (agent $agent)"
+plumbed=$(field pod "$nic_pod" '{.status.conditions[?(@.type=="qrab.yapplesauce.com/nic-plumbed")].status}')
+[ "$plumbed" = True ] || fail "anchor $nic_pod is not plumbed by qrab-netd ($plumbed)"
+vm_node=$(field pod "$vm" '{.spec.nodeName}')
+[ "$vm_node" = "$node" ] || fail "anchor on $node, VM Pod on $vm_node"
+! kubectl -n "$ns" get ciliumnetworkpolicy "$nic_pod-relay" >/dev/null 2>&1 || fail "NIC $nic_pod has relay policy $nic_pod-relay"
+log "ok: anchor plumbed on the VM Pod's node, no relay policy: $(field pod "$nic_pod" '{.status.conditions[?(@.type=="qrab.yapplesauce.com/nic-plumbed")].message}')"
 
 pool_flag=$(kubectl get ciliumpodippool "qrab-nic-${address//./-}" -o jsonpath='{.metadata.annotations.ipam\.cilium\.io/skip-masquerade}')
 [ "$pool_flag" = true ] || fail "pool qrab-nic-${address//./-} lacks ipam.cilium.io/skip-masquerade=true"

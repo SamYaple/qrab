@@ -1,7 +1,7 @@
 //! Live migration of a running VM to another node (`VirtualMachineMigration`).
 //!
 //! The VM's own reconcile drives it, because only that reconcile holds the
-//! rendered inputs (exported disks, NIC relay endpoints, boot size). While a
+//! rendered inputs (exported disks, NIC addresses, boot size). While a
 //! migration is active the VM's Pod is left alone; the steps are:
 //!
 //! 1. **Pending**: pick the target node and name the target Pod and its own

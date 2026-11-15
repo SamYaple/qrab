@@ -83,6 +83,6 @@ expect_allowed "its condition on an anchor of its own node" status "$node" qrab.
 expect_denied "an anchor on another node" status "$other" qrab.yapplesauce.com/nic-plumbed
 expect_denied "a token without a node" status "" qrab.yapplesauce.com/nic-plumbed
 expect_denied "another condition" status "$node" Ready
-kubectl -n qrab annotate pod "$pod" qrab.yapplesauce.com/nic-datapath=passt --overwrite >/dev/null
-expect_denied "a passt-mode NIC Pod" status "$node" qrab.yapplesauce.com/nic-plumbed
+kubectl -n qrab annotate pod "$pod" qrab.yapplesauce.com/nic-datapath=other --overwrite >/dev/null
+expect_denied "a NIC Pod not annotated for tap" status "$node" qrab.yapplesauce.com/nic-plumbed
 echo "PASS: qrab-netd status policy"

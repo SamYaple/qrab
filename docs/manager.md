@@ -14,7 +14,7 @@ The retired host/confidential-guest API is archived; see [legacy.md](legacy.md).
 - `qrab/qemu`: pinned local-Gitea QEMU 11.1.3, TCG/KVM, VNC/pixman/TPM, swtpm and
   OVMF CODE/VARS under `/opt/qrab/firmware`. QEMU source/provenance stays local.
 - `qrab/manager`: built on `qrab/qemu`; `qrab-manager`, `qrab-bmc`,
-  `qrab-redfish` and the patched passt, plus the readonly GPT/FAT ESP demo UKI,
+  `qrab-redfish`, plus the readonly GPT/FAT ESP demo UKI,
   kernel, initramfs (with `qrab-guest-agent`) and TPM2 guest probes under `/opt/qrab/demo`.
 - `qrab/operator`: the small namespace-scoped Rust reconciler without QEMU or
   guest assets. Its Kubernetes API token is separate from the token-free VM Pod.
@@ -57,18 +57,13 @@ initramfs. Existing standalone direct-kernel JSON remains supported when UEFI is
 absent. An optional separate `disk` accepts an absolute file or block device,
 `format` raw/qcow2 and `read_only`. Blockdev JSON handles commas/spaces safely.
 Without `nics` QEMU runs with `-nic none`. Each entry of the optional
-`nics: [{"id","mac","host","port"}]` becomes a JSON
-`-netdev {"type":"stream","id":"nic-<id>","server":false,"addr":{"type":"inet",...},"reconnect-ms":1000}`
-and `-device virtio-net-pci,id=nic-<id>,netdev=nic-<id>,mac=<mac>,romfile=`.
-`id` is a DNS label, `mac` is unicast and locally administered, and `host` is
-an IP literal. The relay at `host:port` is `qrab-manager nic` in a separate
-NIC Pod. The config view shows each NIC's id and MAC, and its endpoint to
-admins only; `guest_network` is true when NICs exist. See
+`nics: [{"id","mac"}]` is a kernel tap with vhost-net in the NIC's anchor Pod
+(the only guest NIC datapath; other fields are refused). `id` is a DNS label
+and `mac` is unicast and locally administered. The config view shows each
+NIC's id and MAC; `guest_network` is true when NICs exist. See
 [networking.md](networking.md).
 
-A NIC with `"datapath": "tap"` (`{"id","mac","datapath":"tap"}`, with no
-`host` or `port`) uses the kernel tap datapath instead. Before every QEMU
-start, including each in-pod relaunch, the manager asks qrab-netd at
+Before every QEMU start, including each in-pod relaunch, the manager asks qrab-netd at
 `netd_socket` (default `/run/qrab-netd/netd.sock`, mounted by the KVM device
 plugin's CDI spec) for the NIC's queues: one per vCPU, at most 8. It passes
 the received descriptors to QEMU at fixed numbers from 3 upward, NIC by NIC,
@@ -77,9 +72,8 @@ each NIC's tap queues first and then its vhost-net descriptors. QEMU gets
 `-device virtio-net-pci,id=nic-<id>,netdev=nic-<id>,mac=<mac>,romfile=,mq=on,vectors=<2q+2>`.
 The multiqueue options are omitted with one queue. The manager never opens
 `/dev/net/tun` or `/dev/vhost-net`. If qrab-netd refuses (the NIC is not
-plumbed yet, or the tap is still held), the launch fails with its reason. No
-datapath gives QEMU a user-mode (slirp) netdev or guest forwarding. Omitting
-`datapath` means `stream`, which renders exactly as above.
+plumbed yet, or the tap is still held), the launch fails with its reason. QEMU
+never gets a user-mode (slirp) netdev or guest forwarding.
 
 `tpm` defaults to `/usr/bin/swtpm`, with private Unix control and TPM2 TIS in
 QEMU. `state_dir` must be writable persistent storage; its owner lock prevents
@@ -217,17 +211,16 @@ qrab-manager ready --config /etc/qrab/vm.json
 qrab-manager live --config /etc/qrab/vm.json
 qrab-manager inspect config --socket /run/qrab-control/manager/control.sock
 qrab-manager control --socket /run/qrab-control/manager/control.sock < operation.json
-qrab-manager nic --listen 0.0.0.0:7700 --socket /run/nic/passt.sock
-qrab-manager nic-ready --socket /run/nic/passt.sock
+qrab-manager anchor
 ```
 
 `inspect` prints one fixed read-only query (`inventory`, `metrics`, `network`,
 `boot`, `firmware`, `secure-boot`, `settings`, `resources`, `media` or the
 redacted `config`) and `control` sends one typed socket operation read from
 stdin (at most 384 KiB); both need an absolute `--socket` path.
-`nic` and `nic-ready` are the NIC Pod's relay and readiness probe
-([networking.md](networking.md)). The manager image carries a patched passt
-at `/usr/bin/passt` for them.
+`anchor` is a NIC anchor Pod's only process: it holds the Pod, and so its
+network namespace where qrab-netd builds the tap, until SIGTERM
+([networking.md](networking.md)).
 
 Use persistent `/var/lib/qrab` and a writable `/run/qrab` mount in standalone
 containers. A private runtime session owns QMP, VNC and swtpm sockets. QEMU starts

@@ -1,5 +1,5 @@
 //! Tap datapath launch support. Before each QEMU start the manager asks
-//! qrab-netd for every tap NIC's queues and places the received descriptors
+//! qrab-netd for every guest NIC's queues and places the received descriptors
 //! at the numbers [`Config::tap_fds`] renders into `-netdev tap,fds=…`. The
 //! manager never opens `/dev/net/tun` or `/dev/vhost-net` itself.
 use super::config::{Config, TapFds};
@@ -14,7 +14,7 @@ use std::{
 #[derive(Debug, Default)]
 pub(super) struct Inherited(Vec<(RawFd, OwnedFd)>);
 
-/// One attempt at every tap NIC's descriptors (no-op without tap NICs).
+/// One attempt at every guest NIC's descriptors (no-op without NICs).
 /// The caller retries a refusal: the VM Pod starts before qrab-netd has
 /// plumbed its anchors, which are created once the Pod is scheduled.
 pub(super) async fn fetch(config: &Config) -> Result<Inherited> {
@@ -133,9 +133,8 @@ mod tests {
         let config = config(
             dir.path(),
             serde_json::json!([
-                {"id": "lan", "mac": "02:00:00:00:00:01", "datapath": "tap"},
-                {"id": "old", "mac": "02:00:00:00:00:02", "host": "10.0.0.2", "port": 7700},
-                {"id": "wan", "mac": "02:00:00:00:00:03", "datapath": "tap"},
+                {"id": "lan", "mac": "02:00:00:00:00:01"},
+                {"id": "wan", "mac": "02:00:00:00:00:03"},
             ]),
             2,
         );
@@ -196,7 +195,7 @@ mod tests {
         std::fs::write(dir.path().join("kernel"), []).unwrap();
         let config = config(
             dir.path(),
-            serde_json::json!([{"id": "lan", "mac": "02:00:00:00:00:01", "datapath": "tap"}]),
+            serde_json::json!([{"id": "lan", "mac": "02:00:00:00:00:01"}]),
             1,
         );
         let listener = UnixListener::bind(&config.netd_socket).unwrap();
@@ -211,12 +210,12 @@ mod tests {
             error.contains("tap NIC lan") && error.contains("not plumbed yet"),
             "{error}"
         );
-        // Without tap NICs nothing is requested.
-        let stream_only = super::super::config::Config {
+        // Without NICs nothing is requested.
+        let no_nics = super::super::config::Config {
             nics: Vec::new(),
             ..config
         };
-        assert!(fetch(&stream_only).await.unwrap().0.is_empty());
+        assert!(fetch(&no_nics).await.unwrap().0.is_empty());
     }
 
     #[tokio::test]
@@ -225,7 +224,7 @@ mod tests {
         std::fs::write(dir.path().join("kernel"), []).unwrap();
         let config = config(
             dir.path(),
-            serde_json::json!([{"id": "lan", "mac": "02:00:00:00:00:01", "datapath": "tap"}]),
+            serde_json::json!([{"id": "lan", "mac": "02:00:00:00:00:01"}]),
             1,
         );
         let listener = UnixListener::bind(&config.netd_socket).unwrap();

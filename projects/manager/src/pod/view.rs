@@ -92,13 +92,11 @@ pub enum DiskView {
     },
 }
 
-/// A guest NIC. The relay endpoint is an internal Pod address, admin-only.
+/// A guest NIC. Its id and MAC are not sensitive: viewers see them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NicView {
     pub id: String,
     pub mac: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub endpoint: Option<String>,
 }
 
 /// In-place growth ceilings and progress. Not sensitive: viewers see it.
@@ -210,16 +208,6 @@ impl ConfigView {
                 .map(|nic| NicView {
                     id: nic.id.clone(),
                     mac: nic.mac.clone(),
-                    // A tap NIC has no relay; its traffic leaves through qrab-netd's tap.
-                    endpoint: (nic.datapath == super::Datapath::Stream).then(|| {
-                        std::net::SocketAddr::new(
-                            nic.host
-                                .parse()
-                                .unwrap_or(std::net::Ipv4Addr::UNSPECIFIED.into()),
-                            nic.port,
-                        )
-                        .to_string()
-                    }),
                 })
                 .collect(),
             disks,
@@ -299,14 +287,6 @@ impl ConfigView {
                     },
                 })
                 .collect(),
-            nics: self
-                .nics
-                .iter()
-                .map(|nic| NicView {
-                    endpoint: None,
-                    ..nic.clone()
-                })
-                .collect(),
             redacted: true,
             state_id: None,
             kernel_args: None,
@@ -322,25 +302,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nics_show_id_and_mac_to_viewers_and_the_endpoint_to_admins() {
+    fn nics_show_id_and_mac_to_viewers() {
         let config: Config = serde_json::from_value(serde_json::json!({
             "kernel": "/unused",
-            "nics": [{"id": "lan", "mac": "02:aa:bb:cc:dd:ee", "host": "fd00::7", "port": 7700}]
+            "nics": [{"id": "lan", "mac": "02:aa:bb:cc:dd:ee"}]
         }))
         .unwrap();
         let view = ConfigView::new(&config, &Deployment::default());
         assert!(view.guest_network);
-        assert_eq!(view.nics[0].endpoint.as_deref(), Some("[fd00::7]:7700"));
+        let lan = [NicView {
+            id: "lan".into(),
+            mac: "02:aa:bb:cc:dd:ee".into(),
+        }];
+        assert_eq!(view.nics, lan);
         let viewer = view.redacted();
         assert!(viewer.guest_network);
-        assert_eq!(
-            viewer.nics,
-            [NicView {
-                id: "lan".into(),
-                mac: "02:aa:bb:cc:dd:ee".into(),
-                endpoint: None
-            }]
-        );
+        assert_eq!(viewer.nics, lan);
         let none: Config =
             serde_json::from_value(serde_json::json!({"kernel": "/unused"})).unwrap();
         let view = ConfigView::new(&none, &Deployment::default());

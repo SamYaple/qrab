@@ -1,8 +1,10 @@
-//! Guest NICs. Each NIC is its own Pod running `qrab-manager nic` (passt plus
-//! a one-connection relay on port 7700), so guest traffic has its own network
-//! namespace, Cilium identity and BGP-advertised Pod IP, and never enters the
-//! VM Pod that holds the BMC and the manager's control socket. Security groups
-//! are NIC Pod labels that users' CiliumNetworkPolicies select.
+//! Guest NICs. Each NIC is its own restricted anchor Pod on the VM Pod's
+//! node; qrab-netd builds a kernel tap with vhost-net in its network namespace
+//! and hands the descriptors to the VM's manager. Guest traffic has the
+//! anchor's network namespace, Cilium identity and BGP-advertised /32, and
+//! never enters the VM Pod that holds the BMC and the manager's control
+//! socket. Security groups are anchor Pod labels that users'
+//! CiliumNetworkPolicies select.
 use crate::{
     api::{Nic, VirtualMachine},
     resources::{Settings, HASH},
@@ -17,21 +19,19 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, net::IpAddr};
 
-/// The relay port QEMU connects to in every NIC Pod.
-pub const RELAY_PORT: u16 = 7700;
 pub const NIC_LIMIT: usize = 4;
-/// The guest's IPv4 gateway and DNS server on every NIC: passt answers ARP
-/// for it, routes through it and forwards its port 53 to the NIC Pod's
-/// resolver (`qrab-manager nic` passes `-g` and `--dns-forward`).
-pub const GUEST_GATEWAY: std::net::Ipv4Addr = std::net::Ipv4Addr::new(169, 254, 1, 1);
+/// The guest's IPv4 gateway and DNS server on every NIC: qrab-netd answers
+/// ARP for it on the tap, routes through it and redirects its port 53 to the
+/// anchor's resolver.
+pub const GUEST_GATEWAY: std::net::Ipv4Addr = qrab_netd::GUEST_GATEWAY;
 pub const COMPONENT: &str = "vm-nic";
 pub const NIC_LABEL: &str = "qrab.yapplesauce.com/nic";
 pub const OWNER_UID: &str = "qrab.yapplesauce.com/owner-uid";
 /// `sg.qrab.yapplesauce.com/<group>: ""` marks a NIC Pod's security groups.
 pub const SECURITY_GROUP_PREFIX: &str = "sg.qrab.yapplesauce.com/";
-const SOCKET: &str = "/run/nic/passt.sock";
 
-/// A ready NIC Pod: the guest NIC `name` reaches it at `ip`:RELAY_PORT.
+/// A guest NIC and its address: the NIC's stable pool address, which the
+/// guest configures statically.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NicEndpoint {
     pub name: String,
@@ -42,7 +42,9 @@ pub fn pod_name(vm: &VirtualMachine, nic: &str) -> String {
     format!("{}-nic-{nic}", vm.name_any())
 }
 
-pub fn policy_name(vm: &VirtualMachine, nic: &str) -> String {
+/// The relay CiliumNetworkPolicy the removed stream datapath created per
+/// NIC; the operator deletes it from VMs created before the change.
+pub fn legacy_relay_policy_name(vm: &VirtualMachine, nic: &str) -> String {
     format!("{}-relay", pod_name(vm, nic))
 }
 
@@ -113,82 +115,11 @@ pub fn security_group_patch(actual: &Pod, nic: &Nic) -> Option<Value> {
     )
 }
 
-pub struct DesiredNic {
-    pub pod: Pod,
-    pub hash: String,
-    pub policy: DynamicObject,
-}
-
 pub fn policy_resource() -> ApiResource {
     ApiResource::from_gvk_with_plural(
         &GroupVersionKind::gvk("cilium.io", "v2", "CiliumNetworkPolicy"),
         "ciliumnetworkpolicies",
     )
-}
-
-/// The NIC Pod and its relay policy, addressed from its node's block.
-pub fn render(vm: &VirtualMachine, settings: &Settings, nic: &Nic) -> Result<DesiredNic> {
-    render_in_pool(vm, settings, nic, None)
-}
-
-/// The NIC Pod and its relay policy; with `pool`, the Pod takes its address
-/// from that one-address CiliumPodIPPool (see [`crate::address`]).
-pub fn render_in_pool(
-    vm: &VirtualMachine,
-    settings: &Settings,
-    nic: &Nic,
-    pool: Option<&str>,
-) -> Result<DesiredNic> {
-    let uid = uid(vm)?;
-    let owner = owner_json(vm)?;
-    let image = vm.spec.image.as_deref().unwrap_or(&settings.vm_image);
-    let mut labels = identity_labels(vm, &nic.name)?;
-    let vm_pod =
-        json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",OWNER_UID:uid});
-    let security = json!({"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}});
-    let probe = json!(["qrab-manager", "nic-ready", "--socket", SOCKET]);
-    let (socket_volume, socket_mount) = crate::resources::workload_socket();
-    let mut pod = json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":pod_name(vm,&nic.name),"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},"spec":{
-        "serviceAccountName":"qrab-manager","automountServiceAccountToken":false,"enableServiceLinks":false,
-        "hostNetwork":false,"hostPID":false,"hostIPC":false,
-        "restartPolicy":"Always","terminationGracePeriodSeconds":5,
-        "securityContext":{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"seccompProfile":{"type":"RuntimeDefault"}},
-        "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}],
-        "affinity":{"podAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"podAffinityTerm":{"labelSelector":{"matchLabels":vm_pod},"topologyKey":"kubernetes.io/hostname"}}]}},
-        // passt binds one socket per forwarded TCP and UDP port; their kernel
-        // memory (about 260 MiB) is charged to this container.
-        "containers":[{"name":"nic","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],
-            "args":["nic","--listen",format!("0.0.0.0:{RELAY_PORT}"),"--socket",SOCKET,"--guest-mac",mac(&uid,&nic.name)],
-            "ports":[{"name":"relay","containerPort":RELAY_PORT,"protocol":"TCP"}],
-            "resources":{"requests":{"cpu":"50m","memory":"320Mi"},"limits":{"cpu":"1","memory":"512Mi"}},
-            "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
-            "env":[crate::resources::workload_env()],
-            "volumeMounts":[{"name":"nic","mountPath":"/run/nic"},socket_mount],
-            // Never a TCP or socket probe: passt and the relay serve one client.
-            "readinessProbe":{"exec":{"command":probe},"periodSeconds":2,"failureThreshold":2,"timeoutSeconds":2},
-            "livenessProbe":{"exec":{"command":probe},"initialDelaySeconds":10,"periodSeconds":10,"failureThreshold":3,"timeoutSeconds":2}}],
-        "volumes":[{"name":"nic","emptyDir":{"medium":"Memory","sizeLimit":"1Mi"}},socket_volume]
-    }});
-    if let Some(node) = &vm.spec.storage_node {
-        pod["spec"]["affinity"]["nodeAffinity"] = json!({"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":50,"preference":{"matchExpressions":[{"key":"kubernetes.io/hostname","operator":"In","values":[node]}]}}]});
-    }
-    let mut annotations = serde_json::Map::new();
-    if let Some(pool) = pool {
-        annotations.insert(crate::address::POOL_ANNOTATION.into(), json!(pool));
-        annotations.insert(crate::address::REQUIRE_POOL_MATCH.into(), json!("true"));
-        pod["metadata"]["annotations"] = Value::Object(annotations.clone());
-    }
-    let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&pod)?));
-    annotations.insert(HASH.into(), json!(hash));
-    pod["metadata"]["annotations"] = Value::Object(annotations);
-    labels.extend(security_group_labels(nic));
-    pod["metadata"]["labels"] = json!(labels);
-    let policy = serde_json::from_value(relay_policy(vm, settings, &nic.name, owner)?)?;
-    Ok(DesiredNic {
-        pod: serde_json::from_value(pod)?,
-        hash,
-        policy,
-    })
 }
 
 fn owner_json(vm: &VirtualMachine) -> Result<Value> {
@@ -199,55 +130,8 @@ fn owner_json(vm: &VirtualMachine) -> Result<Value> {
     Ok(serde_json::to_value(owner)?)
 }
 
-/// Port 7700 of the NIC Pod admits its VM Pod only: an allow rule, and an
-/// `ingressDeny` for every other endpoint and entity, which no
-/// security-group allow can override. A second rule lets the VM Pod reach it
-/// even under an egress-restricting policy. Neither rule enables default
-/// deny, so without security-group policies the NIC Pod stays default-allow.
-fn relay_policy(
-    vm: &VirtualMachine,
-    settings: &Settings,
-    nic: &str,
-    owner: Value,
-) -> Result<Value> {
-    let uid = uid(vm)?;
-    let labels = identity_labels(vm, nic)?;
-    let nic_pod = json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":COMPONENT,OWNER_UID:uid,NIC_LABEL:nic});
-    let vm_pod =
-        json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm",OWNER_UID:uid});
-    let relay = json!([{"ports":[{"port":RELAY_PORT.to_string(),"protocol":"TCP"}]}]);
-    let additive = json!({"ingress":false,"egress":false});
-    Ok(
-        json!({"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy",
-        "metadata":{"name":policy_name(vm,nic),"namespace":settings.namespace,"labels":labels,"ownerReferences":[owner]},
-        "specs":[
-            {"description":format!("Relay port of NIC {nic}: only VM {} reaches it",vm.name_any()),
-             "endpointSelector":{"matchLabels":nic_pod},
-             "enableDefaultDeny":additive,
-             "ingress":[{"fromEndpoints":[{"matchLabels":vm_pod}],"toPorts":relay}],
-             "ingressDeny":[
-                {"fromEntities":["world","host","remote-node","kube-apiserver","ingress","health","init","unmanaged"],"toPorts":relay},
-                // Any other Pod: another namespace, not a VM Pod, or another VM.
-                {"fromEndpoints":[
-                    {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"NotIn","values":[settings.namespace]}]},
-                    {"matchExpressions":[{"key":"app.kubernetes.io/component","operator":"NotIn","values":["vm"]}]},
-                    {"matchExpressions":[{"key":OWNER_UID,"operator":"NotIn","values":[uid]}]}],
-                 "toPorts":relay}]},
-            {"description":format!("VM {} reaches the relay of its NIC {nic}",vm.name_any()),
-             "endpointSelector":{"matchLabels":vm_pod},
-             "enableDefaultDeny":additive,
-             "egress":[{"toEndpoints":[{"matchLabels":nic_pod}],"toPorts":relay}]}
-        ]}),
-    )
-}
-
-/// A NIC Pod is current when its template hash matches; security-group
+/// An anchor is current when its template hash matches; security-group
 /// labels are reconciled in place.
-pub fn pod_matches(actual: &Pod, desired: &DesiredNic) -> bool {
-    template_matches(actual, &desired.pod, &desired.hash)
-}
-
-/// [`pod_matches`] for a tap-mode anchor.
 pub fn anchor_matches(actual: &Pod, desired: &DesiredAnchor) -> bool {
     template_matches(actual, &desired.pod, &desired.hash)
 }
@@ -262,20 +146,19 @@ pub fn template_matches(actual: &Pod, desired: &Pod, hash: &str) -> bool {
             .all(|(k, v)| actual.labels().get(k) == Some(v))
 }
 
-/// A tap-mode NIC anchor (docs/networking.md, "Tap datapath").
+/// A NIC anchor (docs/networking.md, "Tap datapath").
 pub struct DesiredAnchor {
     pub pod: Pod,
     pub hash: String,
 }
 
-/// The NIC's anchor Pod in tap mode: a restricted Pod that only holds the
-/// NIC's Cilium endpoint, /32 (from its one-address `pool`) and security
-/// groups, pinned to `node`, the VM Pod's node. qrab-netd builds the tap in
-/// its network namespace and sets the readiness gate. It has no ports, no
-/// probes (its IP is the guest's, so a network probe would reach the guest)
-/// and no relay policy; its labels are the stream NIC Pod's, with no
-/// per-Pod value, so a second anchor of the same NIC shares its Cilium
-/// identity.
+/// The NIC's anchor Pod: a restricted Pod that only holds the NIC's Cilium
+/// endpoint, /32 (from its one-address `pool`) and security groups, pinned
+/// to `node`, the VM Pod's node. qrab-netd builds the tap in its network
+/// namespace and sets the readiness gate. It has no ports and no probes (its
+/// IP is the guest's, so a network probe would reach the guest); its labels
+/// carry no per-Pod value, so a second anchor of the same NIC shares its
+/// Cilium identity.
 pub fn render_anchor(
     vm: &VirtualMachine,
     settings: &Settings,
@@ -318,7 +201,7 @@ pub fn render_anchor(
     })
 }
 
-/// The relay endpoint of a Running, Ready NIC Pod.
+/// The address of a Running, Ready NIC Pod.
 pub fn endpoint(pod: &Pod, nic: &str) -> Option<NicEndpoint> {
     let status = pod.status.as_ref()?;
     let ready = status

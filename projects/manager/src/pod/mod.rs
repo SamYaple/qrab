@@ -28,7 +28,6 @@ pub use metrics::VmMetrics;
 pub use network::{GuestNetworkSnapshot, NetworkAddress, NetworkInterface, NetworkStatistics};
 pub mod migration;
 
-pub mod nic;
 mod persistent;
 mod process;
 mod remote;
@@ -47,8 +46,8 @@ mod view;
 
 pub use agent::{AgentStatus, FreezeState, UpdateState, UpdateStatus};
 pub use config::{
-    parse_guest_mac, Accelerator, AdminBucket, Config, Datapath, Disk, DiskFormat, Hotplug, Nic,
-    TapFds, Tpm, Uefi, FIRST_TAP_FD, HOTPLUG_BLOCK_MIB, NIC_LIMIT,
+    parse_guest_mac, Accelerator, AdminBucket, Config, Disk, DiskFormat, Hotplug, Nic, TapFds, Tpm,
+    Uefi, FIRST_TAP_FD, HOTPLUG_BLOCK_MIB, NIC_LIMIT,
 };
 pub use control::{control_channel, control_channel_for, Action, Control, ControlReceiver};
 pub use events::{

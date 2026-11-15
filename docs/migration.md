@@ -3,8 +3,11 @@
 A running VM moves to another node without a reboot. The guest's memory,
 devices, TPM state and UEFI variables travel in QEMU's migration stream over a
 SPIFFE mTLS tunnel between the two managers of the same VM. Disks are shared
-iSCSI LUNs, so no disk data is copied, and NIC pods stay where they are, so the
-guest keeps its NIC addresses. Design and work items: towl
+iSCSI LUNs, so no disk data is copied. Guest NICs are taps in anchor Pods
+pinned to the VM Pod's node; the operator does not drive their handoff yet (the
+target manager needs `incoming.node_ip`, which the operator does not set), so a
+VM with NICs cannot be live-migrated yet ([networking.md](networking.md#tap-datapath)).
+Design and work items: towl
 `container/vm-live-migration`.
 
 ## Identity and isolation
@@ -41,7 +44,7 @@ migration object is single-use and immutable; create a new one per move. One
 migration per VM runs at a time; a second one created meanwhile fails.
 
 The VM's own reconcile drives it (`projects/operator/src/migration.rs`), since
-only that reconcile has the rendered disks, NIC endpoints and boot size:
+only that reconcile has the rendered disks, NIC addresses and boot size:
 
 1. It picks the node (requested, else the first Ready, schedulable node other
    than the source with the KVM resource when needed), and names the target Pod

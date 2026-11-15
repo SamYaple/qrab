@@ -1,7 +1,8 @@
 # VM operator
 
-The namespaced Rust operator owns only VM Pods, their ConfigMaps, NIC Pods and their relay CiliumNetworkPolicies, the
-VM's Redfish and migration CiliumNetworkPolicies, the CHAP Secrets of
+The namespaced Rust operator owns only VM Pods, their ConfigMaps, NIC anchor
+Pods (it also deletes the relay CiliumNetworkPolicies of the removed stream
+datapath), the VM's Redfish and migration CiliumNetworkPolicies, the CHAP Secrets of
 storage-service provisioned disks, and a live migration's target state PVC.
 Other PVCs and console entrypoints stay explicit Kubernetes resources; never
 garbage collect TPM/firmware identity storage (after a successful migration
@@ -12,7 +13,8 @@ qrab-operator -- crd|migration-crd|dashboard-update-policy` into
 `contrib/kubernetes/operator/{crd,migration-crd,dashboard-update-policy}.json`.
 Edit the Rust API and regenerate; `contrib/check-runtime.sh` compares them.
 No guest NIC, arbitrary Pod template, anonymous BMC or Kubernetes API token in a
-VM pod: guest NICs are separate NIC Pods (docs/networking.md). Keep image digests pinned, validate ownership before patch/delete, and
+VM pod: guest NICs are kernel taps in separate NIC anchor Pods, built by
+qrab-netd (docs/networking.md). Keep image digests pinned, validate ownership before patch/delete, and
 set immutable CR UID as manager state_id. See docs/operator.md and docs/spire-vm.md.
 
 Run `contrib/check-runtime.sh` and the documented live CR lifecycle checks.

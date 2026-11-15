@@ -1,6 +1,0 @@
-Types: deb-src
-URIs: http://snapshot.debian.org/archive/debian/20261104T212339Z
-Suites: trixie trixie-updates
-Components: main
-Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
-Check-Valid-Until: no

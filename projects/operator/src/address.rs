@@ -1,8 +1,9 @@
-//! Stable guest NIC addresses (opt-in through `QRAB_NIC_ADDRESS_RANGE`).
+//! Stable guest NIC addresses (`QRAB_NIC_ADDRESS_RANGE`; required for guest
+//! NICs).
 //!
 //! Each NIC claims one address from the range as a cluster-scoped Cilium
 //! multi-pool `CiliumPodIPPool` holding just that /32. The pool is named after
-//! the address, so creating it is an atomic claim. The NIC Pod is pinned to
+//! the address, so creating it is an atomic claim. The NIC's anchor Pod is pinned to
 //! the pool, so it keeps the address on whichever node it runs. One
 //! `FRRConfiguration` per NIC, selecting the node that holds the address,
 //! announces the /32 to that node's BGP neighbors; frr-k8s merges it with the

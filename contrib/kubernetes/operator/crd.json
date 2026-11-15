@@ -451,18 +451,10 @@
                     "minimum": 256.0,
                     "type": "integer"
                   },
-                  "nicDatapath": {
-                    "description": "How guest NICs carry traffic. `stream` (default): QEMU's stream\nnetdev to a relay and passt in each NIC Pod. `tap`: a kernel tap with\nvhost-net in a restricted anchor Pod on the VM Pod's node, built by\nqrab-netd; it needs `accelerator: kvm` and stable NIC addresses.\nChanging it restarts the VM.",
-                    "enum": [
-                      "stream",
-                      "tap"
-                    ],
-                    "type": "string"
-                  },
                   "nics": {
-                    "description": "Guest NICs. Each is backed by its own NIC Pod (`<vm>-nic-<name>`)\nwhose IP, Cilium identity and security-group labels are the NIC's.",
+                    "description": "Guest NICs. Each is a kernel tap with vhost-net in its own restricted\nanchor Pod (`<vm>-nic-<name>`) on the VM Pod's node, built by\nqrab-netd; the anchor's IP, Cilium identity and security-group labels\nare the NIC's. NICs need `accelerator: kvm` and stable NIC addresses.",
                     "items": {
-                      "description": "A guest NIC. Guest traffic leaves through its NIC Pod, never the VM Pod.",
+                      "description": "A guest NIC. Guest traffic leaves through its anchor Pod, never the VM Pod.",
                       "properties": {
                         "name": {
                           "pattern": "^[a-z0-9]([a-z0-9-]{0,13}[a-z0-9])?$",
@@ -625,7 +617,7 @@
                           "type": "string"
                         },
                         "ip": {
-                          "description": "The NIC Pod IP, which is also the guest's address on this NIC.",
+                          "description": "The NIC's address (its pool address), which is also the guest's.",
                           "nullable": true,
                           "type": "string"
                         },
@@ -808,8 +800,8 @@
                 "rule": "!has(self.spec.maxMemoryMiB) || self.spec.memoryMiB <= self.spec.maxMemoryMiB"
               },
               {
-                "message": "nicDatapath tap needs accelerator kvm: the KVM device brings qrab-netd's socket into the VM Pod",
-                "rule": "!has(self.spec.nicDatapath) || self.spec.nicDatapath != 'tap' || (has(self.spec.accelerator) && self.spec.accelerator == 'kvm')"
+                "message": "guest NICs need accelerator kvm: the KVM device brings qrab-netd's socket into the VM Pod",
+                "rule": "!has(self.spec.nics) || size(self.spec.nics) == 0 || (has(self.spec.accelerator) && self.spec.accelerator == 'kvm')"
               },
               {
                 "message": "console is required while components.bmc is enabled",

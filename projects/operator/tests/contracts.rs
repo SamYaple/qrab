@@ -1048,157 +1048,6 @@ fn networked() -> VirtualMachine {
 }
 
 #[test]
-fn nic_pods_are_owned_restricted_relays_labelled_with_their_security_groups() {
-    use qrab_operator::nic;
-    let vm = networked();
-    let desired = nic::render(&vm, &settings(), &vm.spec.nics[0]).unwrap();
-    assert!(resources::owned(&desired.pod, &vm));
-    let pod = serde_json::to_value(&desired.pod).unwrap();
-    assert_eq!(pod["metadata"]["name"], "test-vm-nic-lan");
-    assert_eq!(
-        pod["metadata"]["labels"],
-        json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm-nic",
-            "app.kubernetes.io/instance":"test-vm","qrab.yapplesauce.com/owner-uid":"owner-one",
-            "qrab.yapplesauce.com/nic":"lan",
-            "sg.qrab.yapplesauce.com/web":"","sg.qrab.yapplesauce.com/ssh":""})
-    );
-    let spec = &pod["spec"];
-    assert_eq!(spec["serviceAccountName"], "qrab-manager");
-    assert_eq!(spec["automountServiceAccountToken"], false);
-    assert_eq!(spec["restartPolicy"], "Always");
-    assert_eq!(spec["securityContext"]["runAsNonRoot"], true);
-    assert_eq!(
-        spec["securityContext"]["seccompProfile"]["type"],
-        "RuntimeDefault"
-    );
-    assert_eq!(
-        spec["tolerations"][0]["key"],
-        "node-role.kubernetes.io/control-plane"
-    );
-    let container = &spec["containers"][0];
-    assert_eq!(container["image"], settings().vm_image);
-    assert_eq!(
-        container["args"],
-        json!([
-            "nic",
-            "--listen",
-            "0.0.0.0:7700",
-            "--socket",
-            "/run/nic/passt.sock",
-            "--guest-mac",
-            nic::mac(vm.uid().as_deref().unwrap(), &vm.spec.nics[0].name)
-        ])
-    );
-    assert_eq!(
-        container["securityContext"],
-        json!({"allowPrivilegeEscalation":false,"privileged":false,"readOnlyRootFilesystem":true,"capabilities":{"drop":["ALL"]}})
-    );
-    // Probes never connect to the single-client relay or passt.
-    for probe in ["readinessProbe", "livenessProbe"] {
-        assert_eq!(
-            container[probe]["exec"]["command"],
-            json!([
-                "qrab-manager",
-                "nic-ready",
-                "--socket",
-                "/run/nic/passt.sock"
-            ])
-        );
-    }
-    assert!(spec["volumes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|v| v.get("hostPath").is_none() && v.get("projected").is_none()));
-    // Not part of the BMC Service, the dashboard's or the VM's own policies.
-    assert_ne!(
-        pod["metadata"]["labels"]["app.kubernetes.io/component"],
-        "vm"
-    );
-
-    // Security groups are reconciled in place; the template is unchanged.
-    let mut changed = vm.clone();
-    changed.spec.nics[0].security_groups = serde_json::from_value(json!(["db"])).unwrap();
-    let regrouped = nic::render(&changed, &settings(), &changed.spec.nics[0]).unwrap();
-    assert_eq!(regrouped.hash, desired.hash);
-    assert!(nic::pod_matches(&desired.pod, &regrouped));
-    let patch = nic::security_group_patch(&desired.pod, &changed.spec.nics[0]).unwrap();
-    assert_eq!(
-        patch["metadata"]["labels"],
-        json!({"sg.qrab.yapplesauce.com/web":null,"sg.qrab.yapplesauce.com/ssh":null,"sg.qrab.yapplesauce.com/db":""})
-    );
-    assert!(nic::security_group_patch(&regrouped.pod, &changed.spec.nics[0]).is_none());
-    // An image change replaces the NIC Pod.
-    let mut image = vm.clone();
-    image.spec.image = Some(format!(
-        "zot.yapplesauce.com/qrab/manager@sha256:{}",
-        "b".repeat(64)
-    ));
-    let moved = nic::render(&image, &settings(), &image.spec.nics[0]).unwrap();
-    assert!(!nic::pod_matches(&desired.pod, &moved));
-}
-
-#[test]
-fn relay_policy_admits_only_the_vm_pod_and_never_enables_default_deny() {
-    use qrab_operator::nic;
-    let vm = networked();
-    let desired = nic::render(&vm, &settings(), &vm.spec.nics[0]).unwrap();
-    let policy = serde_json::to_value(&desired.policy).unwrap();
-    assert_eq!(policy["apiVersion"], "cilium.io/v2");
-    assert_eq!(policy["kind"], "CiliumNetworkPolicy");
-    assert_eq!(policy["metadata"]["name"], "test-vm-nic-lan-relay");
-    assert!(resources::owned_meta(&desired.policy.metadata, &vm));
-    let relay = json!([{"ports":[{"port":"7700","protocol":"TCP"}]}]);
-    let vm_pod = json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm","qrab.yapplesauce.com/owner-uid":"owner-one"});
-    let nic_pod = json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm-nic","qrab.yapplesauce.com/owner-uid":"owner-one","qrab.yapplesauce.com/nic":"lan"});
-    let specs = policy["specs"].as_array().unwrap();
-    assert_eq!(specs.len(), 2);
-    for spec in specs {
-        assert_eq!(
-            spec["enableDefaultDeny"],
-            json!({"ingress":false,"egress":false})
-        );
-    }
-    let nic_rule = &specs[0];
-    assert_eq!(nic_rule["endpointSelector"]["matchLabels"], nic_pod);
-    assert_eq!(
-        nic_rule["ingress"],
-        json!([{"fromEndpoints":[{"matchLabels":vm_pod}],"toPorts":relay}])
-    );
-    assert!(nic_rule.get("egress").is_none());
-    let deny = nic_rule["ingressDeny"].as_array().unwrap();
-    assert!(deny.iter().all(|rule| rule["toPorts"] == relay));
-    assert_eq!(
-        deny[0]["fromEntities"],
-        json!([
-            "world",
-            "host",
-            "remote-node",
-            "kube-apiserver",
-            "ingress",
-            "health",
-            "init",
-            "unmanaged"
-        ])
-    );
-    assert_eq!(
-        deny[1]["fromEndpoints"],
-        json!([
-            {"matchExpressions":[{"key":"k8s:io.kubernetes.pod.namespace","operator":"NotIn","values":["qrab"]}]},
-            {"matchExpressions":[{"key":"app.kubernetes.io/component","operator":"NotIn","values":["vm"]}]},
-            {"matchExpressions":[{"key":"qrab.yapplesauce.com/owner-uid","operator":"NotIn","values":["owner-one"]}]}
-        ])
-    );
-    let vm_rule = &specs[1];
-    assert_eq!(vm_rule["endpointSelector"]["matchLabels"], vm_pod);
-    assert_eq!(
-        vm_rule["egress"],
-        json!([{"toEndpoints":[{"matchLabels":nic_pod}],"toPorts":relay}])
-    );
-    assert!(vm_rule.get("ingress").is_none() && vm_rule.get("ingressDeny").is_none());
-}
-
-#[test]
 fn nic_macs_are_deterministic_local_unicast_and_distinct() {
     use qrab_operator::nic;
     let lan = nic::mac("owner-one", "lan");
@@ -1214,26 +1063,36 @@ fn nic_macs_are_deterministic_local_unicast_and_distinct() {
 }
 
 #[test]
-fn tap_mode_nics_are_restricted_anchors_pinned_to_the_vm_node_and_gated_on_qrab_netd() {
+fn nics_are_restricted_anchors_pinned_to_the_vm_node_and_gated_on_qrab_netd() {
     use qrab_operator::nic;
-    let mut vm = networked();
-    vm.spec.nic_datapath = qrab_operator::api::NicDatapath::Tap;
+    let vm = networked();
     let pool = "qrab-nic-10-244-128-9";
     let anchor = nic::render_anchor(&vm, &settings(), &vm.spec.nics[0], pool, "kube02").unwrap();
     assert!(resources::owned(&anchor.pod, &vm));
     let pod = serde_json::to_value(&anchor.pod).unwrap();
     assert_eq!(pod["metadata"]["name"], "test-vm-nic-lan");
-    // The stream NIC Pod's labels exactly: nothing per Pod, so a second
-    // anchor of this NIC gets the same Cilium identity.
-    let stream =
-        serde_json::to_value(nic::render(&vm, &settings(), &vm.spec.nics[0]).unwrap().pod).unwrap();
-    assert_eq!(pod["metadata"]["labels"], stream["metadata"]["labels"]);
+    // Nothing per Pod, so a second anchor of this NIC gets the same Cilium
+    // identity. Not part of the BMC Service, the dashboard's or the VM's own
+    // policies.
+    assert_eq!(
+        pod["metadata"]["labels"],
+        json!({"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm-nic",
+            "app.kubernetes.io/instance":"test-vm","qrab.yapplesauce.com/owner-uid":"owner-one",
+            "qrab.yapplesauce.com/nic":"lan",
+            "sg.qrab.yapplesauce.com/web":"","sg.qrab.yapplesauce.com/ssh":""})
+    );
     let annotations = &pod["metadata"]["annotations"];
     assert_eq!(annotations["ipam.cilium.io/ip-pool"], pool);
     assert_eq!(annotations["ipam.cilium.io/require-pool-match"], "true");
     assert_eq!(annotations["qrab.yapplesauce.com/nic-datapath"], "tap");
     assert_eq!(annotations[qrab_operator::resources::HASH], anchor.hash);
     let spec = &pod["spec"];
+    assert_eq!(spec["serviceAccountName"], "qrab-manager");
+    assert_eq!(spec["restartPolicy"], "Always");
+    assert_eq!(
+        spec["tolerations"][0]["key"],
+        "node-role.kubernetes.io/control-plane"
+    );
     assert_eq!(
         spec["affinity"],
         json!({"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[
@@ -1259,6 +1118,7 @@ fn tap_mode_nics_are_restricted_anchors_pinned_to_the_vm_node_and_gated_on_qrab_
     let containers = spec["containers"].as_array().unwrap();
     assert_eq!(containers.len(), 1);
     let container = &containers[0];
+    assert_eq!(container["image"], settings().vm_image);
     assert_eq!(container["command"], json!(["qrab-manager"]));
     assert_eq!(container["args"], json!(["anchor"]));
     assert_eq!(
@@ -1282,13 +1142,39 @@ fn tap_mode_nics_are_restricted_anchors_pinned_to_the_vm_node_and_gated_on_qrab_
     assert!(
         nic::anchor_matches(&anchor.pod, &anchor) && !nic::anchor_matches(&anchor.pod, &elsewhere)
     );
+    // Security groups are reconciled in place; the template is unchanged.
+    let mut changed = vm.clone();
+    changed.spec.nics[0].security_groups = serde_json::from_value(json!(["db"])).unwrap();
+    let regrouped =
+        nic::render_anchor(&changed, &settings(), &changed.spec.nics[0], pool, "kube02").unwrap();
+    assert_eq!(regrouped.hash, anchor.hash);
+    assert!(nic::anchor_matches(&anchor.pod, &regrouped));
+    let patch = nic::security_group_patch(&anchor.pod, &changed.spec.nics[0]).unwrap();
+    assert_eq!(
+        patch["metadata"]["labels"],
+        json!({"sg.qrab.yapplesauce.com/web":null,"sg.qrab.yapplesauce.com/ssh":null,"sg.qrab.yapplesauce.com/db":""})
+    );
+    assert!(nic::security_group_patch(&regrouped.pod, &changed.spec.nics[0]).is_none());
+    // An image change replaces the anchor.
+    let mut image = vm.clone();
+    image.spec.image = Some(format!(
+        "zot.yapplesauce.com/qrab/manager@sha256:{}",
+        "b".repeat(64)
+    ));
+    let moved =
+        nic::render_anchor(&image, &settings(), &image.spec.nics[0], pool, "kube02").unwrap();
+    assert!(!nic::anchor_matches(&anchor.pod, &moved));
+    // The removed stream datapath's relay policy, which the operator deletes.
+    assert_eq!(
+        nic::legacy_relay_policy_name(&vm, "lan"),
+        "test-vm-nic-lan-relay"
+    );
 }
 
 #[test]
-fn tap_mode_vm_config_names_the_datapath_instead_of_a_relay() {
+fn vm_config_nics_carry_only_their_id_and_mac() {
     use qrab_operator::nic::NicEndpoint;
-    let mut vm = networked();
-    vm.spec.nic_datapath = qrab_operator::api::NicDatapath::Tap;
+    let vm = networked();
     let boot = resources::GuestSize::of(&vm);
     let endpoints =
         [("lan", "10.244.128.9"), ("backup", "10.244.128.10")].map(|(name, ip)| NicEndpoint {
@@ -1300,22 +1186,38 @@ fn tap_mode_vm_config_names_the_datapath_instead_of_a_relay() {
     assert_eq!(
         config["nics"],
         json!([
-            {"id":"lan","mac":qrab_operator::nic::mac("owner-one","lan"),"datapath":"tap"},
-            {"id":"backup","mac":qrab_operator::nic::mac("owner-one","backup"),"datapath":"tap"}
+            {"id":"lan","mac":qrab_operator::nic::mac("owner-one","lan")},
+            {"id":"backup","mac":qrab_operator::nic::mac("owner-one","backup")}
         ])
     );
-    // The guest-facing contract is the same: a static /32 per NIC in the seed.
+    // The guest configures a static /32 per NIC from the seed.
     assert!(config["seed"]["network_config"]
         .as_str()
         .unwrap()
         .contains("10.244.128.9/32"));
-    // The CRD refuses tap without kvm, which brings qrab-netd's socket.
-    let crd = qrab_operator::api::crd().to_string();
-    assert!(crd.contains("nicDatapath tap needs accelerator kvm"));
+    // The CRD refuses NICs without kvm, which brings qrab-netd's socket. The
+    // rule guards absent `nics` and `accelerator` fields with `has`.
+    let crd = qrab_operator::api::crd();
+    let rules = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["x-kubernetes-validations"]
+        .as_array()
+        .unwrap();
+    let kvm = rules
+        .iter()
+        .find(|r| {
+            r["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("guest NICs need accelerator kvm")
+        })
+        .unwrap();
+    assert_eq!(
+        kvm["rule"],
+        "!has(self.spec.nics) || size(self.spec.nics) == 0 || (has(self.spec.accelerator) && self.spec.accelerator == 'kvm')"
+    );
 }
 
 #[test]
-fn vm_config_carries_nics_only_once_every_nic_pod_has_an_address() {
+fn vm_config_carries_nics_only_once_every_nic_has_an_address() {
     use qrab_operator::nic::NicEndpoint;
     let vm = networked();
     let boot = resources::GuestSize::of(&vm);
@@ -1340,12 +1242,12 @@ fn vm_config_carries_nics_only_once_every_nic_pod_has_an_address() {
     assert_eq!(
         config["nics"],
         json!([
-            {"id":"lan","mac":qrab_operator::nic::mac("owner-one","lan"),"host":"10.0.3.7","port":7700},
-            {"id":"backup","mac":qrab_operator::nic::mac("owner-one","backup"),"host":"fd00::9","port":7700}
+            {"id":"lan","mac":qrab_operator::nic::mac("owner-one","lan")},
+            {"id":"backup","mac":qrab_operator::nic::mac("owner-one","backup")}
         ])
     );
     // Without cloudInit the VM still gets a seed: meta-data plus static
-    // network-config for each NIC, gateway and DNS through passt.
+    // network-config for each NIC, gateway and DNS through qrab-netd.
     let seed = &config["seed"];
     assert_eq!(
         seed["meta_data"],
@@ -1389,7 +1291,7 @@ fn vm_config_carries_nics_only_once_every_nic_pod_has_an_address() {
         resources::seed_meta_data("owner-one", "web-1")
     );
     assert_eq!(with_user["seed"]["network_config"], seed["network_config"]);
-    // A replaced NIC Pod with a new IP is a new VM template.
+    // A changed NIC address is a new VM template.
     let mut moved = endpoints.clone();
     moved[0].ip = "10.0.3.8".parse().unwrap();
     let replaced = resources::render_attached(&vm, &settings(), &[], boot, &moved).unwrap();

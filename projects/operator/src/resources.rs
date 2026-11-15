@@ -1,6 +1,6 @@
 use crate::{
     api::{Accelerator, AdminBucket, CloudInit, Nic, VirtualMachine},
-    nic::{mac as nic_mac, NicEndpoint, GUEST_GATEWAY, NIC_LIMIT, RELAY_PORT},
+    nic::{mac as nic_mac, NicEndpoint, GUEST_GATEWAY, NIC_LIMIT},
     provision::Attached,
     Error, Result,
 };
@@ -135,8 +135,8 @@ pub struct Settings {
     pub redfish_oidc_audience: String,
     /// ID tokens the dashboard forwards to every VM's BMC console and Redfish service.
     pub bmc_bearer: Option<BearerSettings>,
-    /// Stable per-NIC addresses; without it a NIC Pod takes an address from
-    /// its node's block and changes it when it moves.
+    /// Stable per-NIC addresses. Guest NICs need them: each NIC's anchor
+    /// Pod takes its address from its one-address pool on any node.
     pub nic_addresses: Option<crate::address::Addressing>,
 }
 
@@ -986,9 +986,9 @@ fn seed(vm: &VirtualMachine, uid: &str, nics: &[NicEndpoint]) -> Option<Value> {
     Some(seed)
 }
 
-/// Each NIC's static address: the NIC Pod IP as a host address, reached
-/// through passt's fixed gateway, which also forwards DNS. passt's DHCP
-/// offers the same address for guests that ignore the seed.
+/// Each NIC's static address: the NIC's pool address as a host address,
+/// reached through qrab-netd's fixed gateway on the tap, which also forwards
+/// DNS. There is no DHCP: the guest configures itself from the seed.
 pub fn nic_addresses(uid: &str, nics: &[NicEndpoint]) -> Vec<NicAddress> {
     nics.iter()
         .map(|nic| NicAddress {
@@ -1337,9 +1337,9 @@ impl Incarnation {
     }
 }
 
-/// As `render_booted`, with the relay endpoint of every `spec.nics` entry,
-/// in order. A NIC Pod's IP is part of the VM's config: a replaced NIC Pod
-/// with a new IP replaces the VM Pod.
+/// As `render_booted`, with the address of every `spec.nics` entry, in
+/// order. A NIC's address is part of the VM's config (its seed): a changed
+/// address replaces the VM Pod.
 pub fn render_attached(
     vm: &VirtualMachine,
     settings: &Settings,
@@ -1368,7 +1368,7 @@ pub fn render_incarnation(
             .zip(nics)
             .any(|(spec, nic)| spec.name != nic.name)
     {
-        return Err(Error::Invalid("the NIC Pods are not ready yet".into()));
+        return Err(Error::Invalid("the NIC addresses are not ready yet".into()));
     }
     if vm.spec.disks.len() != provisioned.len()
         || vm
@@ -1405,10 +1405,7 @@ pub fn render_incarnation(
     if !nics.is_empty() {
         config["nics"] = json!(nics
             .iter()
-            .map(|n| match vm.spec.nic_datapath {
-                crate::api::NicDatapath::Stream => json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"host":n.ip.to_string(),"port":RELAY_PORT}),
-                crate::api::NicDatapath::Tap => json!({"id":n.name,"mac":nic_mac(&uid, &n.name),"datapath":"tap"}),
-            })
+            .map(|n| json!({"id":n.name,"mac":nic_mac(&uid, &n.name)}))
             .collect::<Vec<_>>());
     }
     // Absent without spec.cloudInit or NICs, so existing template hashes are unchanged.

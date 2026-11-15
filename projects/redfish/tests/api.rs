@@ -2488,7 +2488,6 @@ async fn trusted_token_sources_are_selected_by_issuer_and_grant_only_listed_role
 
 const GUEST_MAC: &str = "02:00:00:00:00:01";
 const GUEST_IP: &str = "198.51.100.7";
-const RELAY: &str = "10.203.0.40:7700";
 
 async fn scrape(
     app: &AppState,
@@ -2666,11 +2665,10 @@ async fn prometheus_scrape_is_valid_sanitized_viewer_data_and_coalesced() {
     use std::collections::{BTreeMap, BTreeSet};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let mut fixture = fixture();
-    // The full admin view still carries the iSCSI portal/IQN and NIC relay.
+    // The full admin view still carries the iSCSI portal/IQN and NIC MACs.
     let mut view = fixture.app.control.config_view().await.unwrap();
-    view.nics.push(
-        serde_json::from_value(json!({"id":"lan","mac":GUEST_MAC,"endpoint":RELAY})).unwrap(),
-    );
+    view.nics
+        .push(serde_json::from_value(json!({"id":"lan","mac":GUEST_MAC})).unwrap());
     view.nics.push(
         serde_json::from_value(json!({"id":"02-00-00-00-00-09","mac":"02:00:00:00:00:09"}))
             .unwrap(),
@@ -2908,7 +2906,6 @@ async fn prometheus_scrape_is_valid_sanitized_viewer_data_and_coalesced() {
         GUEST_MAC,
         "02:00:00:00:00:09",
         GUEST_IP,
-        RELAY,
         "enp1s0",
         "/run/",
     ] {

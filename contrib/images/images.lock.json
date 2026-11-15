@@ -21,16 +21,6 @@
     "bmc_version": "0.2.0",
     "redfish_version": "0.1.0",
     "guest_agent_version": "0.1.0",
-    "passt": {
-      "source_package": "passt 0.0~git20250503.587980c-2+deb13u1",
-      "source_snapshot": "http://snapshot.debian.org/archive/debian/20261104T212339Z",
-      "patches": {
-        "contrib/images/passt/0001-no-ns-isolation.patch": "fd099d84b51ee50e38797b22fd7c8070cac2409db07dddde498f4a2fd59e61b3",
-        "contrib/images/passt/0002-tcp-buf-record-owner-of-flag-frames.patch": "a7171fb19f84f2d3adc7e3d346df560811187d1aa0835c8b5d1126dc874b5c3b",
-        "contrib/images/passt/0003-passt-preset-guest-mac.patch": "0c2c93dcda84880b699bddf5177c5ff63bf983dd777a16dc028a495a2769402e"
-      },
-      "binary_version": "0.0~git20250503.587980c-2+deb13u1+qrab3"
-    },
     "source_revision": "69124156b2f78abb3d7020a5ff1652d27e9ebc64"
   },
   "demo_guest_packages": [

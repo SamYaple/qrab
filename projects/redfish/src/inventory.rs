@@ -1,5 +1,5 @@
 //! Native inventory derived from the manager's effective configuration.
-//! No host paths, storage credentials, relay endpoints or physical topology.
+//! No host paths, storage credentials or physical topology.
 use super::*;
 
 pub(super) const CHASSIS: &str = "/redfish/v1/Chassis/1";
@@ -222,10 +222,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hotplug_and_nic_inventory_use_current_size_without_relay_addresses() {
+    fn hotplug_and_nic_inventory_use_current_size() {
         let config = serde_json::from_value(json!({
             "kernel":"/private/kernel","cpus":2,"memory_mib":1536,
-            "nics":[{"id":"lan","mac":"02:aa:bb:cc:dd:ee","host":"192.0.2.9","port":7700}]
+            "nics":[{"id":"lan","mac":"02:aa:bb:cc:dd:ee"}]
         }))
         .unwrap();
         let mut view = pod::ConfigView::new(&config, &pod::Deployment::default());
@@ -246,7 +246,6 @@ mod tests {
         let nics = items("EthernetInterfaces", &view.redacted()).unwrap();
         assert_eq!(nics[0]["MACAddress"], "02:aa:bb:cc:dd:ee");
         assert_eq!(nics[0]["Id"], "1");
-        assert!(!serde_json::to_string(&nics).unwrap().contains("192.0.2.9"));
         assert!(nics[0].get("LinkStatus").is_none());
         assert!(items("SimpleStorage", &view).unwrap().is_empty());
     }

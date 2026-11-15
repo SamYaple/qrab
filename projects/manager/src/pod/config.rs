@@ -122,43 +122,18 @@ pub struct Uefi {
 /// Most guest NICs one VM may attach.
 pub const NIC_LIMIT: usize = 8;
 
-/// How a guest NIC's frames leave QEMU. Either way the guest traffic never
-/// enters this VM's own network namespace.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Datapath {
-    /// A QEMU `stream` netdev to a relay (`qrab-manager nic`) and passt in
-    /// the NIC Pod.
-    #[default]
-    Stream,
-    /// A multiqueue tap with vhost-net in the NIC's anchor Pod, whose
-    /// descriptors qrab-netd hands over before each QEMU start
-    /// (docs/networking.md, "Tap datapath").
-    Tap,
-}
-
-impl Datapath {
-    fn is_stream(&self) -> bool {
-        *self == Self::Stream
-    }
-}
-
-/// A guest NIC.
+/// A guest NIC: a multiqueue tap with vhost-net in the NIC's anchor Pod,
+/// whose descriptors qrab-netd hands over before each QEMU start
+/// (docs/networking.md, "Tap datapath"). Guest traffic never enters this
+/// VM's own network namespace.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Nic {
-    /// DNS label; QEMU ids are `nic-<id>`. In tap mode it is also the NIC
-    /// name qrab-netd knows the anchor by.
+    /// DNS label; QEMU ids are `nic-<id>`. It is also the NIC name
+    /// qrab-netd knows the anchor by.
     pub id: String,
     /// Unicast, locally administered guest MAC, e.g. `02:00:00:00:00:01`.
     pub mac: String,
-    /// IP literal of the relay (stream mode only).
-    #[serde(default)]
-    pub host: String,
-    #[serde(default)]
-    pub port: u16,
-    #[serde(default, skip_serializing_if = "Datapath::is_stream")]
-    pub datapath: Datapath,
 }
 
 impl Nic {
@@ -220,29 +195,6 @@ fn validate_nics(nics: &[Nic]) -> Result<()> {
         if !parse_guest_mac(&nic.mac).is_some_and(|mac| macs.insert(mac)) {
             return Err(Error::Config(format!(
                 "NIC {} needs a unique unicast, locally administered MAC",
-                nic.id
-            )));
-        }
-        if nic.datapath == Datapath::Tap {
-            if !nic.host.is_empty() || nic.port != 0 {
-                return Err(Error::Config(format!(
-                    "tap NIC {} takes no relay address",
-                    nic.id
-                )));
-            }
-            continue;
-        }
-        let host: std::net::IpAddr = nic
-            .host
-            .parse()
-            .map_err(|_| Error::Config(format!("NIC {} host must be an IP literal", nic.id)))?;
-        if host.is_unspecified()
-            || host.is_multicast()
-            || matches!(host, std::net::IpAddr::V4(ip) if ip.is_broadcast())
-            || nic.port == 0
-        {
-            return Err(Error::Config(format!(
-                "NIC {} needs a unicast relay address and a non-zero port",
                 nic.id
             )));
         }
@@ -345,7 +297,7 @@ pub struct Config {
     #[serde(default = "runtime")]
     pub runtime_dir: PathBuf,
     /// qrab-netd's socket, mounted into VM Pods by the KVM device plugin's
-    /// CDI spec. Only tap-mode NICs use it.
+    /// CDI spec. Only guest NICs use it.
     #[serde(default = "netd_socket")]
     pub netd_socket: PathBuf,
     #[serde(default = "startup")]
@@ -551,7 +503,6 @@ impl Config {
         };
         self.nics
             .iter()
-            .filter(|nic| nic.datapath == Datapath::Tap)
             .map(|nic| TapFds {
                 nic: nic.id.clone(),
                 taps: take(),
@@ -614,51 +565,29 @@ impl Config {
         if self.nics.is_empty() {
             args.extend(["-nic".into(), "none".into()]);
         }
-        let tap_fds = self.tap_fds();
         let joined = |fds: &[i32]| fds.iter().map(i32::to_string).collect::<Vec<_>>().join(":");
-        for nic in &self.nics {
-            if nic.datapath == Datapath::Tap {
-                let fds = tap_fds
-                    .iter()
-                    .find(|t| t.nic == nic.id)
-                    .expect("every tap NIC has a layout");
-                let queues = fds.taps.len();
-                let multiqueue = if queues > 1 {
-                    format!(",mq=on,vectors={}", 2 * queues + 2)
-                } else {
-                    String::new()
-                };
-                args.extend([
-                    "-netdev".into(),
-                    format!(
-                        "tap,id={},fds={},vhost=on,vhostfds={}",
-                        nic.qemu_id(),
-                        joined(&fds.taps),
-                        joined(&fds.vhosts)
-                    ),
-                    "-device".into(),
-                    format!(
-                        "virtio-net-pci,id={0},netdev={0},mac={1},romfile={2}",
-                        nic.qemu_id(),
-                        nic.mac,
-                        multiqueue
-                    ),
-                ]);
-                continue;
-            }
-            // QEMU reconnects on its own after the relay or its Pod restarts.
+        for (nic, fds) in self.nics.iter().zip(self.tap_fds()) {
+            let queues = fds.taps.len();
+            let multiqueue = if queues > 1 {
+                format!(",mq=on,vectors={}", 2 * queues + 2)
+            } else {
+                String::new()
+            };
             // An empty romfile keeps iPXE out of the boot order.
             args.extend([
                 "-netdev".into(),
-                serde_json::json!({"type":"stream","id":nic.qemu_id(),"server":false,
-                    "addr":{"type":"inet","host":nic.host,"port":nic.port.to_string()},
-                    "reconnect-ms":1000})
-                .to_string(),
+                format!(
+                    "tap,id={},fds={},vhost=on,vhostfds={}",
+                    nic.qemu_id(),
+                    joined(&fds.taps),
+                    joined(&fds.vhosts)
+                ),
                 "-device".into(),
                 format!(
-                    "virtio-net-pci,id={0},netdev={0},mac={1},romfile=",
+                    "virtio-net-pci,id={0},netdev={0},mac={1},romfile={2}",
                     nic.qemu_id(),
-                    nic.mac
+                    nic.mac,
+                    multiqueue
                 ),
             ]);
         }

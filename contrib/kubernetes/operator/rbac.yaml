@@ -32,7 +32,8 @@ rules:
 - apiGroups: ['']
   resources: [secrets]
   verbs: [create, patch, delete]
-# Relay policies of guest NIC Pods (<vm>-nic-<name>-relay, VM-owned).
+# The VM's Redfish and migration policies, and deleting the relay policies
+# (<vm>-nic-<name>-relay, VM-owned) of the removed stream NIC datapath.
 - apiGroups: [cilium.io]
   resources: [ciliumnetworkpolicies]
   verbs: [get, list, watch, create, patch, delete]

@@ -104,31 +104,30 @@ fn admin_bucket_audio_adds_a_playback_device_on_the_vnc_audio_capture() {
 }
 
 #[test]
-fn guest_nics_replace_nic_none_with_stream_netdevs_to_their_relays() {
+fn guest_nics_replace_nic_none_with_tap_netdevs() {
     let dir = tempfile::tempdir().unwrap();
     let kernel = dir.path().join("kernel");
     std::fs::write(&kernel, []).unwrap();
     let mut config = config(dir.path(), PathBuf::from("/bin/true"), kernel);
+    config.cpus = 1;
     config.nics = serde_json::from_value(serde_json::json!([
-        {"id": "lan", "mac": "02:12:34:56:78:9a", "host": "10.0.3.7", "port": 7700},
-        {"id": "storage", "mac": "06:00:00:00:00:02", "host": "fd00::7", "port": 7701}
+        {"id": "lan", "mac": "02:12:34:56:78:9a"},
+        {"id": "storage", "mac": "06:00:00:00:00:02"}
     ]))
     .unwrap();
     config.validate().unwrap();
     let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
     assert!(!args.iter().any(|a| a == "-nic"));
-    let netdevs: Vec<serde_json::Value> = args
+    let netdevs: Vec<&str> = args
         .windows(2)
         .filter(|a| a[0] == "-netdev")
-        .map(|a| serde_json::from_str(&a[1]).unwrap())
+        .map(|a| a[1].as_str())
         .collect();
     assert_eq!(
         netdevs,
         [
-            serde_json::json!({"type":"stream","id":"nic-lan","server":false,
-                "addr":{"type":"inet","host":"10.0.3.7","port":"7700"},"reconnect-ms":1000}),
-            serde_json::json!({"type":"stream","id":"nic-storage","server":false,
-                "addr":{"type":"inet","host":"fd00::7","port":"7701"},"reconnect-ms":1000}),
+            "tap,id=nic-lan,fds=3,vhost=on,vhostfds=4",
+            "tap,id=nic-storage,fds=5,vhost=on,vhostfds=6"
         ]
     );
     assert!(args.windows(2).any(|a| a
@@ -148,46 +147,36 @@ fn guest_nics_replace_nic_none_with_stream_netdevs_to_their_relays() {
 }
 
 #[test]
-fn tap_nics_take_inherited_multiqueue_fds_and_stream_nics_are_unchanged() {
+fn tap_nics_take_inherited_multiqueue_fds() {
     let dir = tempfile::tempdir().unwrap();
     let kernel = dir.path().join("kernel");
     std::fs::write(&kernel, []).unwrap();
     let mut config = config(dir.path(), PathBuf::from("/bin/true"), kernel);
     let socket = Path::new("/tmp/private/qmp.sock");
-    let stream = serde_json::json!({"id": "lan", "mac": "02:12:34:56:78:9a", "host": "10.0.3.7", "port": 7700});
-    config.nics = serde_json::from_value(serde_json::json!([stream])).unwrap();
-    let implicit = config.arguments(socket);
-    // Stream mode serializes and renders exactly as before the datapath field.
-    assert_eq!(serde_json::to_value(&config.nics[0]).unwrap(), stream);
-    let mut explicit = stream.clone();
-    explicit["datapath"] = "stream".into();
-    config.nics = serde_json::from_value(serde_json::json!([explicit])).unwrap();
-    assert_eq!(config.arguments(socket), implicit);
-
-    config.cpus = 4;
+    let lan = serde_json::json!({"id": "lan", "mac": "02:12:34:56:78:9a"});
     config.nics = serde_json::from_value(serde_json::json!([
-        {"id": "lan", "mac": "02:12:34:56:78:9a", "datapath": "tap"},
-        {"id": "old", "mac": "02:00:00:00:00:02", "host": "10.0.3.7", "port": 7700},
-        {"id": "wan", "mac": "02:00:00:00:00:03", "datapath": "tap"},
+        lan,
+        {"id": "wan", "mac": "02:00:00:00:00:03"},
     ]))
     .unwrap();
+    // A NIC is just its id and MAC.
+    assert_eq!(serde_json::to_value(&config.nics[0]).unwrap(), lan);
+    config.cpus = 4;
     config.validate().unwrap();
-    let args = config.arguments(socket);
+    let multiqueue = config.arguments(socket);
     let pairs = |flag: &str| -> Vec<String> {
-        args.windows(2)
+        multiqueue
+            .windows(2)
             .filter(|a| a[0] == flag)
             .map(|a| a[1].clone())
             .collect()
     };
-    let netdevs = pairs("-netdev");
     assert_eq!(
-        netdevs[0],
-        "tap,id=nic-lan,fds=3:4:5:6,vhost=on,vhostfds=7:8:9:10"
-    );
-    assert!(netdevs[1].contains("\"type\":\"stream\""));
-    assert_eq!(
-        netdevs[2],
-        "tap,id=nic-wan,fds=11:12:13:14,vhost=on,vhostfds=15:16:17:18"
+        pairs("-netdev"),
+        [
+            "tap,id=nic-lan,fds=3:4:5:6,vhost=on,vhostfds=7:8:9:10",
+            "tap,id=nic-wan,fds=11:12:13:14,vhost=on,vhostfds=15:16:17:18"
+        ]
     );
     let devices = pairs("-device");
     assert!(devices.contains(
@@ -206,7 +195,7 @@ fn tap_nics_take_inherited_multiqueue_fds_and_stream_nics_are_unchanged() {
         &"virtio-net-pci,id=nic-lan,netdev=nic-lan,mac=02:12:34:56:78:9a,romfile=".to_owned()
     ));
     // No mode ever gives QEMU a user-mode (slirp) netdev or guest forwarding.
-    for args in [implicit, args] {
+    for args in [multiqueue, args] {
         assert!(
             !args.iter().any(|a| a.contains("user")
                 || a.contains("slirp")
@@ -215,93 +204,49 @@ fn tap_nics_take_inherited_multiqueue_fds_and_stream_nics_are_unchanged() {
             "{args:?}"
         );
     }
-    // A tap NIC never names a relay.
-    config.nics = serde_json::from_value(serde_json::json!([
-        {"id": "lan", "mac": "02:12:34:56:78:9a", "datapath": "tap", "host": "10.0.3.7", "port": 7700}
-    ]))
-    .unwrap();
-    assert!(config
-        .validate()
-        .unwrap_err()
-        .to_string()
-        .contains("takes no relay address"));
+    // The former stream relay fields and the datapath selector are refused.
+    for nic in [
+        serde_json::json!({"id": "lan", "mac": "02:12:34:56:78:9a", "datapath": "tap"}),
+        serde_json::json!({"id": "lan", "mac": "02:12:34:56:78:9a", "host": "10.0.3.7", "port": 7700}),
+    ] {
+        assert!(serde_json::from_value::<pod::Nic>(nic).is_err());
+    }
 }
 
 #[test]
-fn guest_nics_need_unique_labels_local_unicast_macs_and_ip_relays() {
+fn guest_nics_need_unique_labels_and_local_unicast_macs() {
     let dir = tempfile::tempdir().unwrap();
     let kernel = dir.path().join("kernel");
     std::fs::write(&kernel, []).unwrap();
     let base = config(dir.path(), PathBuf::from("/bin/true"), kernel);
-    let nic = |id: &str, mac: &str, host: &str, port: u16| pod::Nic {
+    let nic = |id: &str, mac: &str| pod::Nic {
         id: id.into(),
         mac: mac.into(),
-        host: host.into(),
-        port,
-        datapath: pod::Datapath::Stream,
     };
     for (nics, problem) in [
-        (
-            vec![nic("Lan", "02:00:00:00:00:01", "10.0.0.1", 7700)],
-            "id",
-        ),
-        (
-            vec![nic("lan,x", "02:00:00:00:00:01", "10.0.0.1", 7700)],
-            "id",
-        ),
+        (vec![nic("Lan", "02:00:00:00:00:01")], "id"),
+        (vec![nic("lan,x", "02:00:00:00:00:01")], "id"),
         (
             vec![
-                nic("lan", "02:00:00:00:00:01", "10.0.0.1", 7700),
-                nic("lan", "02:00:00:00:00:02", "10.0.0.2", 7700),
+                nic("lan", "02:00:00:00:00:01"),
+                nic("lan", "02:00:00:00:00:02"),
             ],
             "duplicate id",
         ),
+        (vec![nic("lan", "00:16:3e:00:00:01")], "vendor MAC"),
+        (vec![nic("lan", "03:00:00:00:00:01")], "multicast MAC"),
+        (vec![nic("lan", "02:00:00:00:00")], "short MAC"),
         (
-            vec![nic("lan", "00:16:3e:00:00:01", "10.0.0.1", 7700)],
-            "vendor MAC",
-        ),
-        (
-            vec![nic("lan", "03:00:00:00:00:01", "10.0.0.1", 7700)],
-            "multicast MAC",
-        ),
-        (
-            vec![nic("lan", "02:00:00:00:00", "10.0.0.1", 7700)],
-            "short MAC",
-        ),
-        (
-            vec![nic("lan", "02:00:00:00:00:01,romfile=x", "10.0.0.1", 7700)],
+            vec![nic("lan", "02:00:00:00:00:01,romfile=x")],
             "MAC injection",
         ),
         (
-            vec![
-                nic("a", "02:00:00:00:00:01", "10.0.0.1", 7700),
-                nic("b", "02:00:00:00:00:01", "10.0.0.2", 7700),
-            ],
+            vec![nic("a", "02:00:00:00:00:01"), nic("b", "02:00:00:00:00:01")],
             "duplicate MAC",
         ),
         (
-            vec![nic("lan", "02:00:00:00:00:01", "relay.example", 7700)],
-            "hostname",
-        ),
-        (
-            vec![nic("lan", "02:00:00:00:00:01", "0.0.0.0", 7700)],
-            "unspecified",
-        ),
-        (
-            vec![nic("lan", "02:00:00:00:00:01", "224.0.0.1", 7700)],
-            "multicast",
-        ),
-        (vec![nic("lan", "02:00:00:00:00:01", "10.0.0.1", 0)], "port"),
-        (
             (0..=pod::NIC_LIMIT)
-                .map(|i| {
-                    nic(
-                        &format!("n{i}"),
-                        &format!("02:00:00:00:00:{i:02x}"),
-                        "10.0.0.1",
-                        7700,
-                    )
-                })
+                .map(|i| nic(&format!("n{i}"), &format!("02:00:00:00:00:{i:02x}")))
                 .collect(),
             "too many",
         ),

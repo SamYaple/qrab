@@ -99,9 +99,8 @@ spec:
     toPorts:
     - ports:
       - {port: '443', protocol: TCP}
-  # Native QEMU iSCSI uses the Pod's storage network. Guest NICs are separate
-  # NIC Pods; the operator's <vm>-nic-<name>-relay policies add this Pod's
-  # egress to their relay port 7700.
+  # Native QEMU iSCSI uses the Pod's storage network. Guest NICs are taps in
+  # separate NIC anchor Pods and never use this Pod's network.
   - toCIDR: [10.203.0.1/32]
     toPorts:
     - ports:

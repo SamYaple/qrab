@@ -2,10 +2,10 @@
 
 `qrab-operator` reconciles namespaced `VirtualMachine` resources in
 `qrab.yapplesauce.com/v1alpha1`. It owns one Pod and ConfigMap per VM, plus
-the NIC Pods, CiliumNetworkPolicies and disk CHAP Secrets described below.
+the NIC anchor Pods, CiliumNetworkPolicies and disk CHAP Secrets described below.
 Each VM Pod runs `qrab-manager` (QEMU, OVMF UEFI and swtpm TPM2), plus the optional BMC and
-Redfish sidecars. Guest NICs are opt-in (`spec.nics`); each is a separate NIC Pod,
-so guest traffic never enters the VM Pod (see [Guest NICs](#guest-nics)). No guest Kubernetes token, VIF, arbitrary Pod template,
+Redfish sidecars. Guest NICs are opt-in (`spec.nics`); each is a kernel tap in a separate
+NIC anchor Pod, so guest traffic never enters the VM Pod (see [Guest NICs](#guest-nics)). No guest Kubernetes token, VIF, arbitrary Pod template,
 leader election, VM admission webhook or cluster-wide controller is involved.
 Use one operator replica with `Recreate` deployment strategy.
 
@@ -326,60 +326,51 @@ spec:
     securityGroups: [web]
 ```
 
-- **What the operator creates.** For each NIC it creates a NIC Pod
-  `<vm>-nic-<name>`, which runs `qrab-manager nic`: passt behind a
-  one-connection relay on TCP 7700, as the `qrab-manager` ServiceAccount with
-  no API token. It also creates a CiliumNetworkPolicy `<vm>-nic-<name>-relay`.
-  Both are controller-owned by the VM.
-- **NIC Pod labels.** `app.kubernetes.io/component: vm-nic`,
+Guest NICs need `accelerator: kvm`, which the CRD enforces (the KVM device
+brings qrab-netd's socket into the VM Pod), and stable NIC addresses
+(`QRAB_NIC_ADDRESS_RANGE`, [Stable addresses](networking.md#stable-addresses)).
+Without stable addresses the VM is `Blocked` with reason `InvalidSpec`.
+
+- **Anchor Pods.** For each NIC the operator creates an anchor Pod
+  `<vm>-nic-<name>`, controller-owned by the VM, which runs
+  `qrab-manager anchor` (it waits for SIGTERM) as the `qrab-manager`
+  ServiceAccount with no API token. It is restricted, with no ports, probes or
+  volumes: its IP is the guest's. It is annotated with the NIC's address pool
+  (`ipam.cilium.io/ip-pool`, `ipam.cilium.io/require-pool-match: "true"`) and
+  `qrab.yapplesauce.com/nic-datapath: tap`, which selects it for qrab-netd.
+- **Anchor labels.** `app.kubernetes.io/component: vm-nic`,
   `app.kubernetes.io/instance: <vm>`, `qrab.yapplesauce.com/owner-uid`,
   `qrab.yapplesauce.com/nic: <name>`, and one
-  `sg.qrab.yapplesauce.com/<group>: ""` per security group.
-- **The relay policy.** Only this VM's Pod reaches 7700. An `ingressDeny`
-  covers every other source, so no security-group rule can open 7700. The VM
-  Pod is allowed egress to the relay. The policy never enables default deny,
-  so **NIC Pods are default-allow until a security-group or baseline policy
-  selects them**.
-- **Startup.** The VM waits with reason `NicPending` until every NIC Pod is
-  Ready. Then its config gets `nics: [{id, mac, host: <NIC Pod IP>, port:
-  7700}]`. The MAC is `02:` plus five bytes of SHA-256 over the VM UID and NIC
-  name.
-- **Status.** `status.nics` reports `name`, `mac`, `podName`, `ip` and `ready`.
-- **Changes.**
-  - Security-group changes patch NIC Pod labels in place.
-  - A missing or failed NIC Pod is recreated. A new NIC Pod IP changes the VM
-    config, which replaces the VM Pod through the normal controlled path, with
-    identity kept.
-  - Removing a NIC deletes its Pod and policy. Deleting the VM collects them
-    through owner references.
-- **Selectors.** NIC Pods share `app.kubernetes.io/instance` with their VM.
-  Anything meant for the VM Pod must also select `app.kubernetes.io/component:
-  vm`, as `console.yaml`'s Service and policy do.
-- **RBAC.** The operator needs `ciliumnetworkpolicies.cilium.io` get, list,
-  watch, create, patch and delete in `rbac.yaml`.
-
-### Tap datapath (`spec.nicDatapath: tap`)
-
-Everything above describes the default, `stream`. With `nicDatapath: tap`,
-which the CRD allows only with `accelerator: kvm` and the operator only with
-stable NIC addresses:
-
-- **Anchor Pods.** Each NIC's Pod `<vm>-nic-<name>` is an anchor that runs
-  `qrab-manager anchor`, which waits for SIGTERM. It has the same labels and
-  pool annotations as a stream NIC Pod, plus
-  `qrab.yapplesauce.com/nic-datapath: tap`. It is restricted, with no ports,
-  probes or volumes.
+  `sg.qrab.yapplesauce.com/<group>: ""` per security group. Nothing is per
+  Pod, so a second anchor of the same NIC shares its Cilium identity.
+- **Default allow.** The operator creates no policy for a NIC, so **anchors
+  are default-allow until a security-group or baseline policy selects them**.
 - **Placement.** The anchor is created once the VM Pod is scheduled and is
   pinned to that node (`matchFields metadata.name`). A VM Pod on another node
   gets new anchors.
-- **Readiness and status.** The anchor's readiness gate
-  `qrab.yapplesauce.com/nic-plumbed` is set by qrab-netd. `status.nics[].ready`
-  is that readiness, and `status.nics[].ip` is the pool address.
-- **No relay policy.** None is created, and an existing one is deleted.
+- **Readiness and status.** qrab-netd builds the NIC's tap in the anchor's
+  network namespace and sets the anchor's readiness gate
+  `qrab.yapplesauce.com/nic-plumbed`. `status.nics` reports `name`, `mac`,
+  `podName`, `ip` (the pool address), `address` and `ready` (the anchor's
+  readiness).
 - **Startup.** The VM Pod does not wait for anchors. Its config gets
-  `nics: [{id, mac, datapath: tap}]` and the same seed, and the manager waits
-  for qrab-netd before starting QEMU.
-- **Changing the mode** changes the VM config, so the VM restarts.
+  `nics: [{id, mac}]` and the seed's static addresses, and the manager waits
+  for qrab-netd before starting QEMU. The MAC is `02:` plus five bytes of
+  SHA-256 over the VM UID and NIC name.
+- **Changes.**
+  - Security-group changes patch anchor labels in place.
+  - A missing or failed anchor is recreated on the VM Pod's node with the
+    same address.
+  - Removing a NIC deletes its anchor and then releases its address.
+    Deleting the VM stops its anchors before releasing their addresses.
+- **Former relay policies.** A CiliumNetworkPolicy `<vm>-nic-<name>-relay`
+  that the VM owns, left by the removed stream datapath, is deleted.
+- **Selectors.** Anchors share `app.kubernetes.io/instance` with their VM.
+  Anything meant for the VM Pod must also select `app.kubernetes.io/component:
+  vm`, as `console.yaml`'s Service and policy do.
+- **RBAC.** The operator needs `ciliumnetworkpolicies.cilium.io` get, list,
+  watch, create, patch and delete in `rbac.yaml`, for the VM's Redfish and
+  migration policies and the relay-policy cleanup.
 
 ## cloud-init seed
 
@@ -417,14 +408,13 @@ spec:
   seed, even without `cloudInit`. Its network-config v2 is rendered by
   `resources::seed_network_config`, with one entry per NIC:
   - the interface is matched by its guest MAC and named `ethN`;
-  - the address is the NIC Pod IP as /32 (or /128);
-  - the default route goes `on-link` via passt's fixed gateway `169.254.1.1`;
-  - the nameserver is `169.254.1.1`, which passt forwards to the NIC Pod's
-    resolver.
+  - the address is the NIC's stable address as /32;
+  - the default route goes `on-link` via qrab-netd's fixed gateway
+    `169.254.1.1` on the tap;
+  - the nameserver is `169.254.1.1`, which qrab-netd redirects to the
+    anchor's resolver.
 
-  passt's DHCP still offers the same address, for guests that ignore the
-  seed. A new NIC Pod IP changes the seed and restarts the VM, like any
-  other config change.
+  There is no DHCP: a guest configures its NICs from the seed.
 
 ## Power, restart and deletion
 
