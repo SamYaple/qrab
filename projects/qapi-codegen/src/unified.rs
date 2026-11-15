@@ -1299,7 +1299,9 @@ fn field_rust_name(f: &StructField) -> String {
 }
 
 fn same_field_shape(left: &StructField, right: &StructField) -> bool {
-    rustify_type(&left.r#type) == rustify_type(&right.r#type) && left.array == right.array
+    rustify_type(&left.r#type) == rustify_type(&right.r#type)
+        && left.array == right.array
+        && left.optional == right.optional
 }
 
 fn materialize_field_history(registry: &mut UnifiedRegistry) {
@@ -2981,6 +2983,24 @@ mod field_history_tests {
             fields,
             meta: Metadata::default(),
         }
+    }
+
+    #[test]
+    fn field_optionality_changes_preserve_each_wire_contract() {
+        let mut registry = UnifiedRegistry::default();
+        for (major, optional) in [(1, true), (2, false), (3, true)] {
+            let mut value = field("value", "str", false);
+            value.optional = optional;
+            merge_struct(&mut registry, "Record", &record(vec![value]), (major, 0, 0));
+        }
+        materialize_field_history(&mut registry);
+        let UnifiedType::Struct(value) = &registry.types["Record"] else {
+            panic!()
+        };
+        assert_eq!(value.field_history.len(), 2);
+        assert_eq!(value.field_versions["value"].since, (3, 0, 0));
+        assert!(value.field_history[0].0.optional);
+        assert!(!value.field_history[1].0.optional);
     }
 
     #[test]

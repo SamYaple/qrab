@@ -2055,7 +2055,13 @@ pub struct BlockdevCreateOptionsLuks {
     pub detached_header: Option<bool>,
     /// Node to create the image format on, mandatory except when
     /// 'preallocation' is not requested
+    #[qapi(added = "9.0.0")]
     pub file: Option<BlockdevRef>,
+    /// Node to create the image format on
+    #[qapi(name = "file")]
+    #[qapi(removed = "9.0.0")]
+    #[qapi(required)]
+    pub file_legacy: Option<BlockdevRef>,
     /// the master key hash algorithm.  Currently defaults to
     /// 'sha256'
     #[qapi(name = "hash-alg")]
@@ -2699,9 +2705,14 @@ pub struct BlockDeviceInfo {
     pub iops_wr_max_length: Option<i64>,
     /// the name of the block driver node (Since 2.0)
     #[qapi(name = "node-name")]
-    #[qapi(added = "2.0.0")]
+    #[qapi(added = "10.1.0")]
     #[qapi(required)]
     pub node_name: Option<String>,
+    /// the name of the block driver node (Since 2.0)
+    #[qapi(name = "node-name")]
+    #[qapi(added = "2.0.0")]
+    #[qapi(removed = "10.1.0")]
+    pub node_name_legacy: Option<String>,
     /// true if the backing device was open read-only
     pub ro: bool,
     /// configured write threshold for the device.  0 if
@@ -4532,8 +4543,14 @@ pub enum BlockdevRefOrNull {
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockdevSnapshot {
     /// #optional the name of the device to generate the snapshot from.
+    #[qapi(added = "2.0.0")]
     #[qapi(removed = "2.5.0")]
     pub device: Option<String>,
+    /// the name of the device to generate the snapshot from.
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.0.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// #optional the format of the snapshot image, default is 'qcow2'.
     #[qapi(removed = "2.5.0")]
     pub format: Option<String>,
@@ -4613,7 +4630,13 @@ pub struct BlockdevSnapshotInternalWrapper {
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockdevSnapshotSync {
     /// the name of the device to take a snapshot of.
+    #[qapi(added = "2.0.0")]
     pub device: Option<String>,
+    /// the name of the device to generate the snapshot from.
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.0.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// the format of the overlay image, default is 'qcow2'.
     pub format: Option<String>,
     /// whether and how QEMU should create a new image, default is
@@ -5384,8 +5407,13 @@ pub struct BlockIoThrottle {
     pub bps_wr_max_length: Option<i64>,
     /// Block device name
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.8.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub device: Option<String>,
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// throttle group name (Since 2.4)
     pub group: Option<String>,
     /// The name or QOM path of the guest device (since: 2.8)
@@ -7878,8 +7906,19 @@ pub struct CpuModelExpansionInfo {
     /// the architecture.  (since: 10.1 -- since 9.1 on s390x --).
     #[qapi(name = "deprecated-props")]
     #[qapi(condition = "TARGET_S390X")]
-    #[qapi(added = "9.1.0")]
+    #[qapi(added = "10.1.0")]
     pub deprecated_props: Option<Vec<String>>,
+    /// a list of properties that are flagged as
+    /// deprecated by the CPU vendor.  The list depends on the
+    /// CpuModelExpansionType: "static" properties are a subset of the
+    /// enabled-properties for the expanded model; "full" properties are
+    /// a set of properties that are deprecated across all models for
+    /// the architecture.  (since: 9.1).
+    #[qapi(condition = "TARGET_S390X")]
+    #[qapi(name = "deprecated-props")]
+    #[qapi(added = "9.1.0")]
+    #[qapi(removed = "10.1.0")]
+    pub deprecated_props_legacy: Option<Vec<String>>,
     /// the expanded `CpuModelInfo`.
     pub model: CpuModelInfo,
 }
@@ -12943,14 +12982,24 @@ pub struct MigrationParameters {
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub compress_wait_thread: Option<bool>,
+    #[qapi(name = "compress-level")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub compress_level_legacy: Option<i64>,
     /// compression level
     #[qapi(name = "compress-level")]
+    #[qapi(added = "2.8.0")]
     #[qapi(removed = "2.12.0")]
-    pub compress_level_legacy: Option<i64>,
+    pub compress_level_legacy2: Option<i64>,
+    #[qapi(name = "compress-threads")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub compress_threads_legacy: Option<i64>,
     /// compression thread count
     #[qapi(name = "compress-threads")]
+    #[qapi(added = "2.8.0")]
     #[qapi(removed = "2.12.0")]
-    pub compress_threads_legacy: Option<i64>,
+    pub compress_threads_legacy2: Option<i64>,
     /// Command to start the new QEMU process when @mode
     /// is @cpr-exec.  The first list element is the program's filename,
     /// the remainder its arguments.  (Since 10.2)
@@ -12984,20 +13033,30 @@ pub struct MigrationParameters {
     #[qapi(name = "cpu-throttle-tailslow")]
     #[qapi(added = "5.1.0")]
     pub cpu_throttle_tailslow: Option<bool>,
+    #[qapi(name = "cpu-throttle-increment")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub cpu_throttle_increment_legacy: Option<i64>,
     /// throttle percentage increase each time
     /// auto-converge detects that migration is not making
     /// progress. (Since 2.7)
     #[qapi(name = "cpu-throttle-increment")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.8.0")]
     #[qapi(removed = "2.12.0")]
-    pub cpu_throttle_increment_legacy: Option<i64>,
+    pub cpu_throttle_increment_legacy2: Option<i64>,
+    #[qapi(name = "cpu-throttle-initial")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub cpu_throttle_initial_legacy: Option<i64>,
     /// Initial percentage of time guest cpus are
     /// throttled when migration auto-converge is activated.
     /// (Since 2.7)
     #[qapi(name = "cpu-throttle-initial")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.8.0")]
     #[qapi(removed = "2.12.0")]
-    pub cpu_throttle_initial_legacy: Option<i64>,
+    pub cpu_throttle_initial_legacy2: Option<i64>,
     /// decompression thread count
     #[qapi(name = "decompress-threads")]
     #[qapi(feature = "deprecated")]
@@ -13005,10 +13064,15 @@ pub struct MigrationParameters {
     #[qapi(deprecated(added = "8.2.0"))]
     #[qapi(removed = "9.1.0")]
     pub decompress_threads: Option<u8>,
+    #[qapi(name = "decompress-threads")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub decompress_threads_legacy: Option<i64>,
     /// decompression thread count
     #[qapi(name = "decompress-threads")]
+    #[qapi(added = "2.8.0")]
     #[qapi(removed = "2.12.0")]
-    pub decompress_threads_legacy: Option<i64>,
+    pub decompress_threads_legacy2: Option<i64>,
     /// Open migration files with O_DIRECT when possible.  This
     /// only has effect if the @mapped-ram capability is enabled.
     /// (Since 9.1)
@@ -13130,6 +13194,11 @@ pub struct MigrationParameters {
     #[qapi(added = "4.0.0")]
     #[qapi(removed = "11.0.0")]
     pub tls_authz_legacy: Option<String>,
+    #[qapi(name = "tls-creds")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub tls_creds_legacy: Option<String>,
     /// ID of the 'tls-creds' object that provides credentials
     /// for establishing a TLS connection over the migration data
     /// channel.  On the outgoing side of the migration, the credentials
@@ -13140,18 +13209,23 @@ pub struct MigrationParameters {
     ///
     /// Note: 2.8 omits empty @tls-creds instead.
     #[qapi(name = "tls-creds")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.8.0")]
     #[qapi(removed = "11.0.0")]
-    pub tls_creds_legacy: Option<String>,
+    pub tls_creds_legacy2: Option<String>,
+    #[qapi(name = "tls-hostname")]
+    #[qapi(added = "2.7.0")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub tls_hostname_legacy: Option<String>,
     /// migration target's hostname for validating the
     /// server's x509 certificate identity.  If empty, QEMU will use the
     /// hostname from the migration URI, if any.  (Since 2.7)
     ///
     /// Note: 2.8 omits empty @tls-hostname instead.
     #[qapi(name = "tls-hostname")]
-    #[qapi(added = "2.7.0")]
+    #[qapi(added = "2.8.0")]
     #[qapi(removed = "11.0.0")]
-    pub tls_hostname_legacy: Option<String>,
+    pub tls_hostname_legacy2: Option<String>,
     /// Dirtyrate limit (MB/s) during live migration.
     /// Defaults to 1.  (Since 8.1)
     #[qapi(name = "vcpu-dirty-limit")]
@@ -18239,8 +18313,15 @@ pub struct SchemaInfoCommand {
     /// whether the command allows out-of-band execution,
     /// defaults to false (Since: 2.12)
     #[qapi(name = "allow-oob")]
-    #[qapi(added = "2.12.0")]
+    #[qapi(added = "3.0.0")]
     pub allow_oob: Option<bool>,
+    /// whether the command allows out-of-band execution.
+    /// (Since: 2.12)
+    #[qapi(name = "allow-oob")]
+    #[qapi(added = "2.12.0")]
+    #[qapi(removed = "3.0.0")]
+    #[qapi(required)]
+    pub allow_oob_legacy: Option<bool>,
     /// the name of the object type that provides the command's
     /// parameters.
     #[qapi(name = "arg-type")]

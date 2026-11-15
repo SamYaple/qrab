@@ -112,6 +112,7 @@ async fn grow(qmp: &Qmp, wanted: &BTreeMap<String, u64>) -> Result<Vec<(String, 
         let size = i64::try_from(*size).unwrap_or(i64::MAX);
         if size > current {
             qmp.execute(&BlockResize {
+                device_legacy: None,
                 device: None,
                 node_name: Some(name),
                 size,
@@ -177,8 +178,8 @@ mod tests {
             let mut size: i64 = 67108864;
             while let Ok((name, arguments)) = session.recv_command().await {
                 match name.as_str() {
-                    "query-named-block-nodes" => session
-                        .send_return(serde_json::json!([
+                    "query-named-block-nodes" => {
+                        let mut nodes = serde_json::json!([
                             {"node-name":"iscsi-root-lun","drv":"iscsi","encrypted":false,"file":"iscsi","ro":false,
                              "image":{"filename":"iscsi","format":"iscsi","virtual-size":size}},
                             {"node-name":"iscsi-root","drv":"raw","encrypted":false,"file":"iscsi","ro":false,
@@ -187,9 +188,22 @@ mod tests {
                             {"node-name":"pflash-code-file","drv":"file","encrypted":false,"file":"/usr/share/qrab/OVMF_CODE.fd","ro":true,
                              "image":{"filename":"/usr/share/qrab/OVMF_CODE.fd","format":"file","virtual-size":4194304,
                                       "format-specific":{"type":"file","data":{}}}}
-                        ]))
-                        .await
-                        .unwrap(),
+                        ]);
+                        for node in nodes.as_array_mut().unwrap() {
+                            node.as_object_mut().unwrap().extend(
+                                serde_json::json!({
+                                    "active":true,"backing_file_depth":0,"children":[],
+                                    "detect_zeroes":"off","bps":0,"bps_rd":0,"bps_wr":0,
+                                    "iops":0,"iops_rd":0,"iops_wr":0,"write_threshold":0,
+                                    "cache":{"direct":false,"no-flush":false,"writeback":true}
+                                })
+                                .as_object()
+                                .unwrap()
+                                .clone(),
+                            );
+                        }
+                        session.send_return(nodes).await.unwrap();
+                    }
                     "block_resize" => {
                         seen.lock().unwrap().push(arguments.clone());
                         if *failing.lock().unwrap() {

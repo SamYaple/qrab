@@ -5,6 +5,16 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    for (version, wire) in [
+        ((6, 1, 0), serde_json::json!({"optional-now":"old"})),
+        ((11, 1, 3), serde_json::json!({"required-now":"new"})),
+    ] {
+        with_version(version, || {
+            assert!(serde_json::from_value::<ChangingOptionality>(serde_json::json!({})).is_err());
+            let value: ChangingOptionality = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
     assert!(!commands::ChangingFlags::ALLOW_OOB);
     assert!(!commands::ChangingFlags::ALLOW_PRECONFIG);
     assert!(commands::ChangingFlags::SUCCESS_RESPONSE);

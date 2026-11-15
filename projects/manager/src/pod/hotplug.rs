@@ -197,6 +197,7 @@ async fn add_cpus(qmp: &Qmp, cpus: u32) -> Result<u32> {
             _ => Default::default(),
         };
         qmp.execute(&DeviceAdd {
+            id_legacy: None,
             driver: slot.r#type,
             id: Some(format!("qrab-vcpu{present}")),
             bus: None,

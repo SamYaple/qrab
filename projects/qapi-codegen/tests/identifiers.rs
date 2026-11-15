@@ -131,6 +131,9 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         "{ 'alternate':'ListAliasChoice', 'data':{'numbers':'intList','object':'String'} }\n",
     );
     schema.push_str("{'command':'changing-flags'}\n");
+    let optionality =
+        "{'struct':'ChangingOptionality','data':{'required-now':'str','*optional-now':'str'}}\n";
+    schema.push_str(optionality);
     let late_flags = "{'command':'late-flags','allow-oob':true,'allow-preconfig':true,'success-response':false}\n";
     schema.push_str(late_flags);
     let entry = repo.join("qapi/qapi-schema.json");
@@ -143,6 +146,10 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
         String::from_utf8_lossy(&oracle.stderr)
     );
     let modern_schema = schema.clone();
+    schema = schema.replace(
+        optionality,
+        "{'struct':'ChangingOptionality','data':{'*required-now':'str','optional-now':'str'}}\n",
+    );
     schema = schema.replace("{'command':'changing-flags'}", "{'command':'changing-flags','allow-oob':true,'allow-preconfig':true,'success-response':false}");
     schema = schema.replace(late_flags, "{'command':'late-flags'}\n");
     schema = schema.replace(modern_only, "");

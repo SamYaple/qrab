@@ -1,6 +1,25 @@
 //! Shared wire fields select a single peer-appropriate representation.
 use serde_json::json;
 
+#[test]
+fn schema_introspection_keeps_the_historical_required_oob_flag() {
+    let minimal = json!({"arg-type":"q_empty","ret-type":"q_empty"});
+    qapi::with_version((2, 12, 0), || {
+        assert!(serde_json::from_value::<qapi::SchemaInfoCommand>(minimal.clone()).is_err());
+        let mut wire = minimal.clone();
+        wire["allow-oob"] = json!(false);
+        let value: qapi::SchemaInfoCommand = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(value.allow_oob_legacy, Some(false));
+        assert!(value.allow_oob.is_none());
+        assert_eq!(serde_json::to_value(value).unwrap(), wire);
+    });
+    qapi::with_version((3, 0, 0), || {
+        let value: qapi::SchemaInfoCommand = serde_json::from_value(minimal.clone()).unwrap();
+        assert!(value.allow_oob.is_none() && value.allow_oob_legacy.is_none());
+        assert_eq!(serde_json::to_value(value).unwrap(), minimal);
+    });
+}
+
 #[qapi::qapi]
 struct Versioned {
     #[qapi(name = "value", added = "10.0.0")]

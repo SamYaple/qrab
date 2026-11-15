@@ -184,8 +184,9 @@ for the scoped peer version; unscoped inspection uses the newest shape and
 does not fall back to an obsolete permissive shape after a decoding error.
 Generated metadata carries each representation's original wire tag and lifetime.
 
-Field payload changes and wire renames retain `_legacy` representations with
-separate lifetimes. Shared wire names populate only the selected representation;
+Field payload changes, optionality changes and wire renames retain `_legacy`
+representations with separate lifetimes. Shared wire names populate only the
+selected representation;
 serializing a value in an inactive representation fails instead of discarding it.
 A required wire field remains required in metadata even when version merging
 needs a Rust `Option`. Explicit peer contexts enforce active required fields;

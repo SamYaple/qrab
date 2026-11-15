@@ -2069,7 +2069,7 @@ static STRUCT_BlockChildInfo: StructMeta = StructMeta {
 static FIELDS_BlockCommit: &[FieldMeta] = &[
     FieldMeta { name: "device", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the device name or node-name of a root node" },
     FieldMeta { name: "base", wire_name: "base", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Same as @base-node, except that it is a file name rather than\na node name.  This must be the exact filename string that was\nused to open the node; other strings, even if addressing the\nsame file, are not accepted" },
-    FieldMeta { name: "top", wire_name: "top", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Same as @top-node, except that it is a file name rather than a\nnode name.  This must be the exact filename string that was used\nto open the node; other strings, even if addressing the same\nfile, are not accepted" },
+    FieldMeta { name: "top", wire_name: "top", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 1u32), until: None, deprecated: true, unstable: false, doc: "Same as @top-node, except that it is a file name rather than a\nnode name.  This must be the exact filename string that was used\nto open the node; other strings, even if addressing the same\nfile, are not accepted" },
     FieldMeta { name: "speed", wire_name: "speed", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the maximum speed, in bytes per second" },
     FieldMeta { name: "backing_file", wire_name: "backing-file", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The backing file string to write into the overlay\nimage of 'top'.  If 'top' does not have an overlay image, or if\n'top' is in use by a writer, specifying a backing file string is\nan error.\n\nThis filename is not validated.  If a pathname string is such\nthat it cannot be resolved by QEMU, that means that subsequent\nQMP or HMP commands must use node-names for the image in\nquestion, as filename lookup methods will fail.\n\nIf not specified, QEMU will automatically determine the backing\nfile string to use, or error out if there is no obvious choice.\nCare should be taken when specifying the string, to specify a\nvalid filename or protocol.  (Since 2.1)" },
     FieldMeta { name: "job_id", wire_name: "job-id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "identifier for the newly-created block job.  If omitted,\nthe device name will be used.  (Since 2.7)" },
@@ -2080,6 +2080,7 @@ static FIELDS_BlockCommit: &[FieldMeta] = &[
     FieldMeta { name: "auto_dismiss", wire_name: "auto-dismiss", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (3u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "When false, this job will wait in a CONCLUDED state\nafter it has completely ceased all work, and awaits\n`job-dismiss`.  When true, this job will automatically disappear\nwithout user intervention.  Defaults to true.  (Since 3.1)" },
     FieldMeta { name: "on_error", wire_name: "on-error", ty: 39, optional: true, is_discriminator: false, recursive: false, since: (5u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the action to take on an error.  'ignore' means that the\nrequest should be retried.  (default: report; since: 5.0)" },
     FieldMeta { name: "backing_mask_protocol", wire_name: "backing-mask-protocol", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (9u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "If true, replace any protocol mentioned in\nthe 'backing file format' with 'raw', rather than storing the\nprotocol name as the backing format.  Can be used even when no\nimage header will be updated (default false; since 9.0)." },
+    FieldMeta { name: "top_legacy", wire_name: "top", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 3u32, 0u32), until: Some((2u32, 0u32, 1u32)), deprecated: false, unstable: false, doc: "The file name of the backing image within the image chain,\nwhich contains the topmost data to be committed down.\n\nIf top == base, that is an error.\nIf top == active, the job will not be completed by itself,\nuser needs to complete the job with the block-job-complete\ncommand after getting the ready event. (Since 2.0)\n\nIf the base image is smaller than top, then the base image\nwill be resized to be the same size as top.  If top is\nsmaller than the base image, the base will not be\ntruncated.  If you want the base image size to match the\nsize of the smaller top, you can safely truncate it\nyourself once the commit operation successfully completes." },
 ];
 static STRUCT_BlockCommit: StructMeta = StructMeta {
     name: "block-commit",
@@ -2349,12 +2350,13 @@ static STRUCT_BlockdevCacheOptions: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_BlockdevChangeMedium: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
     FieldMeta { name: "filename", wire_name: "filename", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "filename of the new image to be loaded" },
     FieldMeta { name: "format", wire_name: "format", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "format to open the new image with (defaults to the probed\nformat)" },
     FieldMeta { name: "read_only_mode", wire_name: "read-only-mode", ty: 62, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "change the read-only mode of the device; defaults\nto 'retain'" },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
     FieldMeta { name: "force", wire_name: "force", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (7u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "if false (the default), an eject request through\n`blockdev-open-tray` will be sent to the guest if it has locked\nthe tray (and the tray will not be opened immediately); if true,\nthe tray will be opened regardless of whether it is locked.\n(since 7.1)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "block device name" },
 ];
 static STRUCT_BlockdevChangeMedium: StructMeta = StructMeta {
     name: "blockdev-change-medium",
@@ -2397,8 +2399,9 @@ static STRUCT_BlockdevChild: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_BlockdevCloseTray: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "block device name" },
 ];
 static STRUCT_BlockdevCloseTray: StructMeta = StructMeta {
     name: "blockdev-close-tray",
@@ -2579,11 +2582,12 @@ static FIELDS_BlockdevCreateOptionsLuks: &[FieldMeta] = &[
     FieldMeta { name: "ivgen_hash_alg", wire_name: "ivgen-hash-alg", ty: 85, optional: true, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the initialization vector generator hash.\nCurrently defaults to 'sha256'" },
     FieldMeta { name: "hash_alg", wire_name: "hash-alg", ty: 85, optional: true, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the master key hash algorithm.  Currently defaults to\n'sha256'" },
     FieldMeta { name: "iter_time", wire_name: "iter-time", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "number of milliseconds to spend in PBKDF passphrase\nprocessing.  Currently defaults to 2000.  (since 2.8)" },
-    FieldMeta { name: "file", wire_name: "file", ty: 86, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Node to create the image format on, mandatory except when\n'preallocation' is not requested" },
+    FieldMeta { name: "file", wire_name: "file", ty: 86, optional: true, is_discriminator: false, recursive: false, since: (9u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Node to create the image format on, mandatory except when\n'preallocation' is not requested" },
     FieldMeta { name: "size", wire_name: "size", ty: 43, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Size of the virtual disk in bytes" },
     FieldMeta { name: "preallocation", wire_name: "preallocation", ty: 80, optional: true, is_discriminator: false, recursive: false, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Preallocation mode for the new image (since: 4.2)\n(default: off; allowed values: off, metadata, falloc, full)" },
     FieldMeta { name: "detached_header", wire_name: "detached-header", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (9u32, 0u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "create a detached LUKS header.  (since 9.0)" },
     FieldMeta { name: "header", wire_name: "header", ty: 86, optional: true, is_discriminator: false, recursive: false, since: (9u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Block device holding a detached LUKS header.  (since 9.0)" },
+    FieldMeta { name: "file_legacy", wire_name: "file", ty: 86, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: Some((9u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "Node to create the image format on" },
     FieldMeta { name: "cipher_alg_legacy", wire_name: "cipher-alg", ty: 87, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "the cipher algorithm for data encryption Currently\ndefaults to 'aes-256'." },
     FieldMeta { name: "ivgen_alg_legacy", wire_name: "ivgen-alg", ty: 88, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "the initialization vector generator Currently defaults\nto 'plain64'" },
     FieldMeta { name: "ivgen_hash_alg_legacy", wire_name: "ivgen-hash-alg", ty: 89, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: Some((9u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "the initialization vector generator hash Currently\ndefaults to 'sha256'" },
@@ -2946,7 +2950,7 @@ static FIELDS_BlockDeviceInfo: &[FieldMeta] = &[
     FieldMeta { name: "iops_rd_max", wire_name: "iops_rd_max", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "read I/O operations per second during bursts, in bytes\n(Since 1.7)" },
     FieldMeta { name: "iops_wr_max", wire_name: "iops_wr_max", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "write I/O operations per second during bursts, in\nbytes (Since 1.7)" },
     FieldMeta { name: "iops_size", wire_name: "iops_size", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (1u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "an I/O size in bytes (Since 1.7)" },
-    FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the block driver node (Since 2.0)" },
+    FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (10u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the block driver node (Since 2.0)" },
     FieldMeta { name: "detect_zeroes", wire_name: "detect_zeroes", ty: 56, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "detect and optimize zero writes (Since 2.1)" },
     FieldMeta { name: "cache", wire_name: "cache", ty: 105, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the cache mode used for the block device (since: 2.3)" },
     FieldMeta { name: "write_threshold", wire_name: "write_threshold", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "configured write threshold for the device.  0 if\ndisabled.  (Since 2.3)" },
@@ -2960,6 +2964,7 @@ static FIELDS_BlockDeviceInfo: &[FieldMeta] = &[
     FieldMeta { name: "dirty_bitmaps", wire_name: "dirty-bitmaps", ty: 107, optional: true, is_discriminator: false, recursive: false, since: (4u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "dirty bitmaps information (only present if node has\none or more dirty bitmaps) (Since 4.2)" },
     FieldMeta { name: "active", wire_name: "active", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (10u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true if the backend is active; typical cases for inactive\nbackends are on the migration source instance after migration\ncompletes and on the destination before it completes.\n(since: 10.0)" },
     FieldMeta { name: "children", wire_name: "children", ty: 109, optional: false, is_discriminator: false, recursive: false, since: (10u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Information about child block nodes.  (since: 10.1)" },
+    FieldMeta { name: "node_name_legacy", wire_name: "node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: Some((10u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "the name of the block driver node (Since 2.0)" },
 ];
 static STRUCT_BlockDeviceInfo: StructMeta = StructMeta {
     name: "BlockDeviceInfo",
@@ -3147,9 +3152,10 @@ static ENUM_BlockdevOnError: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_BlockdevOpenTray: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
     FieldMeta { name: "force", wire_name: "force", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "if false (the default), an eject request will be sent to the\nguest if it has locked the tray (and the tray will not be opened\nimmediately); if true, the tray will be opened regardless of\nwhether it is locked" },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "block device name" },
 ];
 static STRUCT_BlockdevOpenTray: StructMeta = StructMeta {
     name: "blockdev-open-tray",
@@ -4172,7 +4178,7 @@ static STRUCT_BlockdevSetActive: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_BlockdevSnapshot: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 5u32, 0u32)), deprecated: false, unstable: false, doc: "#optional the name of the device to generate the snapshot from." },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: Some((2u32, 5u32, 0u32)), deprecated: false, unstable: false, doc: "#optional the name of the device to generate the snapshot from." },
     FieldMeta { name: "snapshot_file", wire_name: "snapshot-file", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 5u32, 0u32)), deprecated: false, unstable: false, doc: "the target of the new image. A new file will be created." },
     FieldMeta { name: "format", wire_name: "format", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 5u32, 0u32)), deprecated: false, unstable: false, doc: "#optional the format of the snapshot image, default is 'qcow2'." },
     FieldMeta { name: "mode", wire_name: "mode", ty: 189, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 5u32, 0u32)), deprecated: false, unstable: false, doc: "#optional whether and how QEMU should create a new image, default is\n'absolute-paths'." },
@@ -4180,6 +4186,7 @@ static FIELDS_BlockdevSnapshot: &[FieldMeta] = &[
     FieldMeta { name: "snapshot_node_name", wire_name: "snapshot-node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: Some((2u32, 5u32, 0u32)), deprecated: false, unstable: false, doc: "#optional the graph node name of the new image (Since 2.0)" },
     FieldMeta { name: "node", wire_name: "node", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "device or node name that will have a snapshot taken." },
     FieldMeta { name: "overlay", wire_name: "overlay", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "reference to the existing block device that will become\nthe overlay of @node, as part of taking the snapshot.  It must\nnot have a current backing file (this can be achieved by passing\n\"backing\": null to `blockdev-add`)." },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "the name of the device to generate the snapshot from." },
 ];
 static STRUCT_BlockdevSnapshot: StructMeta = StructMeta {
     name: "blockdev-snapshot",
@@ -4253,12 +4260,13 @@ static STRUCT_BlockdevSnapshotInternalWrapper: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_BlockdevSnapshotSync: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the device to take a snapshot of." },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the device to take a snapshot of." },
     FieldMeta { name: "snapshot_file", wire_name: "snapshot-file", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the target of the new overlay image.  If the file\nexists, or if it is a device, the overlay will be created in the\nexisting file/device.  Otherwise, a new file will be created." },
     FieldMeta { name: "format", wire_name: "format", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the format of the overlay image, default is 'qcow2'." },
     FieldMeta { name: "mode", wire_name: "mode", ty: 189, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether and how QEMU should create a new image, default is\n'absolute-paths'." },
     FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "graph node name to generate the snapshot from\n(Since 2.0)" },
     FieldMeta { name: "snapshot_node_name", wire_name: "snapshot-node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the graph node name of the new image\n(Since 2.0)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "the name of the device to generate the snapshot from." },
 ];
 static STRUCT_BlockdevSnapshotSync: StructMeta = StructMeta {
     name: "blockdev-snapshot-sync",
@@ -4938,8 +4946,9 @@ static FIELDS_BlockIoErrorEvent: &[FieldMeta] = &[
     FieldMeta { name: "action", wire_name: "action", ty: 218, optional: false, is_discriminator: false, recursive: false, since: (2u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "action that has been taken" },
     FieldMeta { name: "nospace", wire_name: "nospace", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "true if I/O error was caused due to a no-space condition.\nThis key is only present if query-block's io-status is present,\nplease see `query-block` documentation for more information\n(since: 2.2)" },
     FieldMeta { name: "reason", wire_name: "reason", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "human readable string describing the error cause.  (This\nfield is a debugging aid for humans, it should not be parsed by\napplications) (since: 2.2)" },
-    FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "node name.  Note that errors may be reported for the\nroot node that is directly attached to a guest device rather\nthan for the node where the error occurred.  The node name is\nnot present if the drive is empty.  (Since: 2.8)" },
+    FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "node name.  Note that errors may be reported for the\nroot node that is directly attached to a guest device rather\nthan for the node where the error occurred.  The node name is\nnot present if the drive is empty.  (Since: 2.8)" },
     FieldMeta { name: "qom_path", wire_name: "qom-path", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "path to the device object in the QOM tree (since 9.2)" },
+    FieldMeta { name: "node_name_legacy", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "node name. Note that errors may be reported for the root node\nthat is directly attached to a guest device rather than for the\nnode where the error occurred. (Since: 2.8)" },
 ];
 static STRUCT_BlockIoErrorEvent: StructMeta = StructMeta {
     name: "BLOCK_IO_ERROR",
@@ -4953,7 +4962,7 @@ static STRUCT_BlockIoErrorEvent: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_BlockIoThrottle: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
     FieldMeta { name: "bps", wire_name: "bps", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total throughput limit in bytes per second" },
     FieldMeta { name: "bps_rd", wire_name: "bps_rd", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "read throughput limit in bytes per second" },
     FieldMeta { name: "bps_wr", wire_name: "bps_wr", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "write throughput limit in bytes per second" },
@@ -4975,6 +4984,7 @@ static FIELDS_BlockIoThrottle: &[FieldMeta] = &[
     FieldMeta { name: "iops_size", wire_name: "iops_size", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "an I/O size in bytes (Since 1.7)" },
     FieldMeta { name: "group", wire_name: "group", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: None, deprecated: false, unstable: false, doc: "throttle group name (Since 2.4)" },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
 ];
 static STRUCT_BlockIoThrottle: StructMeta = StructMeta {
     name: "BlockIOThrottle",
@@ -5461,9 +5471,10 @@ static STRUCT_BlockNodeInfo: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_BlockPasswd: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the block backend device to set the password on" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the block backend device to set the password on" },
     FieldMeta { name: "password", wire_name: "password", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the password to use for the device" },
     FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "graph node name to set the password on (Since 2.0)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "the name of the device to set the password on" },
 ];
 static STRUCT_BlockPasswd: StructMeta = StructMeta {
     name: "block_passwd",
@@ -5493,9 +5504,10 @@ static ENUM_BlockPermission: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_BlockResize: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the device to get the image resized" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the device to get the image resized" },
     FieldMeta { name: "size", wire_name: "size", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "new image size in bytes" },
     FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "graph node name to get the image resized (Since 2.0)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "the name of the device to get the image resized" },
 ];
 static STRUCT_BlockResize: StructMeta = StructMeta {
     name: "block_resize",
@@ -5509,7 +5521,7 @@ static STRUCT_BlockResize: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_BlockSetIoThrottle: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
     FieldMeta { name: "bps", wire_name: "bps", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "total throughput limit in bytes per second" },
     FieldMeta { name: "bps_rd", wire_name: "bps_rd", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "read throughput limit in bytes per second" },
     FieldMeta { name: "bps_wr", wire_name: "bps_wr", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "write throughput limit in bytes per second" },
@@ -5531,6 +5543,7 @@ static FIELDS_BlockSetIoThrottle: &[FieldMeta] = &[
     FieldMeta { name: "iops_rd_max_length", wire_name: "iops_rd_max_length", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "maximum length of the @iops_rd_max burst\nperiod, in seconds.  It must only be set if @iops_rd_max is set\nas well.  Defaults to 1.  (Since 2.6)" },
     FieldMeta { name: "iops_wr_max_length", wire_name: "iops_wr_max_length", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 6u32, 0u32), until: None, deprecated: false, unstable: false, doc: "maximum length of the @iops_wr_max burst\nperiod, in seconds.  It must only be set if @iops_wr_max is set\nas well.  Defaults to 1.  (Since 2.6)" },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "The name of the device" },
 ];
 static STRUCT_BlockSetIoThrottle: StructMeta = StructMeta {
     name: "block_set_io_throttle",
@@ -7293,7 +7306,8 @@ static ENUM_CpuModelCompareResult: EnumMeta = EnumMeta {
 };
 static FIELDS_CpuModelExpansionInfo: &[FieldMeta] = &[
     FieldMeta { name: "model", wire_name: "model", ty: 294, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the expanded `CpuModelInfo`." },
-    FieldMeta { name: "deprecated_props", wire_name: "deprecated-props", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "an optional list of properties that are flagged\nas deprecated by the CPU vendor.  The list depends on the\n`CpuModelExpansionType`: \"static\" properties are a subset of the\nenabled-properties for the expanded model; \"full\" properties are\na set of properties that are deprecated across all models for\nthe architecture.  (since: 10.1 -- since 9.1 on s390x --)." },
+    FieldMeta { name: "deprecated_props", wire_name: "deprecated-props", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (10u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "an optional list of properties that are flagged\nas deprecated by the CPU vendor.  The list depends on the\n`CpuModelExpansionType`: \"static\" properties are a subset of the\nenabled-properties for the expanded model; \"full\" properties are\na set of properties that are deprecated across all models for\nthe architecture.  (since: 10.1 -- since 9.1 on s390x --)." },
+    FieldMeta { name: "deprecated_props_legacy", wire_name: "deprecated-props", ty: 11, optional: false, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: Some((10u32, 1u32, 0u32)), deprecated: false, unstable: false, doc: "a list of properties that are flagged as\ndeprecated by the CPU vendor.  The list depends on the\nCpuModelExpansionType: \"static\" properties are a subset of the\nenabled-properties for the expanded model; \"full\" properties are\na set of properties that are deprecated across all models for\nthe architecture.  (since: 9.1)." },
 ];
 static STRUCT_CpuModelExpansionInfo: StructMeta = StructMeta {
     name: "CpuModelExpansionInfo",
@@ -7965,8 +7979,9 @@ static STRUCT_DBusVmStateProperties: StructMeta = StructMeta {
 };
 static FIELDS_DeviceAdd: &[FieldMeta] = &[
     FieldMeta { name: "driver", wire_name: "driver", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the new device's driver" },
-    FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the device's ID, must be unique" },
+    FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the device's ID, must be unique" },
     FieldMeta { name: "bus", wire_name: "bus", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 9u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the device's parent bus (device tree path)" },
+    FieldMeta { name: "id_legacy", wire_name: "id", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 9u32, 0u32)), deprecated: false, unstable: false, doc: "the device's ID, must be unique" },
 ];
 static STRUCT_DeviceAdd: StructMeta = StructMeta {
     name: "device_add",
@@ -8789,9 +8804,10 @@ static ENUM_EbpfProgramId: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_Eject: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: true, unstable: false, doc: "Block device name" },
     FieldMeta { name: "force", wire_name: "force", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "If true, eject regardless of whether the drive is locked.\nIf not specified, the default value is false." },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "The name of the device" },
 ];
 static STRUCT_Eject: StructMeta = StructMeta {
     name: "eject",
@@ -11253,12 +11269,13 @@ static ENUM_MigMode: EnumMeta = EnumMeta {
     until: None,
 };
 static FIELDS_Migrate: &[FieldMeta] = &[
-    FieldMeta { name: "uri", wire_name: "uri", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the Uniform Resource Identifier of the destination VM" },
+    FieldMeta { name: "uri", wire_name: "uri", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (8u32, 2u32, 2u32), until: None, deprecated: false, unstable: false, doc: "the Uniform Resource Identifier of the destination VM" },
     FieldMeta { name: "blk", wire_name: "blk", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: true, unstable: false, doc: "do block migration (full disk copy)" },
     FieldMeta { name: "inc", wire_name: "inc", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((9u32, 1u32, 0u32)), deprecated: true, unstable: false, doc: "incremental disk copy migration" },
     FieldMeta { name: "detach", wire_name: "detach", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: true, unstable: false, doc: "this argument exists only for compatibility reasons and is\nignored by QEMU" },
     FieldMeta { name: "resume", wire_name: "resume", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "when set, use the new uri/channels specified to resume\npaused postcopy migration.  This flag should only be used if\nthe previous postcopy migration was interrupted.  The command\nwill fail unless migration is in \"postcopy-paused\" state.\n(default: false, since 3.0)" },
     FieldMeta { name: "channels", wire_name: "channels", ty: 422, optional: true, is_discriminator: false, recursive: false, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of migration stream channels with each stream in the\nlist connected to a destination interface endpoint." },
+    FieldMeta { name: "uri_legacy", wire_name: "uri", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (1u32, 1u32, 0u32), until: Some((8u32, 2u32, 2u32)), deprecated: false, unstable: false, doc: "the Uniform Resource Identifier of the destination VM" },
 ];
 static STRUCT_Migrate: StructMeta = StructMeta {
     name: "migrate",
@@ -11299,9 +11316,10 @@ static STRUCT_MigrateContinue: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_MigrateIncoming: &[FieldMeta] = &[
-    FieldMeta { name: "uri", wire_name: "uri", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The Uniform Resource Identifier identifying the source or\naddress to listen on" },
+    FieldMeta { name: "uri", wire_name: "uri", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The Uniform Resource Identifier identifying the source or\naddress to listen on" },
     FieldMeta { name: "channels", wire_name: "channels", ty: 422, optional: true, is_discriminator: false, recursive: false, since: (8u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "list of migration stream channels with each stream in the\nlist connected to a destination interface endpoint." },
     FieldMeta { name: "exit_on_error", wire_name: "exit-on-error", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (9u32, 1u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Exit on incoming migration failure.  Default true.\nWhen set to false, the failure triggers a\n:qapi:event:`MIGRATION` event, and error details could be\nretrieved with `query-migrate`.  (since 9.1)" },
+    FieldMeta { name: "uri_legacy", wire_name: "uri", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 3u32, 0u32), until: Some((8u32, 2u32, 0u32)), deprecated: false, unstable: false, doc: "The Uniform Resource Identifier identifying the source or\naddress to listen on" },
 ];
 static STRUCT_MigrateIncoming: StructMeta = StructMeta {
     name: "migrate-incoming",
@@ -11763,18 +11781,25 @@ static FIELDS_MigrationParameters: &[FieldMeta] = &[
     FieldMeta { name: "multifd_qatzip_level", wire_name: "multifd-qatzip-level", ty: 8, optional: true, is_discriminator: false, recursive: false, since: (9u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Set the compression level to be used in live\nmigration.  The level is an integer between 1 and 9, where 1\nmeans the best compression speed, and 9 means the best\ncompression ratio which will consume more CPU.  Defaults to 1.\n(Since 9.2)" },
     FieldMeta { name: "cpr_exec_command", wire_name: "cpr-exec-command", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (10u32, 2u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Command to start the new QEMU process when @mode\nis @cpr-exec.  The first list element is the program's filename,\nthe remainder its arguments.  (Since 10.2)" },
     FieldMeta { name: "x_rdma_chunk_size", wire_name: "x-rdma-chunk-size", ty: 124, optional: true, is_discriminator: false, recursive: false, since: (11u32, 1u32, 0u32), until: None, deprecated: false, unstable: true, doc: "RDMA memory registration chunk size in bytes.\nDefault is 1MiB.  Must be a power of 2 in the range\n[1MiB, 1024MiB].  Only applies when migrating via RDMA.\nMust be set to the same value on both source and destination\nbefore migration starts.  (Since 11.1)" },
-    FieldMeta { name: "compress_level_legacy", wire_name: "compress-level", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "compression level" },
-    FieldMeta { name: "compress_threads_legacy", wire_name: "compress-threads", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "compression thread count" },
-    FieldMeta { name: "decompress_threads_legacy", wire_name: "decompress-threads", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "decompression thread count" },
-    FieldMeta { name: "cpu_throttle_initial_legacy", wire_name: "cpu-throttle-initial", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "Initial percentage of time guest cpus are\nthrottled when migration auto-converge is activated.\n(Since 2.7)" },
-    FieldMeta { name: "cpu_throttle_increment_legacy", wire_name: "cpu-throttle-increment", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "throttle percentage increase each time\nauto-converge detects that migration is not making\nprogress. (Since 2.7)" },
+    FieldMeta { name: "compress_level_legacy", wire_name: "compress-level", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "compress_threads_legacy", wire_name: "compress-threads", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "decompress_threads_legacy", wire_name: "decompress-threads", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 4u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "cpu_throttle_initial_legacy", wire_name: "cpu-throttle-initial", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "cpu_throttle_increment_legacy", wire_name: "cpu-throttle-increment", ty: 7, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "tls_creds_legacy", wire_name: "tls-creds", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "tls_hostname_legacy", wire_name: "tls-hostname", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "" },
+    FieldMeta { name: "compress_level_legacy2", wire_name: "compress-level", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "compression level" },
+    FieldMeta { name: "compress_threads_legacy2", wire_name: "compress-threads", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "compression thread count" },
+    FieldMeta { name: "decompress_threads_legacy2", wire_name: "decompress-threads", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "decompression thread count" },
+    FieldMeta { name: "cpu_throttle_initial_legacy2", wire_name: "cpu-throttle-initial", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "Initial percentage of time guest cpus are\nthrottled when migration auto-converge is activated.\n(Since 2.7)" },
+    FieldMeta { name: "cpu_throttle_increment_legacy2", wire_name: "cpu-throttle-increment", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "throttle percentage increase each time\nauto-converge detects that migration is not making\nprogress. (Since 2.7)" },
     FieldMeta { name: "max_bandwidth_legacy", wire_name: "max-bandwidth", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "to set maximum speed for migration. maximum speed in\nbytes per second. (Since 2.8)" },
     FieldMeta { name: "downtime_limit_legacy", wire_name: "downtime-limit", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "set maximum tolerated downtime for migration. maximum\ndowntime in milliseconds (Since 2.8)" },
     FieldMeta { name: "x_checkpoint_delay_legacy", wire_name: "x-checkpoint-delay", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "the delay time between two COLO checkpoints. (Since 2.8)" },
     FieldMeta { name: "x_multifd_channels_legacy", wire_name: "x-multifd-channels", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "Number of channels used to migrate data in\nparallel. This is the same number that the\nnumber of sockets used for migration.\nThe default value is 2 (since 2.11)" },
     FieldMeta { name: "x_multifd_page_count_legacy", wire_name: "x-multifd-page-count", ty: 7, optional: true, is_discriminator: false, recursive: false, since: (2u32, 11u32, 0u32), until: Some((2u32, 12u32, 0u32)), deprecated: false, unstable: false, doc: "Number of pages sent together to a thread.\nThe default value is 16 (since 2.11)" },
-    FieldMeta { name: "tls_creds_legacy", wire_name: "tls-creds", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "ID of the 'tls-creds' object that provides credentials\nfor establishing a TLS connection over the migration data\nchannel.  On the outgoing side of the migration, the credentials\nmust be for a 'client' endpoint, while for the incoming side the\ncredentials must be for a 'server' endpoint.  An empty string\nmeans that QEMU will use plain text mode for migration, rather\nthan TLS.  (Since 2.7)\n\nNote: 2.8 omits empty @tls-creds instead." },
-    FieldMeta { name: "tls_hostname_legacy", wire_name: "tls-hostname", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 7u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "migration target's hostname for validating the\nserver's x509 certificate identity.  If empty, QEMU will use the\nhostname from the migration URI, if any.  (Since 2.7)\n\nNote: 2.8 omits empty @tls-hostname instead." },
+    FieldMeta { name: "tls_creds_legacy2", wire_name: "tls-creds", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "ID of the 'tls-creds' object that provides credentials\nfor establishing a TLS connection over the migration data\nchannel.  On the outgoing side of the migration, the credentials\nmust be for a 'client' endpoint, while for the incoming side the\ncredentials must be for a 'server' endpoint.  An empty string\nmeans that QEMU will use plain text mode for migration, rather\nthan TLS.  (Since 2.7)\n\nNote: 2.8 omits empty @tls-creds instead." },
+    FieldMeta { name: "tls_hostname_legacy2", wire_name: "tls-hostname", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "migration target's hostname for validating the\nserver's x509 certificate identity.  If empty, QEMU will use the\nhostname from the migration URI, if any.  (Since 2.7)\n\nNote: 2.8 omits empty @tls-hostname instead." },
     FieldMeta { name: "tls_authz_legacy", wire_name: "tls-authz", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (4u32, 0u32, 0u32), until: Some((11u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "ID of the 'authz' object subclass that provides access\ncontrol checking of the TLS x509 certificate distinguished name.\n(Since 4.0)" },
 ];
 static STRUCT_MigrationParameters: StructMeta = StructMeta {
@@ -17232,8 +17257,9 @@ static STRUCT_SchemaInfoBuiltin: StructMeta = StructMeta {
 static FIELDS_SchemaInfoCommand: &[FieldMeta] = &[
     FieldMeta { name: "arg_type", wire_name: "arg-type", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the object type that provides the command's\nparameters." },
     FieldMeta { name: "ret_type", wire_name: "ret-type", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "the name of the command's result type." },
-    FieldMeta { name: "allow_oob", wire_name: "allow-oob", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the command allows out-of-band execution,\ndefaults to false (Since: 2.12)" },
+    FieldMeta { name: "allow_oob", wire_name: "allow-oob", ty: 9, optional: true, is_discriminator: false, recursive: false, since: (3u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "whether the command allows out-of-band execution,\ndefaults to false (Since: 2.12)" },
     FieldMeta { name: "features", wire_name: "features", ty: 11, optional: true, is_discriminator: false, recursive: false, since: (4u32, 2u32, 0u32), until: Some((5u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "names of features associated with the command, in no particular\norder. (since 4.2)" },
+    FieldMeta { name: "allow_oob_legacy", wire_name: "allow-oob", ty: 9, optional: false, is_discriminator: false, recursive: false, since: (2u32, 12u32, 0u32), until: Some((3u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "whether the command allows out-of-band execution.\n(Since: 2.12)" },
 ];
 static STRUCT_SchemaInfoCommand: StructMeta = StructMeta {
     name: "SchemaInfoCommand",
@@ -20598,7 +20624,8 @@ static STRUCT_XBlockdevCreate: StructMeta = StructMeta {
 };
 static FIELDS_XBlockdevDel: &[FieldMeta] = &[
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "#optional Name of the block backend device to delete." },
-    FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Name of the graph node to delete." },
+    FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Name of the graph node to delete." },
+    FieldMeta { name: "node_name_legacy", wire_name: "node-name", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "#optional Name of the graph node to delete." },
 ];
 static STRUCT_XBlockdevDel: StructMeta = StructMeta {
     name: "x-blockdev-del",
@@ -20612,9 +20639,10 @@ static STRUCT_XBlockdevDel: StructMeta = StructMeta {
     until: Some((2u32, 9u32, 0u32)),
 };
 static FIELDS_XBlockdevInsertMedium: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Block device name (deprecated, use @id instead)" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Block device name (deprecated, use @id instead)" },
     FieldMeta { name: "node_name", wire_name: "node-name", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "name of a node in the block driver state graph" },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "block device name" },
 ];
 static STRUCT_XBlockdevInsertMedium: StructMeta = StructMeta {
     name: "x-blockdev-insert-medium",
@@ -20628,8 +20656,9 @@ static STRUCT_XBlockdevInsertMedium: StructMeta = StructMeta {
     until: Some((2u32, 12u32, 0u32)),
 };
 static FIELDS_XBlockdevRemoveMedium: &[FieldMeta] = &[
-    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Block device name (deprecated, use @id instead)" },
+    FieldMeta { name: "device", wire_name: "device", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "Block device name (deprecated, use @id instead)" },
     FieldMeta { name: "id", wire_name: "id", ty: 4, optional: true, is_discriminator: false, recursive: false, since: (2u32, 8u32, 0u32), until: None, deprecated: false, unstable: false, doc: "The name or QOM path of the guest device (since: 2.8)" },
+    FieldMeta { name: "device_legacy", wire_name: "device", ty: 4, optional: false, is_discriminator: false, recursive: false, since: (2u32, 5u32, 0u32), until: Some((2u32, 8u32, 0u32)), deprecated: false, unstable: false, doc: "block device name" },
 ];
 static STRUCT_XBlockdevRemoveMedium: StructMeta = StructMeta {
     name: "x-blockdev-remove-medium",

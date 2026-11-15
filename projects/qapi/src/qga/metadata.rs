@@ -1437,7 +1437,8 @@ static STRUCT_GuestSetMemoryBlocks: StructMeta = StructMeta {
     until: None,
 };
 static FIELDS_GuestSetTime: &[FieldMeta] = &[
-    FieldMeta { name: "time", wire_name: "time", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time of nanoseconds, relative to the Epoch of 1970-01-01 in\nUTC." },
+    FieldMeta { name: "time", wire_name: "time", ty: 5, optional: true, is_discriminator: false, recursive: false, since: (2u32, 0u32, 0u32), until: None, deprecated: false, unstable: false, doc: "time of nanoseconds, relative to the Epoch of 1970-01-01 in\nUTC." },
+    FieldMeta { name: "time_legacy", wire_name: "time", ty: 5, optional: false, is_discriminator: false, recursive: false, since: (1u32, 5u32, 0u32), until: Some((2u32, 0u32, 0u32)), deprecated: false, unstable: false, doc: "time of nanoseconds, relative to the Epoch of\n1970-01-01 in UTC." },
 ];
 static STRUCT_GuestSetTime: StructMeta = StructMeta {
     name: "guest-set-time",

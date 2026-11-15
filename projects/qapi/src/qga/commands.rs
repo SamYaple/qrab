@@ -468,7 +468,14 @@ pub struct GuestSetMemoryBlocks {
 pub struct GuestSetTime {
     /// time of nanoseconds, relative to the Epoch of 1970-01-01 in
     /// UTC.
+    #[qapi(added = "2.0.0")]
     pub time: Option<i64>,
+    /// time of nanoseconds, relative to the Epoch of
+    /// 1970-01-01 in UTC.
+    #[qapi(name = "time")]
+    #[qapi(removed = "2.0.0")]
+    #[qapi(required)]
+    pub time_legacy: Option<i64>,
 }
 
 /// If the @crypted flag is true, it is the caller's responsibility to

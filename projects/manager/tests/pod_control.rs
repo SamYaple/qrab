@@ -112,10 +112,10 @@ async fn mock_qemu_with(
                     "query-memory-size-summary" => json!({"base-memory":1073741824,"plugged-memory":268435456}),
                     "query-blockstats" => json!([{
                         "device":"disk0","qdev":"/machine/private-storage",
-                        "stats":{"rd_bytes":4096,"wr_bytes":8192,"rd_operations":2,"wr_operations":3,
-                            "flush_operations":1,"flush_total_time_ns":10,"rd_total_time_ns":20,"wr_total_time_ns":30,"wr_highest_offset":8192},
-                        "parent":{"stats":{"rd_bytes":99999,"wr_bytes":99999,"rd_operations":99,"wr_operations":99,
-                            "flush_operations":99,"flush_total_time_ns":10,"rd_total_time_ns":20,"wr_total_time_ns":30,"wr_highest_offset":99999}}
+                        "stats":block_stats(json!({"rd_bytes":4096,"wr_bytes":8192,"rd_operations":2,"wr_operations":3,
+                            "flush_operations":1,"flush_total_time_ns":10,"rd_total_time_ns":20,"wr_total_time_ns":30,"wr_highest_offset":8192})),
+                        "parent":{"stats":block_stats(json!({"rd_bytes":99999,"wr_bytes":99999,"rd_operations":99,"wr_operations":99,
+                            "flush_operations":99,"flush_total_time_ns":10,"rd_total_time_ns":20,"wr_total_time_ns":30,"wr_highest_offset":99999}))}
                     }]),
                     "query-status" => json!({"running":running,"status":if running {"running"} else {"paused"}}),
                     _ => json!({}),
@@ -135,6 +135,26 @@ async fn mock_qemu_with(
         }
     }
     read.abort();
+}
+
+fn block_stats(counters: Value) -> Value {
+    let mut stats = json!({
+        "account_failed":true,"account_invalid":true,"timed_stats":[],
+        "failed_flush_operations":0,"failed_rd_operations":0,"failed_wr_operations":0,
+        "failed_unmap_operations":0,"failed_zone_append_operations":0,
+        "invalid_flush_operations":0,"invalid_rd_operations":0,"invalid_wr_operations":0,
+        "invalid_unmap_operations":0,"invalid_zone_append_operations":0,
+        "rd_bytes":0,"wr_bytes":0,"rd_operations":0,"wr_operations":0,
+        "flush_operations":0,"flush_total_time_ns":0,"rd_total_time_ns":0,"wr_total_time_ns":0,
+        "wr_highest_offset":0,"rd_merged":0,"wr_merged":0,
+        "unmap_bytes":0,"unmap_merged":0,"unmap_operations":0,"unmap_total_time_ns":0,
+        "zone_append_bytes":0,"zone_append_merged":0,"zone_append_operations":0,"zone_append_total_time_ns":0
+    });
+    stats
+        .as_object_mut()
+        .unwrap()
+        .extend(counters.as_object().unwrap().clone());
+    stats
 }
 
 /// One filesystem whose freeze/thaw only flips a flag.
@@ -253,7 +273,7 @@ async fn supervisor_records_qmp_events_and_serves_them_over_control_and_socket()
     inject
         .send((
             "BLOCK_IO_ERROR".into(),
-            json!({"device":"","node-name":"iscsi-root","operation":"write","action":"report","reason":"Input/output error"}),
+            json!({"device":"","node-name":"iscsi-root","qom-path":"/machine/private-storage","operation":"write","action":"report","reason":"Input/output error"}),
         ))
         .await
         .unwrap();

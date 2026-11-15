@@ -165,6 +165,7 @@ pub(super) async fn execute(
             let path = policy.image_path(image)?;
             if current.connected {
                 qmp.execute(&BlockdevChangeMedium {
+                    device_legacy: None,
                     device: None,
                     id: Some(MEDIA_DEVICE.into()),
                     filename: path.to_string_lossy().into_owned(),
@@ -183,6 +184,7 @@ pub(super) async fn execute(
                 qmp.execute(&block).await?;
                 let result = qmp
                     .execute(&DeviceAdd {
+                        id_legacy: None,
                         driver: "ide-cd".into(),
                         id: Some(MEDIA_DEVICE.into()),
                         bus: Some("ide.0".into()),
@@ -207,6 +209,7 @@ pub(super) async fn execute(
                 return Ok(current);
             }
             qmp.execute(&Eject {
+                device_legacy: None,
                 device: None,
                 id: Some(MEDIA_DEVICE.into()),
                 force: Some(false),
@@ -317,6 +320,10 @@ mod tests {
                             "type":"unknown","removable":true,"locked":false});
                         if inserted {
                             block["inserted"] = json!({"drv":"raw","file":image,"ro":true,"encrypted":false,
+                            "node-name":MEDIA_NODE,"active":true,"backing_file_depth":0,"children":[],
+                            "detect_zeroes":"off","bps":0,"bps_rd":0,"bps_wr":0,
+                            "iops":0,"iops_rd":0,"iops_wr":0,"write_threshold":0,
+                            "cache":{"direct":false,"no-flush":false,"writeback":true},
                             "image":{"filename":image,"format":"raw","virtual-size":3}});
                         }
                         session.send_return(json!([block])).await.unwrap();

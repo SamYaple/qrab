@@ -277,6 +277,7 @@ pub struct BlockCommit {
     /// to open the node; other strings, even if addressing the same
     /// file, are not accepted
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.0.1")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub top: Option<String>,
     /// The node name of the backing image within the image chain
@@ -285,6 +286,24 @@ pub struct BlockCommit {
     #[qapi(name = "top-node")]
     #[qapi(added = "3.1.0")]
     pub top_node: Option<String>,
+    /// The file name of the backing image within the image chain,
+    /// which contains the topmost data to be committed down.
+    ///
+    /// If top == base, that is an error.
+    /// If top == active, the job will not be completed by itself,
+    /// user needs to complete the job with the block-job-complete
+    /// command after getting the ready event. (Since 2.0)
+    ///
+    /// If the base image is smaller than top, then the base image
+    /// will be resized to be the same size as top.  If top is
+    /// smaller than the base image, the base will not be
+    /// truncated.  If you want the base image size to match the
+    /// size of the smaller top, you can safely truncate it
+    /// yourself once the commit operation successfully completes.
+    #[qapi(name = "top")]
+    #[qapi(removed = "2.0.1")]
+    #[qapi(required)]
+    pub top_legacy: Option<String>,
 }
 
 /// Creates a new block device.
@@ -464,8 +483,14 @@ pub struct BlockdevAdd {
 pub struct BlockdevChangeMedium {
     /// Block device name
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.8.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub device: Option<String>,
+    /// block device name
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// filename of the new image to be loaded
     pub filename: String,
     /// if false (the default), an eject request through
@@ -524,8 +549,14 @@ pub struct BlockdevChangeMedium {
 pub struct BlockdevCloseTray {
     /// Block device name
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.8.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub device: Option<String>,
+    /// block device name
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// The name or QOM path of the guest device (since: 2.8)
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
@@ -763,8 +794,14 @@ pub struct BlockdevMirror {
 pub struct BlockdevOpenTray {
     /// Block device name
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.8.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub device: Option<String>,
+    /// block device name
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// if false (the default), an eject request will be sent to the
     /// guest if it has locked the tray (and the tray will not be opened
     /// immediately); if true, the tray will be opened regardless of
@@ -1602,7 +1639,13 @@ pub struct BlockLatencyHistogramSet {
 #[qapi(removed = "6.0.0")]
 pub struct BlockPasswd {
     /// the name of the block backend device to set the password on
+    #[qapi(added = "2.0.0")]
     pub device: Option<String>,
+    /// the name of the device to set the password on
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.0.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// graph node name to set the password on (Since 2.0)
     #[qapi(name = "node-name")]
     #[qapi(added = "2.0.0")]
@@ -1635,7 +1678,13 @@ pub struct BlockPasswd {
 #[qapi(allow_preconfig(added = "7.1.0"))]
 pub struct BlockResize {
     /// the name of the device to get the image resized
+    #[qapi(added = "2.0.0")]
     pub device: Option<String>,
+    /// the name of the device to get the image resized
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.0.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// graph node name to get the image resized (Since 2.0)
     #[qapi(name = "node-name")]
     #[qapi(added = "2.0.0")]
@@ -1756,8 +1805,14 @@ pub struct BlockSetIoThrottle {
     pub bps_wr_max_length: Option<i64>,
     /// Block device name
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.8.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub device: Option<String>,
+    /// The name of the device
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// throttle group name (Since 2.4)
     #[qapi(added = "2.4.0")]
     pub group: Option<String>,
@@ -2930,7 +2985,13 @@ pub struct DeviceAdd {
     /// the name of the new device's driver
     pub driver: String,
     /// the device's ID, must be unique
+    #[qapi(added = "2.9.0")]
     pub id: Option<String>,
+    /// the device's ID, must be unique
+    #[qapi(name = "id")]
+    #[qapi(removed = "2.9.0")]
+    #[qapi(required)]
+    pub id_legacy: Option<String>,
 }
 
 /// Remove a device from a guest
@@ -3318,8 +3379,14 @@ pub struct DumpSkeys {
 pub struct Eject {
     /// Block device name
     #[qapi(feature = "deprecated")]
+    #[qapi(added = "2.8.0")]
     #[qapi(deprecated(added = "5.0.0"))]
     pub device: Option<String>,
+    /// The name of the device
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// If true, eject regardless of whether the drive is locked.
     /// If not specified, the default value is false.
     pub force: Option<bool>,
@@ -3891,7 +3958,13 @@ pub struct Migrate {
     #[qapi(added = "3.0.0")]
     pub resume: Option<bool>,
     /// the Uniform Resource Identifier of the destination VM
+    #[qapi(added = "8.2.2")]
     pub uri: Option<String>,
+    /// the Uniform Resource Identifier of the destination VM
+    #[qapi(name = "uri")]
+    #[qapi(removed = "8.2.2")]
+    #[qapi(required)]
+    pub uri_legacy: Option<String>,
 }
 
 /// Cancel the currently executing migration process.  Allows a new
@@ -4022,7 +4095,14 @@ pub struct MigrateIncoming {
     pub exit_on_error: Option<bool>,
     /// The Uniform Resource Identifier identifying the source or
     /// address to listen on
+    #[qapi(added = "8.2.0")]
     pub uri: Option<String>,
+    /// The Uniform Resource Identifier identifying the source or
+    /// address to listen on
+    #[qapi(name = "uri")]
+    #[qapi(removed = "8.2.0")]
+    #[qapi(required)]
+    pub uri_legacy: Option<String>,
 }
 
 /// Pause a migration.  Currently it only supports postcopy.
@@ -8676,7 +8756,13 @@ pub struct XBlockdevDel {
     pub id: Option<String>,
     /// Name of the graph node to delete.
     #[qapi(name = "node-name")]
-    pub node_name: String,
+    #[qapi(added = "2.8.0")]
+    #[qapi(required)]
+    pub node_name: Option<String>,
+    /// #optional Name of the graph node to delete.
+    #[qapi(name = "node-name")]
+    #[qapi(removed = "2.8.0")]
+    pub node_name_legacy: Option<String>,
 }
 
 /// Inserts a medium (a block driver state tree) into a block device. That block
@@ -8713,7 +8799,13 @@ pub struct XBlockdevDel {
 #[qapi(removed = "2.12.0")]
 pub struct XBlockdevInsertMedium {
     /// Block device name (deprecated, use @id instead)
+    #[qapi(added = "2.8.0")]
     pub device: Option<String>,
+    /// block device name
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// The name or QOM path of the guest device (since: 2.8)
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,
@@ -8773,7 +8865,13 @@ pub struct XBlockdevInsertMedium {
 #[qapi(removed = "2.12.0")]
 pub struct XBlockdevRemoveMedium {
     /// Block device name (deprecated, use @id instead)
+    #[qapi(added = "2.8.0")]
     pub device: Option<String>,
+    /// block device name
+    #[qapi(name = "device")]
+    #[qapi(removed = "2.8.0")]
+    #[qapi(required)]
+    pub device_legacy: Option<String>,
     /// The name or QOM path of the guest device (since: 2.8)
     #[qapi(added = "2.8.0")]
     pub id: Option<String>,

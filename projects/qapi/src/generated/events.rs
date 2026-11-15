@@ -139,8 +139,16 @@ pub struct BlockIoErrorEvent {
     /// than for the node where the error occurred.  The node name is
     /// not present if the drive is empty.  (Since: 2.8)
     #[qapi(name = "node-name")]
-    #[qapi(added = "2.8.0")]
+    #[qapi(added = "2.12.0")]
     pub node_name: Option<String>,
+    /// node name. Note that errors may be reported for the root node
+    /// that is directly attached to a guest device rather than for the
+    /// node where the error occurred. (Since: 2.8)
+    #[qapi(name = "node-name")]
+    #[qapi(added = "2.8.0")]
+    #[qapi(removed = "2.12.0")]
+    #[qapi(required)]
+    pub node_name_legacy: Option<String>,
     /// true if I/O error was caused due to a no-space condition.
     /// This key is only present if query-block's io-status is present,
     /// please see `query-block` documentation for more information
