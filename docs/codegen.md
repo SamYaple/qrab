@@ -202,6 +202,9 @@ check declarations, references, commands and metadata together.
 Generated union branches, simple-union tags, event types and command fallbacks
 avoid declared symbols, adding `Generated` or numbered suffixes when needed.
 References and wire names remain attached to the correct definitions.
+Exact QAPI type references resolve before Rust conversion. Coexisting declarations
+such as `Option`/`QapiOption` or `FooBAR`/`FooBar` receive distinct Rust symbols;
+mutually exclusive historical spellings can retain a shared identity.
 Coexisting field names that normalize alike receive stable `_alt` names across
 the selected history. Allocation reserves future declared fields and distinguishes
 virtual flatten receivers from wire fields, preserving keys such as `pc` and `PC`.

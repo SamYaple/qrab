@@ -5,6 +5,81 @@ pub use qapi_runtime::{
 mod generated;
 pub use generated::*;
 fn main() {
+    for version in [(6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            let command = commands::LateArgs {
+                value: "stable".into(),
+            };
+            assert_eq!(
+                serde_json::to_value(command).unwrap(),
+                serde_json::json!({"value":"stable"})
+            );
+        });
+    }
+    let _ = LaterType { marker: true };
+    for version in [(6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            let command = commands::LaterTypeCommand {
+                value: "request".into(),
+            };
+            assert_eq!(
+                serde_json::to_value(command).unwrap(),
+                serde_json::json!({"value":"request"})
+            );
+            let command = commands::ChangingTypeCommand {
+                value: "request".into(),
+            };
+            assert_eq!(
+                serde_json::to_value(command).unwrap(),
+                serde_json::json!({"value":"request"})
+            );
+        });
+    }
+    let _: <commands::ReadString as QapiCommand>::Returns = String::from("builtin");
+    let _: <commands::ReadNamedString as QapiCommand>::Returns = QapiStringGenerated {
+        value: "named".into(),
+    };
+    let _: <commands::ReadPrefixedString as QapiCommand>::Returns = QapiString { marker: true };
+    for version in [(6, 1, 0), (11, 1, 3)] {
+        with_version(version, || {
+            let wire = serde_json::json!({"item":{"value":"same"}});
+            let value: SpellingHolder = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(value.item.value, "same");
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+            let child: SpellingChild =
+                serde_json::from_value(serde_json::json!({"value":"base","extra":true})).unwrap();
+            assert_eq!(child.value, "base");
+        });
+    }
+    for (version, wire) in [
+        ((6, 1, 0), serde_json::json!({"item":"old"})),
+        ((11, 1, 3), serde_json::json!({"item":{"value":"new"}})),
+    ] {
+        with_version(version, || {
+            let value: CaseChangingHolder = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(value).unwrap(), wire);
+        });
+    }
+    let _ = SwitchInfo { marker: true };
+    with_version((11, 1, 3), || {
+        let _ = QapiOption { marker: true };
+        let _: <commands::ReadUppercase as QapiCommand>::Returns = FooBarGenerated2 {
+            first: "upper".into(),
+        };
+        let _: <commands::ReadCamel as QapiCommand>::Returns = FooBar { second: true };
+        let upper: ChildUpper =
+            serde_json::from_value(serde_json::json!({"first":"upper","third":7})).unwrap();
+        assert_eq!(upper.first, "upper");
+        let lower: ChildCamel =
+            serde_json::from_value(serde_json::json!({"second":true,"fourth":"lower"})).unwrap();
+        assert!(lower.second);
+        let upper = serde_json::json!({"kind":"upper","value":"payload"});
+        let value: AliasCaseGenerated = serde_json::from_value(upper.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), upper);
+        let lower = serde_json::json!({"kind":"lower","value":"payload"});
+        let value: AliasCase = serde_json::from_value(lower.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), lower);
+    });
     with_version((11, 1, 3), || {
         let wire = serde_json::json!({"kind":"none","U":"named","value":"payload"});
         let value: VirtualOwner = serde_json::from_value(wire.clone()).unwrap();
@@ -214,7 +289,7 @@ fn main() {
                 "strings" => assert_eq!(element.prim, metadata::Prim::Str),
                 "objects" => {
                     assert_eq!(element.kind, metadata::TypeKind::Struct);
-                    assert_eq!(element.name, "QapiString");
+                    assert_eq!(element.name, "QapiStringGenerated");
                 }
                 "kinds" => {
                     assert_eq!(element.kind, metadata::TypeKind::Enum);
@@ -266,7 +341,7 @@ fn main() {
             .unwrap();
         let ty = &metadata::TYPE_REFS[field.ty as usize];
         assert_eq!(ty.kind, metadata::TypeKind::Struct);
-        assert_eq!(ty.name, "QapiString");
+        assert_eq!(ty.name, "QapiStringGenerated");
         let command = metadata::COMMANDS
             .iter()
             .find(|command| command.wire_name == "read-string")
@@ -295,7 +370,7 @@ fn main() {
             match variant.wire_name {
                 "object" => {
                     assert_eq!(ty.kind, metadata::TypeKind::Struct);
-                    assert_eq!(variant.payload_struct, Some("QapiString"));
+                    assert_eq!(variant.payload_struct, Some("QapiStringGenerated"));
                 }
                 "text" => assert_eq!(ty.prim, metadata::Prim::Str),
                 "kind" => {

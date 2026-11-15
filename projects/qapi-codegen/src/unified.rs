@@ -276,7 +276,7 @@ fn process_version_schema_with_names(
         for token in &schema.0 {
             match token {
                 QapiSchemaToken::Union(value) => {
-                    let root = rustify_name(value.name);
+                    let root = symbols.alias_name(value.name);
                     let branch = symbols.role(&format!("{root}Branch"));
                     let discriminator = symbols.role(&format!("{root}Type"));
                     union_names.insert(value.name, (branch, discriminator));
@@ -294,9 +294,7 @@ fn process_version_schema_with_names(
         }
     }
 
-    // All types are keyed by their rustified form so that cross-version renames
-    // (e.g. SGXInfo → SgxInfo in v10.1) and command/data-struct pairs that
-    // happen to rustify to the same identifier land in a single entry.
+    // Resolve exact QAPI names before assigning Rust identities for merging.
     for (path, schema) in schemas {
         for token in schema.0 {
             let definition = match &token {
@@ -309,10 +307,17 @@ fn process_version_schema_with_names(
                 _ => None,
             };
             if let Some((namespace, name)) = definition {
-                let key = (namespace, rustify_name(name));
+                let key = (
+                    namespace,
+                    if namespace == "type" {
+                        name.to_owned()
+                    } else {
+                        rustify_name(name)
+                    },
+                );
                 if let Some(previous) = definitions.insert(key.clone(), name) {
                     anyhow::bail!(
-                        "Conflicting QAPI definitions {previous} and {name} map to Rust type {} in {}",
+                        "Conflicting QAPI definitions {previous} and {name} share a {namespace} symbol {} in {}",
                         key.1,
                         path.display()
                     );
@@ -321,11 +326,11 @@ fn process_version_schema_with_names(
             match token {
                 QapiSchemaToken::Enum(v) => {
                     let processed = process_enum(v);
-                    enums_lookup.insert(rustify_name(&processed.name), processed);
+                    enums_lookup.insert(processed.name.clone(), processed);
                 }
                 QapiSchemaToken::Alternate(v) => {
                     let processed = process_alternate(v);
-                    enums_lookup.insert(rustify_name(&processed.name), processed);
+                    enums_lookup.insert(processed.name.clone(), processed);
                 }
                 QapiSchemaToken::Struct(v) => {
                     if v.base.is_some() {
@@ -334,9 +339,9 @@ fn process_version_schema_with_names(
                     }
                     let (processed, extracted) =
                         process_struct_with_names(v, &structs_lookup, &mut names);
-                    structs_lookup.insert(rustify_name(&processed.name), processed);
+                    structs_lookup.insert(processed.name.clone(), processed);
                     for e in extracted {
-                        structs_lookup.insert(rustify_name(&e.name), e);
+                        structs_lookup.insert(e.name.clone(), e);
                     }
                 }
                 QapiSchemaToken::Union(value) if value.legacy_alternate => {
@@ -347,7 +352,7 @@ fn process_version_schema_with_names(
                         features: value.features,
                         doc: value.doc,
                     });
-                    enums_lookup.insert(rustify_name(&processed.name), processed);
+                    enums_lookup.insert(processed.name.clone(), processed);
                 }
                 QapiSchemaToken::Union(v) => {
                     unprocessed_unions.push(v);
@@ -369,15 +374,15 @@ fn process_version_schema_with_names(
         let mut pending = Vec::new();
         for value in unprocessed_structs {
             let base = value.base.expect("only derived structs are deferred");
-            if !structs_lookup.contains_key(&rustify_name(base)) {
+            if !structs_lookup.contains_key(base) {
                 pending.push(value);
                 continue;
             }
             let (processed, extracted) =
                 process_struct_with_names(value, &structs_lookup, &mut names);
-            structs_lookup.insert(rustify_name(&processed.name), processed);
+            structs_lookup.insert(processed.name.clone(), processed);
             for value in extracted {
-                structs_lookup.insert(rustify_name(&value.name), value);
+                structs_lookup.insert(value.name.clone(), value);
             }
         }
         anyhow::ensure!(
@@ -394,14 +399,14 @@ fn process_version_schema_with_names(
     for v in unprocessed_unions {
         if let crate::MembersOrRef::Ref(base) = &v.base {
             anyhow::ensure!(
-                structs_lookup.contains_key(&rustify_name(base)),
+                structs_lookup.contains_key(*base),
                 "QAPI union {} references missing base {base}",
                 v.name
             );
         }
         if let Some(discriminator) = v.discriminator {
             let (discriminator_type, optional, array) = match &v.base {
-                crate::MembersOrRef::Ref(base) => structs_lookup[&rustify_name(base)]
+                crate::MembersOrRef::Ref(base) => structs_lookup[*base]
                     .fields
                     .iter()
                     .find(|field| field.name == discriminator)
@@ -435,14 +440,14 @@ fn process_version_schema_with_names(
                 );
                 if crate::parser_version() >= (6, 2, 0) {
                     anyhow::ensure!(
-                        matches!(&branch.r#type, crate::QapiTypeRef::Ref(name) if structs_lookup.contains_key(&rustify_name(name))),
+                        matches!(&branch.r#type, crate::QapiTypeRef::Ref(name) if structs_lookup.contains_key(*name)),
                         "QAPI flat union {} branch {} must reference a struct",
                         v.name,
                         branch.name
                     );
                 }
             }
-            if let Some(tags) = enums_lookup.get(&rustify_name(&discriminator_type)) {
+            if let Some(tags) = enums_lookup.get(&discriminator_type) {
                 anyhow::ensure!(
                     !tags.variants.is_empty(),
                     "QAPI union {} has no branches",
@@ -483,15 +488,15 @@ fn process_version_schema_with_names(
                 }
             }
             de.name.clone_from(discriminator_name);
-            enums_lookup.insert(rustify_name(&de.name), de);
+            enums_lookup.insert(de.name.clone(), de);
         }
-        enums_lookup.insert(rustify_name(&e.name), e);
-        structs_lookup.insert(rustify_name(&s.name), s);
+        enums_lookup.insert(e.name.clone(), e);
+        structs_lookup.insert(s.name.clone(), s);
     }
     for v in unprocessed_events {
         if let Some(crate::MembersOrRef::Ref(data)) = &v.data {
             anyhow::ensure!(
-                structs_lookup.contains_key(&rustify_name(data)),
+                structs_lookup.contains_key(*data),
                 "QAPI event {} references missing argument type {data}",
                 v.name
             );
@@ -499,12 +504,26 @@ fn process_version_schema_with_names(
         let event_name = &event_names[v.name];
         let mut processed = process_event(v, &structs_lookup);
         processed.name.clone_from(event_name);
-        structs_lookup.insert(rustify_name(&processed.name), processed);
+        structs_lookup.insert(processed.name.clone(), processed);
     }
+    let symbol_name = |name: &str| {
+        if declared.contains(name) {
+            symbols.type_name(name)
+        } else {
+            rustify_name(name)
+        }
+    };
+    let mut occupied = symbols.data_symbols();
+    occupied.extend(
+        structs_lookup
+            .values()
+            .map(|value| symbol_name(&value.name)),
+    );
+    occupied.extend(enums_lookup.values().map(|value| symbol_name(&value.name)));
     for v in unprocessed_commands {
         if let Some(crate::MembersOrRef::Ref(data)) = &v.data {
             anyhow::ensure!(
-                structs_lookup.contains_key(&rustify_name(data)),
+                structs_lookup.contains_key(*data),
                 "QAPI command {} references missing argument type {data}",
                 v.name
             );
@@ -516,7 +535,29 @@ fn process_version_schema_with_names(
         };
 
         let command_name = &command_names[v.name];
+        let returns = v.returns.as_ref().and_then(|value| {
+            let (name, array) = match value {
+                crate::QapiTypeRef::Ref(name) => (*name, false),
+                crate::QapiTypeRef::ArrayRef(name) => (*name, true),
+                _ => return None,
+            };
+            let name = if declared.contains(name) {
+                symbols.type_name(name)
+            } else {
+                rustify_type(name)
+            };
+            Some(if array { format!("Vec<{name}>") } else { name })
+        });
         let mut processed = process_command(v, &structs_lookup);
+        if let Some(returns) = returns {
+            for attr in &mut processed.meta.attributes {
+                if let Attribute::Item { name, value } = attr {
+                    if name == "returns" {
+                        value.clone_from(&returns);
+                    }
+                }
+            }
+        }
         let mut cmd_key = rustify_name(&processed.name);
 
         if let Some(ref ref_name) = data_ref_name {
@@ -526,7 +567,7 @@ fn process_version_schema_with_names(
                 // (e.g. command `blockdev-snapshot-sync` → struct
                 // `BlockdevSnapshotSync`). Merge command attributes onto the
                 // existing data struct -- a single entry represents both.
-                if let Some(existing) = structs_lookup.get_mut(&ref_key) {
+                if let Some(existing) = structs_lookup.get_mut(ref_name) {
                     merge_command_attrs_onto(&processed, existing);
                     continue;
                 }
@@ -541,7 +582,7 @@ fn process_version_schema_with_names(
         // the data type and give the request an explicit Command suffix.
         // Otherwise Returns resolves to the request itself and decoding
         // silently loses response fields or fails on missing arguments.
-        if structs_lookup.contains_key(&cmd_key) || enums_lookup.contains_key(&cmd_key) {
+        if occupied.contains(&cmd_key) {
             processed
                 .meta
                 .attributes
@@ -553,15 +594,25 @@ fn process_version_schema_with_names(
             processed.name.clone_from(command_name);
             cmd_key = rustify_name(&processed.name);
             anyhow::ensure!(
-                !structs_lookup.contains_key(&cmd_key) && !enums_lookup.contains_key(&cmd_key),
+                !occupied.contains(&cmd_key),
                 "Conflicting command type: {cmd_key}"
             );
         }
+        occupied.insert(cmd_key.clone());
         structs_lookup.insert(cmd_key, processed);
     }
 
     symbols.rewrite_types(&declared, &mut enums_lookup, &mut structs_lookup);
-    Ok((enums_lookup, structs_lookup))
+    Ok((
+        enums_lookup
+            .into_values()
+            .map(|value| (rustify_name(&value.name), value))
+            .collect(),
+        structs_lookup
+            .into_values()
+            .map(|value| (rustify_name(&value.name), value))
+            .collect(),
+    ))
 }
 
 /// Result of extracting and parsing a single version's schema.
@@ -2322,12 +2373,20 @@ mod schema_resolution_tests {
     fn conflicting_schema_definitions_do_not_silently_overwrite_types() {
         for input in [
             "{ 'struct': 'Example', 'data': {} }\n{ 'struct': 'Example', 'data': {} }",
-            "{ 'struct': 'FooBAR', 'data': {} }\n{ 'enum': 'FooBar', 'data': ['one'] }",
             "{ 'command': 'foo-bar' }\n{ 'command': 'foo_bar' }",
         ] {
             let error = process(input).unwrap_err().to_string();
             assert!(error.contains("Conflicting QAPI definitions"), "{error}");
         }
+    }
+
+    #[test]
+    fn distinct_raw_type_names_keep_separate_rust_identities() {
+        let (enums, structs) =
+            process("{ 'struct':'FooBAR', 'data':{} } { 'enum':'FooBar', 'data':['one'] }")
+                .unwrap();
+        assert!(enums.contains_key("FooBar"));
+        assert!(structs.contains_key("FooBarGenerated"));
     }
 
     #[test]

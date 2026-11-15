@@ -1,4 +1,5 @@
 //! Lower parsed QAPI definitions into Rust IR with wire names and schema metadata.
+//! Dependency tables retain exact QAPI names until resolution is complete.
 
 use super::{Attribute, Enum, EnumVariant, EnumVariantKind, Metadata, Struct, StructField};
 use crate::qapi_ir::{rustify_field_name, rustify_name, rustify_variant};
@@ -339,7 +340,10 @@ pub fn process_struct(
     q: QapiStruct,
     structs_lookup: &HashMap<String, Struct>,
 ) -> (Struct, Vec<Struct>) {
-    let mut names = structs_lookup.keys().cloned().collect();
+    let mut names = structs_lookup
+        .keys()
+        .map(|name| rustify_name(name))
+        .collect();
     process_struct_with_names(q, structs_lookup, &mut names)
 }
 
@@ -353,7 +357,7 @@ pub(crate) fn process_struct_with_names(
     let mut extracted = Vec::new();
     if let Some(base) = q.base {
         let struct_ref = structs_lookup
-            .get(&rustify_name(base))
+            .get(base)
             .unwrap_or_else(|| panic!("base struct not found for {} with base {}", q.name, base));
         fields.extend(struct_ref.fields.clone());
     }
@@ -408,7 +412,7 @@ pub fn process_union(
             }
         }
         let discriminator = discriminator_opt.expect("discriminator field not found");
-        if enums_lookup.get(&rustify_name(&discriminator)).is_none() {
+        if enums_lookup.get(&discriminator).is_none() {
             eprintln!(
                 "WARNING: {} discriminator type '{}' is not an enum",
                 q.name, discriminator
@@ -457,7 +461,7 @@ pub fn process_union(
             .iter()
             .find(|field| field.name == q.discriminator.unwrap())
             .expect("discriminator field not found");
-        if let Some(tags) = enums_lookup.get(&rustify_name(&discriminator.r#type)) {
+        if let Some(tags) = enums_lookup.get(&discriminator.r#type) {
             for tag in &tags.variants {
                 if !variants.iter().any(|branch| branch.name == tag.name) {
                     variants.push(EnumVariant {
@@ -569,7 +573,7 @@ fn process_members_or_ref(
         }
         MembersOrRef::Ref(v) => {
             let struct_ref = structs_lookup
-                .get(&rustify_name(v))
+                .get(v)
                 .unwrap_or_else(|| panic!("failed to lookup base ref for {}", v));
             fields.extend(struct_ref.fields.clone());
         }

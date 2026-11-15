@@ -60,7 +60,7 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'command':'foo', 'data':{'value':'str'}, 'returns':'Foo' }\n");
     schema.push_str("{ 'struct':'ArrayPayloadType', 'data':{'marker':'bool'} }\n");
     schema.push_str("{ 'union':'VersionedUnion', 'base':'CollisionBase', 'discriminator':'kind', 'data':{'none':'PeerWindows'} }\n");
-    let modern_only = "{ 'struct':'VersionedUnionBranch', 'data':{'marker':'bool'} }\n{ 'struct':'NestedInlineOuterEmpty', 'data':{'marker':'bool'} }\n";
+    let modern_only = "{ 'struct':'VersionedUnionBranch', 'data':{'marker':'bool'} }\n{ 'struct':'NestedInlineOuterEmpty', 'data':{'marker':'bool'} }\n{ 'struct':'LaterType', 'data':{'marker':'bool'} }\n{ 'struct':'LateArgs', 'data':{'value':'str'} }\n";
     schema.push_str(modern_only);
     let changing_type = "{ 'struct':'ChangingType', 'data':{'value':'str'} }\n";
     schema.push_str(changing_type);
@@ -81,6 +81,38 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     schema.push_str("{ 'command':'manual-arguments', 'gen':false, 'data':{'arguments':'str'} }\n");
     schema.push_str("{ 'struct':'VirtualBase', 'data':{'kind':'EmptyKind','U':'str'} }\n");
     schema.push_str("{ 'union':'VirtualOwner', 'base':'VirtualBase', 'discriminator':'kind', 'data':{'none':'PeerWindows'} }\n");
+    schema.push_str("{ 'struct':'QapiOption', 'data':{'marker':'bool'} }\n");
+    schema.push_str("{ 'struct':'FooBAR', 'data':{'first':'str'} }\n");
+    schema.push_str("{ 'struct':'FooBar', 'data':{'second':'bool'} }\n");
+    schema.push_str("{ 'struct':'FooBarGenerated', 'data':{'reserved':'str'} }\n");
+    schema.push_str("{ 'struct':'ChildUpper', 'base':'FooBAR', 'data':{'third':'int'} }\n");
+    schema.push_str("{ 'struct':'ChildCamel', 'base':'FooBar', 'data':{'fourth':'str'} }\n");
+    schema.push_str("{ 'command':'read-uppercase', 'returns':'FooBAR' }\n");
+    schema.push_str("{ 'command':'read-camel', 'returns':'FooBar' }\n");
+    schema.push_str("{ 'enum':'KindFLAG', 'data':['upper'] }\n");
+    schema.push_str("{ 'enum':'KindFlag', 'data':['lower'] }\n");
+    schema.push_str("{ 'struct':'UpperBase', 'data':{'kind':'KindFLAG'} }\n");
+    schema.push_str("{ 'struct':'LowerBase', 'data':{'kind':'KindFlag'} }\n");
+    schema.push_str("{ 'union':'AliasCASE', 'base':'UpperBase', 'discriminator':'kind', 'data':{'upper':'PeerWindows'} }\n");
+    schema.push_str("{ 'union':'AliasCase', 'base':'LowerBase', 'discriminator':'kind', 'data':{'lower':'PeerWindows'} }\n");
+    schema.push_str("{ 'struct':'AliasSpelling', 'data':{'value':'str'} }\n");
+    schema.push_str("{ 'struct':'SpellingHolder', 'data':{'item':'AliasSpelling'} }\n");
+    schema.push_str(
+        "{ 'struct':'SpellingChild', 'base':'AliasSpelling', 'data':{'extra':'bool'} }\n",
+    );
+    schema.push_str("{ 'struct':'SwitchInfo', 'data':{'marker':'bool'} }\n");
+    let changing_alias = "{ 'struct':'SWITCHInfo', 'data':{'value':'str'} }\n";
+    schema.push_str(changing_alias);
+    schema.push_str("{ 'struct':'CaseChangingHolder', 'data':{'item':'SWITCHInfo'} }\n");
+    schema.push_str("{ 'struct':'QapiString', 'data':{'marker':'bool'} }\n");
+    schema.push_str("{ 'command':'read-named-string', 'returns':'String' }\n");
+    schema.push_str("{ 'command':'read-prefixed-string', 'returns':'QapiString' }\n");
+    schema.push_str("{ 'command':'later-type', 'data':{'value':'str'} }\n");
+    schema.push_str(
+        "{ 'command':'changing-type', 'data':{'value':'str'}, 'returns':'ChangingHolder' }\n",
+    );
+    let late_request = "{ 'command':'late-args', 'data':'LateArgs' }\n";
+    schema.push_str(late_request);
     let entry = repo.join("qapi/qapi-schema.json");
     std::fs::write(&entry, &schema).unwrap();
     let oracle = Command::new("python3").arg("-c").arg("import sys; sys.path.insert(0, sys.argv[1]+'/scripts'); from qapi.schema import QAPISchema; QAPISchema(sys.argv[2])")
@@ -92,6 +124,12 @@ fn valid_schema_keywords_and_standard_type_names_compile_and_round_trip() {
     );
     let modern_schema = schema.clone();
     schema = schema.replace(modern_only, "");
+    schema = schema.replace(
+        late_request,
+        "{ 'command':'late-args', 'data':{'value':'str'} }\n",
+    );
+    schema = schema.replace("'AliasSpelling'", "'ALIASSpelling'");
+    schema = schema.replace(changing_alias, "{ 'enum':'SWITCHInfo', 'data':['old'] }\n");
     schema = schema.replace(collision_fields, "{ 'struct':'CollisionFields', 'data':{'FooBAR':'str','FooBar':'str','FooBAR_alt':'str'} }\n");
     schema = schema.replace(changing_alt, "{ 'enum':'ChangingAlt', 'data':['old'] }\n");
     schema = schema.replace(changing_type, "{ 'enum':'ChangingType', 'data':['old'] }\n");
