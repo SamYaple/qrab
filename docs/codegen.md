@@ -87,6 +87,9 @@ Implicit `ElementList` references normalize to ordinary arrays. Scalar builtin
 lists are predefined; named lists require an explicit array use somewhere in
 the schema graph. Nested arrays and declarations with reserved `List` suffixes
 are rejected before lowering.
+Alternates reject overlapping JSON-type branches, including broad `any` values.
+Before 2.10 integer and floating-point branches remain distinct; newer schemas
+also apply QEMU's string and enum scalar-conversion conflict rules.
 Type references resolve against exact QAPI names across all source files before
 Rust name mapping. Undefined member, branch and return types report their source
 and definition; historical inline objects include the nested member path.

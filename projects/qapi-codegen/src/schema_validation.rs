@@ -108,6 +108,100 @@ fn members_or_ref(value: &MembersOrRef<'_>, types: &HashSet<&str>) -> Result<()>
     }
 }
 
+fn alternate_branches(
+    branches: &crate::QapiAlternatives<'_>,
+    declarations: &HashMap<&str, &QapiSchemaToken<'_>>,
+) -> Result<()> {
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    enum Kind {
+        Null,
+        Bool,
+        Integer,
+        Float,
+        Number,
+        String,
+        Object,
+        Array,
+    }
+    let unified_numbers = crate::parser_version() >= (2, 10, 0);
+    let mut seen = HashMap::new();
+    for branch in &branches.0 {
+        let (kind, enumeration) = match &branch.r#type {
+            QapiTypeRef::ArrayRef(_) => (Some(Kind::Array), None),
+            QapiTypeRef::Ref(name) => {
+                let enumeration = match declarations.get(name) {
+                    Some(QapiSchemaToken::Enum(value)) => Some(value),
+                    _ => None,
+                };
+                let kind = match *name {
+                    "str" => Some(Kind::String),
+                    "bool" => Some(Kind::Bool),
+                    "null" => Some(Kind::Null),
+                    "number" => Some(if unified_numbers {
+                        Kind::Number
+                    } else {
+                        Kind::Float
+                    }),
+                    "int" | "int8" | "int16" | "int32" | "int64" | "uint8" | "uint16"
+                    | "uint32" | "uint64" | "size" => Some(if unified_numbers {
+                        Kind::Number
+                    } else {
+                        Kind::Integer
+                    }),
+                    _ => match declarations.get(name) {
+                        Some(QapiSchemaToken::Enum(_)) => Some(Kind::String),
+                        Some(QapiSchemaToken::Struct(_)) => Some(Kind::Object),
+                        Some(QapiSchemaToken::Union(value)) if !value.legacy_alternate => {
+                            Some(Kind::Object)
+                        }
+                        _ => None,
+                    },
+                };
+                (kind, enumeration)
+            }
+            _ => (None, None),
+        };
+        let kind = kind.with_context(|| {
+            format!(
+                "Alternate branch '{}' cannot use type {:?}",
+                branch.name, branch.r#type
+            )
+        })?;
+        let mut conflicting = vec![kind];
+        if unified_numbers && kind == Kind::String {
+            if let Some(enumeration) = enumeration {
+                for member in &enumeration.data {
+                    if matches!(member.name, "on" | "off") {
+                        conflicting.push(Kind::Bool);
+                    }
+                    if member
+                        .name
+                        .starts_with(|c: char| c.is_ascii_digit() || matches!(c, '-' | '+' | '.'))
+                    {
+                        conflicting.push(Kind::Number);
+                    }
+                }
+            } else {
+                conflicting.extend([Kind::Bool, Kind::Number]);
+            }
+        }
+        for kind in conflicting.iter().copied() {
+            if let Some(previous) = seen.get(&kind) {
+                ensure!(
+                    *previous == branch.name,
+                    "Alternate branch '{}' cannot be distinguished from '{}'",
+                    branch.name,
+                    previous
+                );
+            }
+        }
+        for kind in conflicting {
+            seen.insert(kind, branch.name);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
     // Gather all files first: forward references are valid across includes.
     let types: HashSet<_> = schemas
@@ -118,6 +212,17 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
             QapiSchemaToken::Struct(value) => Some(value.name),
             QapiSchemaToken::Union(value) => Some(value.name),
             QapiSchemaToken::Alternate(value) => Some(value.name),
+            _ => None,
+        })
+        .collect();
+    let declarations: HashMap<_, _> = schemas
+        .iter()
+        .flat_map(|(_, schema)| &schema.0)
+        .filter_map(|token| match token {
+            QapiSchemaToken::Enum(value) => Some((value.name, token)),
+            QapiSchemaToken::Struct(value) => Some((value.name, token)),
+            QapiSchemaToken::Union(value) => Some((value.name, token)),
+            QapiSchemaToken::Alternate(value) => Some((value.name, token)),
             _ => None,
         })
         .collect();
@@ -157,6 +262,7 @@ pub(crate) fn validate(schemas: &[(&Path, QapiSchema<'_>)]) -> Result<()> {
                             type_ref(&branch.r#type, &types, false)
                                 .with_context(|| format!("Invalid branch '{}'", branch.name))?;
                         }
+                        alternate_branches(&value.data, &declarations)?;
                     }
                     QapiSchemaToken::Command(value) => {
                         if let Some(data) = &value.data {

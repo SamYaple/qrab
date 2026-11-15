@@ -2246,6 +2246,50 @@ mod schema_resolution_tests {
     use super::*;
 
     #[test]
+    fn upstream_ambiguous_alternate_fixtures_are_rejected() {
+        let root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/qemu/tests/qapi-schema");
+        for name in [
+            "alternate-conflict-dict",
+            "alternate-conflict-bool-string",
+            "alternate-conflict-num-string",
+            "alternate-conflict-string",
+            "alternate-conflict-enum-int",
+            "alternate-conflict-enum-bool",
+            "alternate-conflict-lists",
+            "alternate-any",
+        ] {
+            let path = root.join(format!("{name}.json"));
+            let sources = crate::read_schema_with_version(&path, Some((11, 1, 3))).unwrap();
+            let error = format!("{:#}", process_version_schema(&sources).unwrap_err());
+            assert!(error.contains(name), "{name}: {error}");
+            assert!(
+                error.contains("distinguished") || error.contains("cannot use"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn alternate_scalar_conflicts_follow_the_historical_qobject_model() {
+        for input in [
+            "{'alternate':'Choice','data':{'integer':'int','floating':'number'}}",
+            "{'alternate':'Choice','data':{'text':'str','boolean':'bool'}}",
+        ] {
+            crate::set_parser_version((2, 9, 0));
+            process_version_schema(&[("old.json".into(), input.into())]).unwrap();
+            crate::set_parser_version((2, 10, 0));
+            let error = process_version_schema(&[("new.json".into(), input.into())]).unwrap_err();
+            assert!(format!("{error:#}").contains("cannot be distinguished"));
+        }
+        process(concat!(
+            "{'enum':'Kind','data':['yes','no']}\n",
+            "{'struct':'Payload','data':{'value':'str'}}\n",
+            "{'alternate':'Choice','data':{'kind':'Kind','number':'int','object':'Payload','empty':'null'}}",
+        )).unwrap();
+    }
+
+    #[test]
     fn implicit_arrays_require_creation_and_reject_nested_arrays() {
         for (input, expected) in [
             (
