@@ -5,7 +5,8 @@ This is the connection inventory for the active qrab workspace, audited on
 the Rust source, generated QEMU arguments and checked-in Kubernetes manifests,
 supplemented by
 [dated read-only live configuration and external-source checks](connections/platform-evidence.md).
-No packet captures were taken. Image digests in manifests can describe earlier
+No packet captures were taken for that initial audit; later dated rollout
+records include scoped captures. Image digests in manifests can describe earlier
 builds; source capability is not proof that a running image has it enabled.
 
 **Subsequent source hardening:** netd conntrack peers (N9) now require node-bound
@@ -21,6 +22,9 @@ Metrics, operator power reads and scoped Prometheus history now have
 Ingress backend mTLS (M2/M4/M5), local exec health probes (P11), native SDS
 delivery (I10) and HTTPS package builds (A3) also have
 [deployed acceptance evidence](connections/platform-evidence.md#ingress-backend-mtls-and-https-build-rollout-2026-11-16).
+Cilium-managed Pod links now use [strict WireGuard](node-encryption.md)
+(N14/I11), with [live migration and capture evidence](connections/platform-evidence.md#strict-pod-wireguard-rollout-2026-11-16). Host and world-origin
+forwarding remain separate work.
 
 Start here for endpoints, payloads and transport protection. Continue with:
 
@@ -169,7 +173,7 @@ management access. Mock servers and test socketpairs are not deployed listeners.
 | --- | --- | --- | --- |
 | N1 | Manager → `/run/qrab-netd/netd.sock` | Bounded JSON request/reply: queues, anchor probe, handoff state, forwarding, conntrack pull result; TAP/vhost queue FDs with SCM_RIGHTS | **Local** Unix. Socket mode 0666; authorization is `SO_PEERCRED` PID → cgroup → Pod UID → watched VM ownership/NIC on this node. CDI mounts directory read-only; read-only does not prevent connecting. |
 | N2 | Guest virtio-net ↔ kernel vhost-net ↔ TAP `qt<12 hex>` in NIC anchor | Ethernet frames via guest virtqueues and kernel descriptors handed to QEMU | **Local**, no added encryption. qrab-netd opens `/dev/net/tun` and `/dev/vhost-net`; manager/anchor do not. No userspace TCP NIC relay and no per-packet forwarding through netd's control socket. |
-| N3 | Plain NIC TAP ↔ anchor routing/`eth0` ↔ Cilium ↔ other Pods/nodes/LAN/internet | Guest IPv4, TCP/UDP/ICMP and application protocols; stable /32 and security-group Cilium identity | **Plain at qrab layer**. Guest app TLS, if any, remains encrypted through TAP. Cilium policy and anti-spoof checks are packet authorization, not SPIFFE. Outside-host NAT/routing is external. |
+| N3 | Plain NIC TAP ↔ anchor routing/`eth0` ↔ Cilium ↔ other Pods/nodes/LAN/internet | Guest IPv4, TCP/UDP/ICMP and application protocols; stable /32 and security-group Cilium identity | Guest protocols are preserved. TAP/anchor routing is **local plaintext**; cross-node traffic between Cilium-managed Pods inherits **N14 WireGuard**. Ordinary LAN/internet traffic retains guest app protection; VPN NICs use N5. Policy and anti-spoof checks remain separate authorization. |
 | N4 | Guest ↔ `169.254.1.1` in anchor | Gateway ARP/ICMP; DHCP UDP client 68/server 67; plain NIC DNS UDP/TCP 53 redirected to anchor resolver | **Plain**, DHCP responder binds TAP and serves the configured guest MAC/address. VPN NIC DHCP supplies tunnel address/DNS/MTU instead. |
 | N5 | VPN NIC TAP ↔ anchor `wg0` ↔ configured IPv4 VPN peer | Inner guest packets; outer WireGuard UDP from anchor `:51820`, provider port from config (Proton 51820) | **Encrypted only from anchor WireGuard to VPN peer**. Static WireGuard peer keys, optional PSK; no SPIFFE/OIDC on data channel. TAP and `wg0` show inner traffic; anchor `eth0` shows encrypted outer UDP. |
 | N6 | Target manager → source manager Pod `:7800` | Hello/offer/ready JSON, then bidirectional QEMU migration byte stream, bulk state source → target | **SPIFFE TLS 1.3 mTLS** between managers; exact same per-VM SVID. Local QEMU ends are unencrypted Unix sockets. Standing deny guard plus temporary source/target policy restrict network reachability. |
@@ -178,8 +182,9 @@ management access. Mock servers and test socketpairs are not deployed listeners.
 | N9 | Target node netd → source node netd host `:7911` | One JSON line each way: NIC address request, hex-encoded Cilium conntrack map records and clock/truncation metadata | **SPIFFE TLS 1.3 mTLS**, exact per-node URI `/kubernetes/qrab-node/qrab-netd/<node>` resolved from current anchor host-IP/node metadata. Source retains on-link and same-VM/same-NIC authorization. Missing/mismatched SVID or ambiguous node mapping refuses exchange; no plaintext fallback. Enrollment/release required. |
 | N10 | netd → `/var/run/cilium/cilium.sock` | HTTP/1.1 `PATCH /v1/endpoint/cep-name:.../handoff` with prepare/active/standby | **Local**, root/hostPath access; no TLS or user bearer. netd also uses local bpftool/BPF map access to export/import conntrack. |
 | N11 | Node FRR ↔ BGP neighbors | TCP 179 route advertisements/withdrawals for guest /32s | **External configuration**. Operator writes `FRRConfiguration` via Kubernetes; it does not speak BGP. No BGP TLS or message-authentication guarantee is established here. BGP carries routes, not guest payloads. |
-| N12 | Old node → new node during handoff | Temporarily routed guest packets over a host /32 forward route | **Plain at qrab layer**, separate from N6 migration TLS. Route installation is restricted to the caller's NIC /32 and an on-link next hop; withdrawn after the grace period. |
+| N12 | Old node → new node during handoff | Temporarily routed guest packets over a host /32 forward route | **Partial coverage**: Pod-origin traffic inherits N14; Cilium excludes world-origin forwarding, which remains separate protection work. N6 migration TLS does not cover these packets. Route installation is restricted to the caller's NIC /32 and on-link peer, then withdrawn after the grace period. |
 | N13 | netd renewal thread inside VPN anchor netns → tunnel gateway UDP `:5351` | NAT-PMP UDP/TCP mapping requests/replies, 60s leases, renewed every 40s (10s after failure); enabled by `# qrab: port-forwarding` | **Plain NAT-PMP inside the encrypted WireGuard tunnel**, no separate OIDC/SPIFFE/application credential. Local source `169.254.1.1:<ephemeral>` is SNATed to the guest's inner tunnel address only for gateway:5351 out `wg0`; replies return to netd via conntrack, not guest TAP. |
+| N14 | Node `cilium_wg0` ↔ peer node UDP `:51871` | Cilium-managed IPv4 Pod traffic, including guest NIC anchors | **Deployed WireGuard**, per-node keys distributed through I11. Strict ingress/egress protects Pod-to-Pod traffic in `10.244.0.0/16`, including the guest /17; unknown encryption metadata drops. Same-node data remains local. Host traffic, ordinary external traffic and world-origin forwarding are outside this mode. |
 
 Source: [TAP launch](../projects/manager/src/pod/tap.rs),
 [hot-attach](../projects/manager/src/pod/nics.rs),
@@ -245,6 +250,7 @@ sequence for each of these connections, including what is not enrolled.
 | I8 | Proton broker → same Proton API | Refresh rotation, VPN plan/catalog/loads, Ed25519 public-key certificate requests | **HTTPS**, Proton bearer and `x-pm-uid`. Session UID/refresh token and profile keys live in separately confined Kubernetes Secrets. Broker accepts no inbound service connections. |
 | I9 | Broker → Kubernetes → VPN Secret → anchor mount → netd → `wg syncconf` | `vpn-<profile>/wg.conf` with X25519 key and selected peer; public catalog in `proton-catalog` | API legs use Kubernetes TLS/RBAC/admission. Anchor's root-only 0400 mount and netd's stdin pipe are **local plaintext**. Private key is not delivered to manager/guest or on `wg` argv. |
 | I10 | Cilium Envoy → node SPIRE agent SDS Unix socket | Streaming Secret discovery: ingress SVID/private key and local bundle | **Local**, container-attested CSI socket. Private key delivered directly to Envoy memory. Exact image/Pod/UID registration; fixed bootstrap cluster, standard X509 local-bundle verification plus URI pinning. Live SDS delivery and rotation verified on all three nodes. |
+| I11 | Cilium agent ↔ Kubernetes API `CiliumNode` and endpoint inventory | Public WireGuard key publication/watch and IP-to-node ownership used by N14 | **HTTPS**, cluster CA and Cilium ServiceAccount authorization. Public keys use `network.cilium.io/wg-pub-key`; private keys stay on the node. This is Kubernetes-authenticated key distribution, separate from SPIFFE SVIDs and browser OIDC. |
 
 Source: [BMC OIDC](../projects/bmc/src/auth.rs),
 [dashboard OIDC](../projects/dashboard/src/auth.rs),
@@ -274,7 +280,7 @@ Source: [BMC OIDC](../projects/bmc/src/auth.rs),
 | P11 | Kubelet → local exec → operator/dashboard/BMC/Redfish loopback health | Fixed GET `/healthz` or `/readyz` inside the container network namespace | **Deployed local exec + literal loopback**, no network plaintext probe. Two-second total budget; workload mode hides all app routes on the ordinary listener. Manager retains its existing exec/file probes. Live ordinary Pod ports refused connections. |
 | P12 | KVM plugin → kubelet `kubelet.sock`; kubelet → `qrab-kvm.sock` | Device-plugin gRPC registration, ListAndWatch, Allocate; writes CDI JSON | **Local Unix gRPC**, root-owned host directories, no TLS/OIDC/SPIFFE. CDI gives requested container `/dev/kvm` and netd mount. QEMU then uses local KVM ioctl/mmap for VM/vCPU execution (TCG stays in process); no encrypted CPU/RAM boundary is promised. VM Pod has no API token. |
 | P13 | Guest → QEMU serial → manager → container stdout; service logs → stderr | Serial text, bounded tail, structured lifecycle/identity/admission/error logs; later admin serial/diagnostic API reads | **Local** virtual serial/pipes/log files; cluster log collector transport/storage is **external**. Serial is separate from the graphical VNC console and may contain guest secrets. |
-| P14 | Pod / guest resolver → cluster or VPN DNS | UDP/TCP 53 queries/replies used by OIDC/provider/event/Prometheus clients and guests | **Plain DNS** at these interfaces unless guest app uses its own encrypted resolver. VPN-provided DNS travels inside N5; ordinary Pod DNS does not become encrypted because the final request uses HTTPS. |
+| P14 | Pod / guest resolver → cluster or VPN DNS | UDP/TCP 53 queries/replies used by OIDC/provider/event/Prometheus clients and guests | **Cross-node Pod DNS inherits N14 WireGuard**, verified against a remote CoreDNS Pod. Local guest gateway/anchor DNS remains local plaintext; host/external resolver legs need their own protection. VPN DNS travels inside N5. Final application HTTPS is a separate connection. |
 
 | P15 | qrab observability adapter → Kubernetes API | Read-only current VM UIDs and owned Pod/IP inventory | **HTTPS** using a rotating projected Pod-bound token of the existing monitoring Prometheus ServiceAccount. Namespaced RBAC grants only VM/Pod reads; discovery authority expires after 15s without a successful refresh. |
 

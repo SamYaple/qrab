@@ -1,0 +1,287 @@
+{
+  "date": "2026-11-16",
+  "scope": "IPv4 Cilium-managed Pod links; host and world-origin forwarding remain separate",
+  "agentSource": "b62a4ec4f00c17b37f411ebd2ed589be7b3bb222",
+  "agentImage": "sha256:6575d06b830d70814399c686a14ade8bebb1b021dac01f9da45fc21fa51b85e7",
+  "managerSource": "c357503",
+  "managerImage": "sha256:480be89f821a799d375a099d631e7c7a16e5605e07dd165d18129be564d8245a",
+  "persistentTCP": {
+    "clientNode": "kube01",
+    "guestIP": "10.244.128.1",
+    "paddingBytes": 4096,
+    "moves": [
+      {
+        "source": "kube03",
+        "target": "kube02",
+        "maxGapSeconds": 0.58
+      },
+      {
+        "source": "kube02",
+        "target": "kube03",
+        "maxGapSeconds": 0.74
+      }
+    ],
+    "connections": 1,
+    "livenessFailures": 0
+  },
+  "missingKey": {
+    "source": "10.244.0.114",
+    "destination": "10.244.4.238",
+    "serverUid": "6e879865-6d55-4689-8656-a165b404613f",
+    "before": {
+      "connected": true,
+      "matches": true,
+      "bytes": 14
+    },
+    "missingKey": {
+      "connected": false,
+      "errorType": "TimeoutError"
+    },
+    "after": {
+      "connected": true,
+      "matches": true,
+      "bytes": 14
+    },
+    "strictDropCount": {
+      "before": 0,
+      "after": 2
+    },
+    "dropRows": [
+      "Traffic is unencrypted                            EGRESS      2            148              1661   bpf_host.c"
+    ],
+    "ipcacheRestoredExactly": true
+  },
+  "dns": {
+    "clientIP": "10.244.0.114",
+    "dnsPod": "coredns-b9c65c58c-nbcbs",
+    "dnsNode": "kube02",
+    "dnsIP": "10.244.3.163",
+    "answers": [
+      {
+        "answers": 1,
+        "bytes": 106
+      },
+      {
+        "answers": 1,
+        "bytes": 106
+      },
+      {
+        "answers": 1,
+        "bytes": 106
+      }
+    ]
+  },
+  "captures": [
+    {
+      "interface": "enp0s2",
+      "mode": "physical",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/ct2-kube01-physical.pcap",
+      "seconds": 68.12095952033997,
+      "counts": {
+        "outerWireGuard": 200000,
+        "syntheticClear": 0
+      },
+      "kernelPackets": 238330,
+      "kernelDrops": 0,
+      "bytes": 48344582,
+      "sha256": "8955cec4267df99c077d8e6e9e2460f32b1e5a17009570563d6be78590436f29",
+      "file": "qrab-wg-ct2-kube01-physical.log"
+    },
+    {
+      "interface": "cilium_wg0",
+      "mode": "wireguard",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/ct2-kube01-wireguard.pcap",
+      "seconds": 180.36083793640137,
+      "counts": {
+        "outerWireGuard": 0,
+        "syntheticClear": 615
+      },
+      "kernelPackets": 620,
+      "kernelDrops": 0,
+      "bytes": 102248,
+      "sha256": "706904110529c6500e6ce140a61684df332278221aca2d1a2538b2eac407d49e",
+      "file": "qrab-wg-ct2-kube01-wireguard.log"
+    },
+    {
+      "interface": "enp0s2",
+      "mode": "physical",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/ct2-kube02-physical.pcap",
+      "seconds": 180.01211166381836,
+      "counts": {
+        "outerWireGuard": 193853,
+        "syntheticClear": 0
+      },
+      "kernelPackets": 283344,
+      "kernelDrops": 13328,
+      "bytes": 48171282,
+      "sha256": "ac01f2bb7bc83b78afa4ea1b49b2f3f9b137e00cea90f8a0d135fb3cedee1608",
+      "file": "qrab-wg-ct2-kube02-physical.log"
+    },
+    {
+      "interface": "cilium_wg0",
+      "mode": "wireguard",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/ct2-kube02-wireguard.pcap",
+      "seconds": 180.03206300735474,
+      "counts": {
+        "outerWireGuard": 0,
+        "syntheticClear": 308
+      },
+      "kernelPackets": 311,
+      "kernelDrops": 0,
+      "bytes": 50757,
+      "sha256": "20f417d394c26e29e7d1ab62d47316a1e031acdd9a98758e1cdef29d32ac2937",
+      "file": "qrab-wg-ct2-kube02-wireguard.log"
+    },
+    {
+      "interface": "enp0s2",
+      "mode": "physical",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/ct2-kube03-physical.pcap",
+      "seconds": 162.32649111747742,
+      "counts": {
+        "outerWireGuard": 200000,
+        "syntheticClear": 0
+      },
+      "kernelPackets": 217676,
+      "kernelDrops": 0,
+      "bytes": 44686644,
+      "sha256": "5b38875c03e7512f40962cd9f86f2c84a6e978e77102691faaaa307fafa40d84",
+      "file": "qrab-wg-ct2-kube03-physical.log"
+    },
+    {
+      "interface": "cilium_wg0",
+      "mode": "wireguard",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/ct2-kube03-wireguard.pcap",
+      "seconds": 180.30814957618713,
+      "counts": {
+        "outerWireGuard": 0,
+        "syntheticClear": 284
+      },
+      "kernelPackets": 299,
+      "kernelDrops": 0,
+      "bytes": 46881,
+      "sha256": "7c43b7547029d75bc5e86c77548d4cc3c20de8dface1ceca1131e0d3e697ce59",
+      "file": "qrab-wg-ct2-kube03-wireguard.log"
+    },
+    {
+      "interface": "enp0s2",
+      "mode": "physical",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/negative-kube01-physical.pcap",
+      "seconds": 11.996119976043701,
+      "counts": {
+        "outerWireGuard": 12892,
+        "syntheticClear": 0
+      },
+      "kernelPackets": 19345,
+      "kernelDrops": 0,
+      "bytes": 2750832,
+      "sha256": "f217c154b29aef686be54f922a81740035085bc5d21d7676564720bb8d14cfb2",
+      "file": "qrab-wg-negative-kube01-physical.log"
+    },
+    {
+      "interface": "cilium_wg0",
+      "mode": "wireguard",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/negative-kube01-wireguard.pcap",
+      "seconds": 12.31609845161438,
+      "counts": {
+        "outerWireGuard": 0,
+        "syntheticClear": 16
+      },
+      "kernelPackets": 16,
+      "kernelDrops": 0,
+      "bytes": 1172,
+      "sha256": "d061f03301b4501b1156649fe09d2f547d1348c4cec87c63691f85ffcc18cc60",
+      "file": "qrab-wg-negative-kube01-wireguard.log"
+    },
+    {
+      "interface": "enp0s2",
+      "mode": "physical",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/negative-kube03-physical.pcap",
+      "seconds": 12.000030755996704,
+      "counts": {
+        "outerWireGuard": 8508,
+        "syntheticClear": 0
+      },
+      "kernelPackets": 12232,
+      "kernelDrops": 0,
+      "bytes": 1753262,
+      "sha256": "265003ebc5d07fd7d2496655e5b4da067d23faccf6b8e59c2ad52d1baf1bca46",
+      "file": "qrab-wg-negative-kube03-physical.log"
+    },
+    {
+      "interface": "cilium_wg0",
+      "mode": "wireguard",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/negative-kube03-wireguard.pcap",
+      "seconds": 12.005102157592773,
+      "counts": {
+        "outerWireGuard": 0,
+        "syntheticClear": 16
+      },
+      "kernelPackets": 28,
+      "kernelDrops": 0,
+      "bytes": 1172,
+      "sha256": "4a6737b8b3db0da91deec1bfe52a66f9118322b70d971ea2de9295eb7bbeb7ed",
+      "file": "qrab-wg-negative-kube03-wireguard.log"
+    },
+    {
+      "interface": "enp0s2",
+      "mode": "physical",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/dns-kube01-physical.pcap",
+      "seconds": 7.999155759811401,
+      "counts": {
+        "outerWireGuard": 8784,
+        "syntheticClear": 0
+      },
+      "kernelPackets": 12845,
+      "kernelDrops": 0,
+      "bytes": 1806074,
+      "sha256": "715088baf8f1de4bcc6b5a5806a748a0c9f6da910e08ebb0ed3a5b637f285cd3",
+      "file": "qrab-wg-dns-kube01-physical.log"
+    },
+    {
+      "interface": "cilium_wg0",
+      "mode": "wireguard",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/dns-kube01-wireguard.pcap",
+      "seconds": 8.292156219482422,
+      "counts": {
+        "outerWireGuard": 0,
+        "syntheticClear": 6
+      },
+      "kernelPackets": 25,
+      "kernelDrops": 0,
+      "bytes": 768,
+      "sha256": "949d9d2f6120065f5720c3c81f5dd15c385f8f892acebfb564c521d8436e43e5",
+      "file": "qrab-wg-dns-kube01-wireguard.log"
+    },
+    {
+      "interface": "enp0s2",
+      "mode": "physical",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/dns-kube02-physical.pcap",
+      "seconds": 7.968100547790527,
+      "counts": {
+        "outerWireGuard": 1212,
+        "syntheticClear": 0
+      },
+      "kernelPackets": 2761,
+      "kernelDrops": 0,
+      "bytes": 238238,
+      "sha256": "9908fcba613c1522daf240fc61586d4a5ddd81f6e128e54f34aec3e94b0ed94d",
+      "file": "qrab-wg-dns-kube02-physical.log"
+    },
+    {
+      "interface": "cilium_wg0",
+      "mode": "wireguard",
+      "path": "/var/tmp/qrab-wg-evidence-20261116/dns-kube02-wireguard.pcap",
+      "seconds": 8.3480863571167,
+      "counts": {
+        "outerWireGuard": 0,
+        "syntheticClear": 6
+      },
+      "kernelPackets": 122,
+      "kernelDrops": 0,
+      "bytes": 768,
+      "sha256": "244822d0db87f04df1ef88b7570fd594297568c67f8eb829b7bf01bd3571bb00",
+      "file": "qrab-wg-dns-kube02-wireguard.log"
+    }
+  ],
+  "captureLimits": "ct2 physical captures had packet caps and one reported loss; inner captures span both moves with zero drops. Separate fixed-endpoint missing-key and DNS captures have zero kernel drops. Zero observed plaintext is scoped evidence, not a loss-free recording of every migration packet."
+}

@@ -463,3 +463,105 @@ certificate and claims were removed; storage Retain semantics preserve their
 data. The inactive canonical POC was not recreated. Node-link encryption and
 native iSCSI remain separate tracked work; this ingress release establishes
 no confidentiality for those paths.
+
+## Strict Pod WireGuard rollout: 2026-11-16
+
+The [Pod link guide](../node-encryption.md) and
+[public proof metadata](evidence/2026-11-16-wireguard.json) record the deployed
+N14 data channel and I11 key-distribution channel. This step protects managed
+IPv4 Pod-to-Pod links, including guest NIC anchors, while retaining guest
+application protocols. Host-network, ordinary external and world-origin
+forwarding traffic still require separate protection.
+
+The Cilium fork at `b62a4ec4f00c17b37f411ebd2ed589be7b3bb222` was built,
+published and immutable-pulled as
+`zot.yapplesauce.com/infrastructure/cilium@sha256:6575d06b830d70814399c686a14ade8bebb1b021dac01f9da45fc21fa51b85e7`
+(tag `v1.20.2-towl.11-b62a4ec4f0`). Its executable revision and OCI label were
+verified. Functional and race tests cover repeated stable-IP moves, release and
+reuse, unknown peers, key refresh, failed kernel updates, rollback and partially
+applied updates. Before the fix, A → B → A kept sending to B; a stale failed
+retry could also reclaim an IP after rollback. The fix tracks applied ownership
+and latest intent, retaining the kernel's atomic prefix-transfer behavior.
+
+[GitOps PR480](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/480)
+merged as `a661798`, preserving all preload references and adding this exact
+node alias. All three nodes held the image and matching node-wide kubelet pull
+records. The preload reached 3/3 Ready; temporary preflight Pods were removed.
+[PR481](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/481) merged as
+`129ca32`, activating only the agent image and encryption configuration. The
+Cilium operator stayed on `b44bd24f…`, preserving ingress SPIRE SDS behavior.
+
+The exact pinned chart digest was rendered with checksum-verified Helm before
+activation. The deployed ConfigMap independently confirmed:
+
+- WireGuard enabled, with strict ingress and egress encryption.
+- Egress CIDR `10.244.0.0/16`, including guest `10.244.128.0/17`.
+- Dynamic remote-node exceptions disabled; IPv6 disabled.
+- `nodeEncryption` false and the default control-plane exclusion preserved.
+
+All three agents became Ready on the expected image, each with a
+`cilium_wg0` interface and two peers. Public dashboard and forge HTTPS returned
+200 after the rolling transition. Application SPIFFE mTLS remains independent
+of this node-key tunnel.
+
+The live oracle used a Python client Pod on kube01 and a CirrOS guest with
+stable address `10.244.128.1`. A 4096-byte padding option exercised TCP payloads
+larger than the tunnel MTU. The client connected once and only read the guest's
+counter; the guest security group admitted TCP5000 in and no new egress, so
+continuity required imported conntrack state.
+
+The first run passed kube03 → kube02 with a 0.55s gap, then exposed a manager
+supervision bug on the return. During the authenticated target's preparation,
+migration progress callbacks were silent and the normal heartbeat was not
+driven. Kubelet killed the source after three stale-status liveness failures.
+A hardware-free delayed-target test reproduced the failure beyond the five-second
+freshness limit. Source `c357503` adds QMP-backed heartbeat supervision throughout
+that wait; the regression also requires multiple actual QMP replies. Probe
+freshness and process-identity checks are unchanged. The full runtime gate passed.
+
+The corrected manager was published/pulled with its revision label as
+`zot.yapplesauce.com/qrab/manager@sha256:480be89f821a799d375a099d631e7c7a16e5605e07dd165d18129be564d8245a`
+(tag `secure-migration-c357503`).
+[PR482](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/482), merge
+`7d4833a`, retained it. Release pin `4c787ad` records both artifacts. The scoped
+operator Deployment retained its `c75cf38d…` executable and changed its default
+VM image to the new manager. No inactive VM was created by that rollout.
+
+The repeated oracle then passed both moves on one connection:
+
+| Move | Maximum observed gap | Conntrack evidence |
+| --- | --- | --- |
+| kube03 → kube02 | 0.58s | precopy 3, delta 2 |
+| kube02 → kube03 | 0.74s | precopy imports recorded, delta 1 |
+
+There were zero liveness-probe failures across the repeat run's 53 Kubernetes
+events. The disposable VM and migration objects were removed afterward.
+
+A separate fixed-endpoint test read a 14-byte synthetic reply successfully,
+cleared only that endpoint's encryption marker in the client node's BPF entry,
+and observed connection timeout plus two `Traffic is unencrypted` egress drops.
+The exact original entry was restored, and the same read succeeded again. This
+changed no other endpoint or peer key. Paired captures had zero kernel drops:
+16 inner synthetic TCP packets were visible on each WireGuard interface, with
+zero matching plaintext TCP packets on either physical uplink.
+
+A UDP query to a CoreDNS Pod on kube02 from the kube01 client returned three
+successful answers. Paired captures saw six inner DNS packets and zero matching
+physical plaintext packets, also with zero kernel drops. No VPN profile was
+active during this run; the configured VPN path keeps its separate source and
+enrollment evidence.
+
+The repeated-migration inner captures span both moves with zero drops. Physical
+captures observed WireGuard records and no matching plaintext, but two reached
+the packet cap and one reported 13,328 drops. They are bounded supporting
+samples, not a complete loss-free recording. The independent fixed-endpoint and
+DNS captures provide the zero-drop negative/positive comparison. Capture
+lengths, counts, hashes and limitations are retained in the JSON proof; payload
+files stay separate with restricted access. Bulk migration traffic was why the
+initial unfiltered capture exhausted its budget; later captures used kernel
+socket filters to isolate test/client-node traffic.
+
+All test entrypoints and workload data were synthetic. No SPIFFE private key,
+bearer token or ordinary application payload was exported. The remaining
+native iSCSI, BGP, host/uplink and world-origin forwarding links remain open
+work under the transport hardening effort.
