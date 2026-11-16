@@ -1,0 +1,85 @@
+{
+  "trustedIPv4": true,
+  "trustedIPv6": true,
+  "wrongCAKRefused": true,
+  "tcp": [
+    {
+      "port": 179,
+      "bytes": 8192,
+      "addressPreserved": true
+    },
+    {
+      "port": 3260,
+      "bytes": 8192,
+      "addressPreserved": true
+    }
+  ],
+  "interfaces": {
+    "a": "macsec0",
+    "b": "macsec0",
+    "c": "macsec0",
+    "d": "macsec0",
+    "e": "macsec0"
+  },
+  "lowerCapture": {
+    "macsec": 37,
+    "clearIP": 0,
+    "mka": 7
+  },
+  "replayRefused": true,
+  "plaintextRefused": true,
+  "automaticRekey": true,
+  "restartRecovered": true,
+  "freshSessionKey": true,
+  "deployment": {
+    "clearPrimaryWorksDuringStage": true,
+    "clearPrimaryBlockedByGuard": true,
+    "upperMTU": 1500,
+    "lowerMTU": 1532,
+    "rpFilterDisabled": true,
+    "staticIpv6TestAddressesWithoutDAD": true,
+    "receiverGuardRefusedInjectedPlaintext": true,
+    "unguardedPlaintextReachedApplication": true,
+    "trustedMkaMembers": 4
+  },
+  "firewall": {
+    "firewallRoundtrip": true,
+    "guardMarkerCrashRecovered": true,
+    "externalEditPreserved": true,
+    "legacyRoundtrip": true,
+    "productionSourcePreserved": true
+  },
+  "liveUpperHooks": {
+    "upperIfindex": 1947,
+    "hooks": [
+      {
+        "name": "cil_from_netdev",
+        "kind": "tcx/ingress"
+      },
+      {
+        "name": "cil_to_netdev",
+        "kind": "tcx/egress"
+      }
+    ],
+    "productionAddressesChanged": false
+  },
+  "unitContracts": 27,
+  "nodePreflight": {
+    "kube01": "passed",
+    "kube02": "passed",
+    "kube03": "passed"
+  },
+  "physicalCutoverExecuted": false,
+  "ciliumPrerequisite": {
+    "source": "517c5fe834e26db4f3fb10465c77cf957a5bc526",
+    "image": "sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
+    "gitopsMerge": "70e889b9a9526d1e95233d2d562057137d372358",
+    "nodesReady": 3
+  },
+  "sourceHashes": {
+    "deploy_root.py": "95e7e298ac66a326d4b696009ade60823cf7e9530a396e392947d169b8d72b06",
+    "check-macsec.py": "73f0a01868184fd276c6cc851ecc1b6c4c032dab9811f8b10d825894fd9ea0e1",
+    "tests/check-nft.py": "c62c974584e2e092eab1fbb7ed901efe8e060432bf1571a07fd5bc4195160ac0",
+    "tests/test_deploy_root.py": "7a653ac7c7753132380a8d0615aa28e3b799301b3af76eaa13937e222e87b07e"
+  }
+}

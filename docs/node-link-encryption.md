@@ -72,8 +72,26 @@ memory and Unix sockets remain local boundaries in the [atlas](connections.md).
 
 ## Cilium integration and deployment
 
-The deployed Cilium host firewall drops MACsec/MKA traffic. A tested fork
-change adds `macsec-underlay-devices`, empty by default. Only named external
+The [root deployment coordinator](../contrib/network-encryption/DEPLOYMENT.md)
+packages native preflight, cutover, verification and rollback. Its Cilium
+prerequisite was prepared separately; the physical native cutover still
+requires running the kit as root.
+
+The prepared Cilium agent is
+`sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e`,
+source `517c5fe834`, deployed through
+[GitOps PR 485](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/485).
+All three nodes are ready. A temporary, unaddressed upper on a dummy lower
+confirmed both real TCX hooks and was removed afterward.
+
+The deployment fixture additionally disables reverse-path filtering and keeps
+clear primary IPs during staging. A forged unencrypted packet reached the
+application when the receiver guard was deliberately removed; restoring the
+guard blocked it. The kit therefore enforces both raw ingress and egress
+independently of address placement or reverse-path filtering.
+
+The original Cilium host firewall dropped MACsec/MKA traffic. The prepared fork
+adds `macsec-underlay-devices`, empty by default. Only named external
 lower devices pass EtherTypes `0x88e5` and `0x888e` to the kernel. MACsec uppers
 and internal host devices receive no exception. Other traffic retains policy.
 Tests of the actual compiled host entry points passed 24 cases, including
@@ -81,7 +99,8 @@ IPv4/IPv6 ingress/egress deny policy with the exception enabled.
 
 Select both devices, for example `devices: [enp0s2, macsec0]`, and attach normal
 IP policy/routing to the upper before moving addresses. These tests do not
-verify production upper-device attachment. The option is not deployed/enabled.
+verify production encrypted traffic. The prerequisite release now configures
+the lower exception and future upper selection; it creates no MACsec interface.
 
 Source: [maintained Cilium integration and tests](https://gitea.yapplesauce.com/forks/cilium/src/commit/517c5fe834e26db4f3fb10465c77cf957a5bc526/contrib/qrab-macsec-underlay.md).
 

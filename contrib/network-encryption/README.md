@@ -1,5 +1,9 @@
 # Native link encryption prototype
 
+The [root deployment kit](DEPLOYMENT.md) provides a guarded coordinator,
+offline packaging, persistent native configuration and rollback. Its pinned
+tools include nftables; the original prototype bundle below remains historical.
+
 This directory packages the standard Linux MACsec/MKA supplicant for isolated
 network-namespace experiments. It changes no production interface or service.
 The kernel supports MACsec on the three nodes and storage gateway; native MKA
