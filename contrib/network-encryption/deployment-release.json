@@ -1,7 +1,9 @@
 {
-  "tools_reference": "zot.yapplesauce.com/qrab/link-tools@sha256:3c0ba57cac8106becc604941d0a96db98579d5e56854fca785c43c3dfdba233e",
-  "tools_archive_sha256": "e88b2429f1ab21ca0af35acab333b50d0a1900cfeb863369908975502d483d8a",
-  "wpa_sha256": "13b6a65f587fe57817d1aa4075c0459add5b93df384304547206e4a4bbd74ab8",
+  "tools_reference": "zot.yapplesauce.com/qrab/link-tools@sha256:944693ec20daa65ea86b661d8a2bb7f005ed8eaa93c56ab5c44466e326bc1802",
+  "tools_archive_sha256": "7b52fd4f47977191f809d4cce167df04ec8249d11a2addd4794e83faa6bc1930",
+  "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13",
   "cilium_digest": "sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
-  "cilium_source": "517c5fe834e26db4f3fb10465c77cf957a5bc526"
+  "cilium_source": "517c5fe834e26db4f3fb10465c77cf957a5bc526",
+  "tools_source": "6535a2963348280c2492776f3ed75dd53feeddf1",
+  "mka_rekey_control": 1
 }
