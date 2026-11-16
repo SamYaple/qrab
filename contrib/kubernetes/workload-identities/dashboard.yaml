@@ -16,7 +16,7 @@ spec:
   - k8s:ns:qrab
   - k8s:sa:qrab-dashboard
   - k8s:container-name:dashboard
-  - k8s:container-image:zot.yapplesauce.com/qrab/dashboard@sha256:3e05ed075b7785bf723177b5e3710baf42a44a116895ae483393ddd71dcd620c
+  - k8s:container-image:zot.yapplesauce.com/qrab/dashboard@sha256:b664685495e5caba53352ad7fbd78fda73d8da6bfa545a2d6aafe676f20a6ac0
   - unix:uid:10001
   ttl: 10m
   admin: false
