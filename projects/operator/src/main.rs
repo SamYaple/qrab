@@ -30,6 +30,13 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if args.as_slice() == ["image-crd"] {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&qrab_operator::image::crd())?
+        );
+        return Ok(());
+    }
     if args.as_slice() == ["dashboard-update-policy"] {
         println!(
             "{}",
@@ -39,7 +46,7 @@ async fn main() -> Result<()> {
     }
     ensure!(
         args.as_slice() == ["run"],
-        "usage: qrab-operator <run|crd|migration-crd|dashboard-update-policy>"
+        "usage: qrab-operator <run|crd|migration-crd|image-crd|dashboard-update-policy>"
     );
     tracing_subscriber::fmt()
         .with_ansi(false)

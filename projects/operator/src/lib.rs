@@ -2,6 +2,7 @@ pub mod address;
 pub mod api;
 pub mod controller;
 pub mod guest_identity;
+pub mod image;
 pub mod migration;
 pub mod nic;
 pub mod power;
