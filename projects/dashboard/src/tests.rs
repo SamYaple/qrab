@@ -401,6 +401,44 @@ struct Directory {
     members: HashMap<String, Vec<String>>,
     /// Lookups miss even existing groups.
     blind: bool,
+    /// Every lookup finds a group, as if the name were already taken.
+    taken: bool,
+}
+
+impl Directory {
+    /// The `qrab_vm_<launch id>_<role>` group a launch created, and its UUID.
+    fn launched(&self, role: &str) -> (String, String) {
+        let (name, id) = self
+            .groups
+            .iter()
+            .find(|(name, _)| launched_group(name, role))
+            .unwrap_or_else(|| panic!("no launched {role} group in {:?}", self.groups));
+        (name.clone(), id.clone())
+    }
+}
+
+/// `qrab_vm_<32 lowercase hex>_<role>`.
+fn launched_group(name: &str, role: &str) -> bool {
+    name.strip_prefix("qrab_vm_")
+        .and_then(|rest| rest.strip_suffix(&format!("_{role}")))
+        .is_some_and(|id| {
+            id.len() == 32
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+}
+
+/// The launched group of `role` named in the first Kanidm call that names one.
+fn logged_group(log: &Log, role: &str) -> String {
+    log.lock()
+        .unwrap()
+        .iter()
+        .find_map(|(_, path, _, _)| {
+            let name = path.strip_prefix("/v1/group/")?;
+            launched_group(name, role).then(|| name.to_owned())
+        })
+        .unwrap_or_else(|| panic!("no {role} group in the Kanidm log"))
 }
 
 fn fake_kanidm(log: Log, dir: Arc<Mutex<Directory>>) -> axum::Router {
@@ -427,6 +465,10 @@ fn fake_kanidm(log: Log, dir: Arc<Mutex<Directory>>) -> axum::Router {
                 .collect();
             let mut dir = dir.lock().unwrap();
             match (parts.method.clone(), path.as_slice()) {
+                (Method::GET, ["v1", "group", id]) if dir.taken => {
+                    Json(serde_json::json!({"attrs": {"name": [id], "uuid": [BOB]}}))
+                        .into_response()
+                }
                 (Method::GET, ["v1", "group", id]) => match dir.groups.get(*id) {
                     Some(_) if dir.blind => StatusCode::NOT_FOUND.into_response(),
                     Some(uuid) => {
@@ -1535,7 +1577,7 @@ async fn launching_with_an_os_clones_the_catalog_image_as_root() {
         created["metadata"]["annotations"]["qrab.yapplesauce.com/creator-subject"],
         ALICE
     );
-    let admins = h.dir.lock().unwrap().groups["qrab_vm_qrab_web_admins"].clone();
+    let (_, admins) = h.dir.lock().unwrap().launched("admins");
     assert_eq!(
         created["spec"]["console"]["adminGroups"],
         serde_json::json!([admins])
@@ -1621,8 +1663,13 @@ async fn launch_creates_groups_pvc_and_vm_in_order() {
     assert_eq!(headers["location"], "/auth/login?next=/vms/qrab/web");
     let (admins, viewers) = {
         let dir = h.dir.lock().unwrap();
-        let admins = dir.groups["qrab_vm_qrab_web_admins"].clone();
-        let viewers = dir.groups["qrab_vm_qrab_web_viewers"].clone();
+        let (admins_name, admins) = dir.launched("admins");
+        let (viewers_name, viewers) = dir.launched("viewers");
+        // Both groups come from the same launch ID.
+        assert_eq!(
+            admins_name.trim_end_matches("_admins"),
+            viewers_name.trim_end_matches("_viewers")
+        );
         let mut nested = dir.members[VM_USERS].clone();
         nested.sort();
         let mut expected = vec![admins.clone(), viewers.clone()];
@@ -1642,12 +1689,14 @@ async fn launch_creates_groups_pvc_and_vm_in_order() {
             format!("{m} {p}")
         })
         .collect();
+    let admins_name = logged_group(&h.kanidm, "admins");
+    let viewers_name = logged_group(&h.kanidm, "viewers");
     assert_eq!(
         calls[..3],
         [
-            "GET /v1/group/qrab_vm_qrab_web_admins",
-            "GET /v1/group/qrab_vm_qrab_web_viewers",
-            "POST /v1/group"
+            format!("GET /v1/group/{admins_name}"),
+            format!("GET /v1/group/{viewers_name}"),
+            "POST /v1/group".to_owned()
         ]
     );
     assert!(calls.contains(&format!("POST /v1/group/{admins}/_attr/member")));
@@ -1708,18 +1757,15 @@ async fn a_failed_launch_reports_and_rolls_back_its_groups() {
     assert!(
         body.contains("Create the VirtualMachine") && body.contains("admission webhook denied")
     );
-    assert!(body.contains("Kanidm group qrab_vm_qrab_web_admins deleted"));
+    let admins_name = logged_group(&h.kanidm, "admins");
+    assert!(body.contains(&format!("Kanidm group {admins_name} deleted")));
     assert!(body.contains("PersistentVolumeClaim qrab/web-state: kept"));
     assert!(h.dir.lock().unwrap().groups.is_empty());
     // An existing group is never adopted.
     h.cluster
         .fail_vm_create
         .store(false, std::sync::atomic::Ordering::SeqCst);
-    h.dir
-        .lock()
-        .unwrap()
-        .groups
-        .insert("qrab_vm_qrab_db_viewers".into(), BOB.into());
+    h.dir.lock().unwrap().taken = true;
     let (status, _, body) = send(
         &h,
         post(
@@ -1753,18 +1799,20 @@ async fn launches_roll_back_by_name_and_recheck_the_pvc() {
     h.dir.lock().unwrap().blind = true;
     let (status, _, body) = send(&h, launch("web")).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert!(body.contains("Read Kanidm group qrab_vm_qrab_web_admins"));
-    assert!(body.contains("Kanidm group qrab_vm_qrab_web_admins deleted"));
+    let admins_name = logged_group(&h.kanidm, "admins");
+    let admins_path = format!("/v1/group/{admins_name}");
+    assert!(body.contains(&format!("Read Kanidm group {admins_name}")));
+    assert!(body.contains(&format!("Kanidm group {admins_name} deleted")));
     assert!(h.dir.lock().unwrap().groups.is_empty());
     let log = h.kanidm.lock().unwrap().clone();
     let lookups = log
         .iter()
-        .filter(|(m, p, _, _)| m == "GET" && p == "/v1/group/qrab_vm_qrab_web_admins")
+        .filter(|(m, p, _, _)| m == "GET" && *p == admins_path)
         .count();
     assert_eq!(lookups, 3, "preflight plus one retry after creation");
     assert!(
         log.iter()
-            .any(|(m, p, _, _)| m == "DELETE" && p == "/v1/group/qrab_vm_qrab_web_admins")
+            .any(|(m, p, _, _)| m == "DELETE" && *p == admins_path)
     );
     h.dir.lock().unwrap().blind = false;
     // A bound claim that appears after the preflight is not reused.
