@@ -32,7 +32,7 @@ spec:
         effect: NoSchedule
       containers:
       - name: operator
-        image: zot.yapplesauce.com/qrab/operator@sha256:e8c7bd9815efccd8a0abddc62c3ec3ae23e583f1c6620361a071bffbd16e6bb1
+        image: zot.yapplesauce.com/qrab/operator@sha256:7f7b15ae224a2169548553c0f3584c854fb21a7c134dc1763d074b1c6359249e
         imagePullPolicy: Always
         args:
         - run
@@ -42,7 +42,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: QRAB_VM_IMAGE
-          value: zot.yapplesauce.com/qrab/manager@sha256:4a147cba51ccfec915f5bece0ffba3016f434e1e0f630bfbf940dd7bcd7252ef
+          value: zot.yapplesauce.com/qrab/manager@sha256:2612574ab886d2e1dc7e6baef21354b3646f16f6520807370dab2669bc3c53ce
         - name: QRAB_OIDC_ISSUER
           value: https://idm.yaple.net/oauth2/openid/qrab-bmc
         - name: QRAB_OIDC_CLIENT_ID
