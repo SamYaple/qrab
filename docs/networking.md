@@ -1003,3 +1003,19 @@ from that datapath.
   `etcdserver: request timed out`.
 - Later runs were refused with `StorageRefused budget-exhausted`: every run keeps
   its 1 GiB root clone.
+
+## Guest protocol and link protection policy
+
+The operator's explicit decision on 2026-11-16 is to preserve guest protocols and
+encrypt cluster/node links and configured VPN NICs. Ordinary NICs must keep
+working with the guest's chosen LAN/internet application protocols; they must
+not be silently forced through a VPN or blocked for lacking application TLS.
+A VPN NIC must retain its tunnel-only egress behavior. Node/link encryption
+protects the covered link, not traffic after it leaves that boundary. This does
+not exempt qrab management, migration, storage or observability service traffic
+from their own transport authentication and encryption requirements.
+
+The [dated platform evidence](connections/platform-evidence.md#cilium-does-not-supply-encryption-here)
+found Cilium encryption disabled. The policy above is a deployment requirement,
+not evidence that node links are already encrypted. See the
+[connection inventory](connections.md) for each flow's current status.

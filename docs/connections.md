@@ -16,8 +16,8 @@ container-scoped mTLS service identities (M6–M8), with
 [separate rollout/live admission evidence](connections/platform-evidence.md#management-workload-mtls-rollout-2026-11-15-22562304-utc). See
 [netd peer enrollment](networking.md#conntrack-peer-spiffe-enrollment).
 Metrics, operator power reads and scoped Prometheus history now have
-[workload mTLS source support](observability.md) (P6–P8/P15); their rollout
-is recorded separately from the earlier snapshots.
+[workload mTLS](observability.md) (P6–P8/P15), with
+[separate live rollout, migration and rotation evidence](connections/platform-evidence.md#observability-workload-mtls-rollout-2026-11-16).
 
 Start here for endpoints, payloads and transport protection. Continue with:
 
@@ -260,7 +260,7 @@ Source: [BMC OIDC](../projects/bmc/src/auth.rs),
 | P5 | Operator → API → kubelet projection → manager | VM ConfigMap updates and downward-API annotations for desired CPU/RAM, disk capacity; NIC config reconciled from projected config | API leg **TLS**; Pod file projection and manager polling **local**. No operator-to-manager TCP control API. QMP performs live growth/hotplug after projection. |
 | P6 | Prometheus → Pod-local qrab adapter → VM Pod `:9181/metrics` | Counters/gauges: power, health, resource, block, guest NIC and event-drop data | **SPIFFE TLS 1.3 mTLS** on the VM hop. Exact per-VM Redfish SVID plus current API-owned Pod/IP binding; Redfish admits the exact telemetry SVID. The initial HTTP19993 leg is **local loopback** in the Prometheus Pod. Network policy remains additional confinement. |
 | P7 | Operator → VM Pod `:9181/metrics` | Read-only current power-state gauge | **SPIFFE TLS 1.3 mTLS**, exact Redfish identity from controlled namespace/VM UID. Redfish admits the exact operator identity. No user login/token or plaintext fallback. |
-| P8 | Redfish → `qrab-prometheus-history.monitoring.svc:9091` → Pod-local Prometheus9090 | Fixed PromQL history templates scoped to own namespace/Pod, JSON results | **SPIFFE TLS 1.3 mTLS** on the network hop; exact telemetry server SVID, current exact VM client SVID and request-time certificate expiry. Gateway validates every template against that VM’s API-owned Pods. The last query_range HTTP leg is **local loopback**. VM egress to raw9090 is denied. |
+| P8 | Redfish → `qrab-prometheus-history.monitoring.svc:9091` → Pod-local Prometheus 9090 | Fixed PromQL history templates scoped to own namespace/Pod, JSON results | **SPIFFE TLS 1.3 mTLS** on the network hop; exact telemetry server SVID, current exact VM client SVID and request-time certificate expiry. Gateway validates every template against that VM’s API-owned Pods. The last query_range HTTP leg is **local loopback**. VM egress to raw9090 is denied. |
 | P9 | Client/browser → Redfish SSE over M5/M6/M8/M13 | Event records, telemetry and gap/drop notices, `Last-Event-ID` cursor | Inherits **each hop's** transport above, not a separate encrypted tunnel. Viewer/admin data redaction and credential expiry apply; streams are bounded histories, not complete packet or lifecycle journals. |
 | P10 | Redfish → exact operator-allowed HTTPS event receiver | Push `Event.v1_10_0` JSON; context and redacted event data, retries/checkpoints | **HTTPS server authentication**, no client certificate, bearer or custom HTTP headers. Creator token is not sent/stored for delivery. Disabled without destinations; operator allows receiver port 443. |
 | P11 | Kubelet → operator/dashboard/BMC/Redfish health endpoints | HTTP `/healthz` and `/readyz` probes (operator :8081, dashboard/BMC :8080, Redfish :8081) | **Plain HTTP**, no application login. Manager's own Pod probes are exec/file checks, not QMP or network probes. A green BMC/Pod probe does not prove guest app readiness. |
@@ -268,7 +268,7 @@ Source: [BMC OIDC](../projects/bmc/src/auth.rs),
 | P13 | Guest → QEMU serial → manager → container stdout; service logs → stderr | Serial text, bounded tail, structured lifecycle/identity/admission/error logs; later admin serial/diagnostic API reads | **Local** virtual serial/pipes/log files; cluster log collector transport/storage is **external**. Serial is separate from the graphical VNC console and may contain guest secrets. |
 | P14 | Pod / guest resolver → cluster or VPN DNS | UDP/TCP 53 queries/replies used by OIDC/provider/event/Prometheus clients and guests | **Plain DNS** at these interfaces unless guest app uses its own encrypted resolver. VPN-provided DNS travels inside N5; ordinary Pod DNS does not become encrypted because the final request uses HTTPS. |
 
-| P15 | qrab observability adapter → Kubernetes API | Read-only current VM UIDs and owned Pod/IP inventory | **HTTPS** using a rotating projected Pod-bound token of the existing monitoring Prometheus ServiceAccount. Namespaced RBAC grants only VM/Pod reads; discovery authority expires after15s without a successful refresh. |
+| P15 | qrab observability adapter → Kubernetes API | Read-only current VM UIDs and owned Pod/IP inventory | **HTTPS** using a rotating projected Pod-bound token of the existing monitoring Prometheus ServiceAccount. Namespaced RBAC grants only VM/Pod reads; discovery authority expires after 15s without a successful refresh. |
 
 Source: [operator controller startup](../projects/operator/src/main.rs),
 [dashboard Kubernetes client](../projects/dashboard/src/cluster.rs),

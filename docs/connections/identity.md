@@ -9,12 +9,12 @@ manager Pod's workload identity.
 
 | Mechanism | Holder and issuer | What it authorizes | What it does not establish |
 | --- | --- | --- | --- |
-| SPIFFE X509-SVID | Manager/operator/dashboard/BMC/Redfish/netd; issued by SPIRE | Workload peer admission for migration, node conntrack exchange, management HTTP/WS and exchange shim | A human user role, guest attestation, guest packet encryption, or TLS on every Pod listener |
+| SPIFFE X509-SVID | Manager/operator/dashboard/BMC/Redfish/netd/telemetry adapter; issued by SPIRE | Workload peer admission for migration, node conntrack exchange, management HTTP/WS, metrics/scoped history and exchange shim | A human user role, guest attestation, guest packet encryption, or TLS on every Pod listener |
 | Kanidm OIDC ID token | Signed-in user; audience is BMC/dashboard/Redfish client | User subject/group grants in BMC and Redfish; dashboard session identity | Transport secrecy: JWT signature is not encryption; claims can be decoded by anyone holding the token |
 | Browser session cookie | Opaque server-store identifier in browser | Lookup of verified user/login data; Origin/CSRF rules protect ambient-cookie mutations | A transferable SPIFFE identity, or the user's raw ID token in the cookie |
 | Redfish session `X-Auth-Token` | Native client; issued locally after permitted bootstrap | Revocable opaque session with the original local/OIDC principal and expiry | A new OAuth2 access token or a workload TLS identity |
 | Delegated storage bearer | Operator obtains from exchange shim using its SVID | Fixed storage verbs under Kanidm subject, RFC 8693 actor and per-verb scopes | iSCSI disk-data encryption, an operator client certificate on the storage ingress, or a guest login |
-| Kubernetes projected bearer | Operator/dashboard/netd/broker; Kubernetes issuer | ServiceAccount API operations under RBAC/admission; netd token also binds node/Pod | SPIFFE workload identity or an API token in the token-free VM/anchor Pods |
+| Kubernetes projected bearer | Operator/dashboard/netd/broker/telemetry adapter; Kubernetes issuer | ServiceAccount API operations under RBAC/admission; netd token also binds node/Pod | SPIFFE workload identity or an API token in the token-free VM/anchor Pods |
 | CHAP credential + initiator IQN | QEMU and LIO ACL; generated/provisioned per disk | iSCSI login to the exact target export | Encryption of SCSI data, a one-writer fence, or host/guest SPIFFE identity |
 | WireGuard key pair | Kernel VPN anchor; peer key configured or provider-selected | Encrypted authenticated WireGuard tunnel to VPN peer | OIDC authorization, the guest's identity, or protection after traffic leaves the VPN peer |
 | Proton session/profile key | Workstation login then broker; Proton SRP/API | VPN account API and certification of each profile key | qrab user permissions or per-packet SPIFFE authentication |

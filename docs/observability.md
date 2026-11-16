@@ -105,9 +105,9 @@ Redfish container. It prints only identity, HTTP status, body size and series
 count. Using another VM's Pod name tests the gateway's scope rejection.
 Use `bash contrib/probe-observability.sh POD-NAMESPACE POD CONTAINER metrics|history VM-NAMESPACE VM-UID POD-IP|POD-NAME`
 for the current x86_64 Linux cluster. The wrapper strips the local diagnostic
-build, bounds it to32MiB and executes it from an anonymous memfd inside the
+build, bounds it to 32 MiB and executes it from an anonymous memfd inside the
 attested container. It uses the runtime's existing Perl and normal kernel/
 seccomp policy; refusal fails the diagnostic, without a disk or plaintext
-fallback. The VM's bounded1MiB control volume is never a staging area.
+fallback. The VM's bounded 1 MiB control volume is never a staging area.
 This tests workload transport and history scope, without an exported key or
 token; it does not substitute for browser OIDC testing.

@@ -253,3 +253,79 @@ roundtrip, both TLS bridge hops, wrong peers, missing credentials, TLS1.2 refusa
 no plaintext fallback, redirects and resource bounds. This is transport/guest
 continuity evidence, not a packet recording or a claim that ingress backends,
 metrics, iSCSI or external guest application traffic have also been protected.
+
+## Observability workload mTLS rollout: 2026-11-16
+
+Enrollment began on 2026-11-15 at 23:33UTC; final live verification and cleanup
+completed on 2026-11-16. The observability paths P6–P8 and new discovery path P15
+are now deployed, independently of the earlier read-only snapshot.
+
+| Role | Source revision | Verified deployed image digest |
+| --- | --- | --- |
+| Operator | `a205be6` | `sha256:e8c7bd9815efccd8a0abddc62c3ec3ae23e583f1c6620361a071bffbd16e6bb1` |
+| VM manager/BMC/Redfish | `a205be6` | `sha256:4a147cba51ccfec915f5bece0ffba3016f434e1e0f630bfbf940dd7bcd7252ef` |
+| qrab telemetry sidecar (operator repository) | `694f435` | `sha256:3a87af89b6a3fc25ed4166e323ef2212a5d4b126ff69e811bc8f915157e1e6e3` |
+
+[GitOps PR468](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/468)
+merged as `77f6cdf`, enrolling the container-specific telemetry SVID, read-only
+VM/Pod discovery, fixed history Service and existing Prometheus ServiceAccount's
+UID-bound operator-repository pull authority. The scoped native pull policy
+update passed on kube01/02/03; all three nodes and SPIRE/shim/kubelet services
+remained healthy. Disposable preflight Pods verified the published image,
+SVID and API readiness on each node, with an unsatisfied readiness gate keeping
+them out of ready Service endpoints. Those Pods were subsequently removed.
+
+[PR469](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/469) merged as
+`0e25f39` and activated the sidecar. Live acceptance caught a fail-closed bug in
+the initial gateway: discovery checked ordinary containers instead of native
+Redfish init containers. The correction and real native-container regression
+fixture passed the full runtime gate; [PR470](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/470)
+merged as `8f33fe1`, advancing only the telemetry image and its SVID selector.
+Flux applied that revision Ready. The operator and updated PodMonitor were
+applied separately from their scoped manifests. The final telemetry image is
+tracked independently in the [release lock](../../contrib/images/images.lock.json).
+
+The Prometheus Pod became 4/4 Ready with no container restarts. Its existing
+20 Gi RWOP claim, UID `d3f38601-aacb-46f9-85d7-74b19f041781`, and volume survived
+both replacements; the new Pod could start on kube01. A local query still found
+thousands of samples across the preceding hour, rather than only samples since
+startup. The existing native SPIFFE adapter remained present.
+
+Two fresh disposable VMs were used: `secure-obs-20261115` (UID
+`874878e8-e6a7-4232-abc9-af9682de8cdc`) and `secure-obs-other-20261115` (UID
+`5e4f340d-ded6-4efb-a16f-980258a9fe32`). The first migrated successfully from
+kube03 to kube02; Prometheus ran on kube01. Before and after migration:
+
+- Production Prometheus scrapes reported `up=1`; the operator reported
+  `status.powerState=On` through its exact-VM mTLS metrics reader.
+- The actual Redfish container authenticated to the exact telemetry SVID over
+  TLS and received a 200 history matrix with three container series. A query
+  for the other live VM's Pod returned 403.
+- The telemetry container read metrics over exact-VM mTLS. A wrong expected VM
+  UID failed TLS. Redfish's own valid SVID was refused as a metrics client on
+  loopback, independently of network policy.
+- A client without a certificate received `certificate_required` on 9181;
+  plain HTTP received a TLS alert rather than a metrics response.
+- A bounded TCP connect from the VM to raw Prometheus 9090 timed out under the
+  explicit egress deny. The old source Pod IP returned 403 from the production
+  scrape adapter after migration.
+- Dashboard probes still admitted the exact BMC/Redfish service identities and
+  returned the expected application 401 without a user token. The migrated guest
+  agent remained connected, reporting version 11.1.3.
+
+Public certificate metadata also demonstrated rotation without process restarts:
+the gateway process started at 00:02 UTC, but its observed certificate had
+`notBefore=00:16:37`, `notAfter=00:26:47`; the migrated Redfish certificate had
+`notBefore=00:17:11`, `notAfter=00:27:21`. Both contained their expected URI SANs.
+Discovery and production scrapes remained healthy beyond the 600s projected-token
+and 10m SVID lifetimes. No private key or bearer token was exported.
+
+The [read-only diagnostic](../observability.md#release-and-verification) runs in
+memory inside the attested container. The initial attempt to stage its executable
+in the 1 MiB control volume failed; its partial file was removed, and the helper
+was changed to leave runtime storage untouched. Both VMs retained zero container
+restarts. The temporary VMs, migration, preflight Pods and claims were removed;
+Retain semantics preserve storage data. No fresh human OIDC login or privileged
+live console session was attempted. Ingress backend HTTP, native iSCSI and node
+link protection remain separate work; this rollout does not establish their
+confidentiality.
