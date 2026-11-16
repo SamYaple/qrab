@@ -492,8 +492,8 @@ pub struct Config {
     /// Unix socket in the session directory. Harmless if no agent runs.
     #[serde(default = "enabled")]
     pub guest_agent: bool,
-    /// The SPIRE server relay port; on by default and harmless without a
-    /// guest relay. A migration target follows the source's setting.
+    /// The SPIRE server relay port; off unless the operator enables it for a
+    /// VM with guest identity. A migration target follows the source's setting.
     #[serde(default)]
     pub spire_relay: SpireRelay,
     /// Guest workload identity: vTPM provisioning and the `qrab-identity`
