@@ -89,11 +89,22 @@ pull authorization authenticates the host and pod; it does not attest the guest.
 
 ## Guest workload identity (design, 2026-11-15)
 
-Status: decided. Registration (step 5) is built in the operator:
-`spec.guestIdentity` and `contrib/kubernetes/operator/guest-identity.yaml`
-([operator.md](operator.md#guest-identity)). The issuer, TPM provisioning,
-transport and SPIRE server trust are not built yet. The towl container is
-`qrab/container/vm-guest-spiffe-identity`.
+Status: built and proven live on 2026-11-16 (towl
+`qrab/work/guest-identity-live-acceptance`). Test VM `gid-accept` ran the demo
+guest; its init starts `spire-agent` from the identity disk.
+- The guest agent attested with `tpm_devid` through the relay.
+- A root workload held
+  `spiffe://yapplesauce.com/qrab/guest/<uid>/demo` and renewed it.
+- A live migration from kube03 to kube01 kept the same agent ID and SVID with
+  no reboot and no new issuer certificate.
+- Deleting the VM removed its ClusterStaticEntries.
+
+Two parts are still open:
+- agent eviction on deletion (step 7), tracked as
+  `qrab/work/guest-agent-eviction-on-vm-delete`;
+- the IDM dashboard's guest boundary view.
+
+The towl container is `qrab/container/vm-guest-spiffe-identity`.
 
 ### What a guest identity proves
 
@@ -181,7 +192,9 @@ guest boundary (what code in the VM may do) stay separate.
    connection is re-opened by the target manager, and the agent reconnects as
    on any server failover. No re-enrollment and no entry change.
 7. **Deletion.** The operator removes the VM's ClusterStaticEntries. The guest
-   agent's SVIDs lapse at their TTL, and the agent is evicted from SPIRE.
+   agent's SVIDs lapse at their TTL. Nothing evicts the agent yet: it stays
+   listed until its own SVID expires, about 1 h, and gets no workload SVIDs
+   (`qrab/work/guest-agent-eviction-on-vm-delete`).
 
 ### The qrab CAs (created 2026-11-16)
 
