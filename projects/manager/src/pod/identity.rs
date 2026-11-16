@@ -988,17 +988,9 @@ impl Session {
     /// so a SIGKILL after an orderly shutdown loses nothing.
     async fn stop(mut self) -> Result<()> {
         let orderly = self.tpm.shutdown().await;
-        // Signal while the data connection is still open: swtpm 0.10 can miss
-        // a SIGTERM that races its handling of a client disconnect.
-        if let Some(pid) = self.child.id() {
-            let _ = nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(pid as i32),
-                nix::sys::signal::Signal::SIGTERM,
-            );
-        }
-        if timeout(Duration::from_secs(15), self.child.wait())
+        if super::tpm::terminate(&mut self.child, Duration::from_secs(15))
             .await
-            .is_err()
+            .is_none()
         {
             self.child.start_kill()?;
             self.child.wait().await?;
