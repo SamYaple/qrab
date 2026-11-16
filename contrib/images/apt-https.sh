@@ -15,6 +15,7 @@ done
 [ "$sources_found" = 1 ] || { echo 'No package sources found' >&2; exit 1; }
 [ -s /etc/ssl/certs/ca-certificates.crt ] || { echo 'Pinned bootstrap CA store missing' >&2; exit 1; }
 cat > /etc/apt/apt.conf.d/99qrab-https <<'EOF'
+Acquire::https::CaInfo "/etc/ssl/certs/ca-certificates.crt";
 Acquire::https::Verify-Peer "true";
 Acquire::https::Verify-Host "true";
 Acquire::https::AllowRedirect "false";

@@ -13,7 +13,7 @@ ARG QRAB_REVISION=unknown
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.revision="${QRAB_REVISION}" \
       org.opencontainers.image.description="qrab VM dashboard: launch, inspect and open VM consoles through one OIDC client"
-RUN sh /usr/local/libexec/qrab-apt-https && apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN sh /usr/local/libexec/qrab-apt-https && apt-get update --error-on=any && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/qrab-dashboard /usr/local/bin/qrab-dashboard
 # Vendored noVNC for the console and shared BMC interface.
 COPY projects/dashboard/assets/novnc /opt/qrab/dashboard/novnc
