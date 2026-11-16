@@ -303,8 +303,10 @@ except socket.timeout:print(json.dumps({'plaintextRefused':True}))
         assert wrong.returncode!=0, 'wrong CAK was admitted'
         # Advance (never reset) this disposable transmit SA near exhaustion.
         # Standard MKA must negotiate a new key before packet-number reuse.
-        before_rekey = state('a')['sa_list']
-        assert len(before_rekey) == 1, 'expected one initial transmit SA'
+        initial = state('a')
+        before_rekey = [sa for sa in initial['sa_list']
+                        if sa['an'] == initial['encoding_sa'] and sa.get('active')]
+        assert len(before_rekey) == 1, 'expected one active encoding association'
         an = before_rekey[0]['an']
         ip(peers['a'], 'macsec', 'set', links['a'], 'tx', 'sa', str(an), 'pn', '4294967280')
         rekeyed = False

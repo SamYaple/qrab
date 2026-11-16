@@ -10,6 +10,7 @@ import tarfile
 import tempfile
 import subprocess
 import struct
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -264,6 +265,121 @@ class FileTransactions(unittest.TestCase):
 
 
 class BootAndIdentity(unittest.TestCase):
+    def test_health_install_refuses_uncommitted_and_inactive_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root);D.phase(state,"committed")
+            (state/"uncommitted").write_text("armed")
+            with patch.object(D,"configure_native_health") as install, self.assertRaises(D.DeployError):
+                D.install_native_health(state)
+            install.assert_not_called();(state/"uncommitted").unlink()
+            with patch.object(D,"run",return_value=subprocess.CompletedProcess([],0,b"another/mka.conf",b"")), \
+                 patch.object(D,"configure_native_health") as install, self.assertRaises(D.DeployError):
+                D.install_native_health(state)
+            install.assert_not_called()
+
+    def test_partial_health_upgrade_preserves_commit_and_records_each_host(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root)/"state";state.mkdir();kit=Path(root)/"kit";kit.mkdir()
+            source=b"public health agent";(kit/"deploy_root.py").write_bytes(source)
+            (kit/"tools.tar.gz").write_bytes(b"public tools")
+            D.save(kit/"deployment-release.json",{"tools_archive_sha256":D.digest(b"public tools")})
+            D.phase(state,"committed");D.save(state/"profile.json",{"role":"gateway","cak":"secret-not-sent"})
+            installed={"association_health":"installed","deployment_phase":"committed"}
+            reply=subprocess.CompletedProcess([],0,json.dumps({"staged":D.digest(source)}).encode(),b"")
+            with patch.object(D,"agent",return_value=installed) as local, \
+                 patch.object(D,"ssh_run",side_effect=[D.DeployError("node unavailable"),reply,reply]) as remote, \
+                 patch.object(D,"rollback_all",side_effect=AssertionError("network rollback")), \
+                 patch.object(D.secrets,"token_hex",side_effect=AssertionError("new link keys")), \
+                 self.assertRaisesRegex(D.DeployError,"staging is partial"):
+                D.upgrade_cluster_health(state,"bob",kit)
+            local.assert_not_called()
+            self.assertEqual(remote.call_count,3)
+            payload=remote.call_args.kwargs['data']
+            with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+                self.assertEqual(set(archive.getnames()),{"health-agent.py","health-release.json","health-tools.tar.gz"})
+                self.assertEqual(archive.extractfile('health-agent.py').read(),source)
+            self.assertNotIn(b"secret-not-sent",payload)
+            self.assertIn("'kube01'",remote.call_args_list[0].args[2])
+            receipt=D.load(state/"health-upgrade.json")
+            self.assertIn("error",receipt["staged"]["kube01"])
+            self.assertEqual(receipt["hosts"],{})
+            self.assertEqual(D.current_phase(state),"committed")
+
+    def health_row(self):
+        return {"ifname":"macsec0","protect":True,"encrypt":True,"replay":True,
+                "validate":"strict","window":0,"encoding_sa":1,
+                "sa_list":[{"an":1,"active":True}],
+                "rx_sc":[{"sci":"peer","active":True,"sa_list":[{"active":True}]}]}
+
+    def test_health_detects_empty_active_receive_channel_without_exporting_keys(self):
+        row=self.health_row();self.assertTrue(D.macsec_health([row])["healthy"])
+        row["rx_sc"][0]["sa_list"]=[];row["key"]="private-material"
+        status=D.macsec_health([row])
+        self.assertFalse(status["healthy"])
+        self.assertEqual(status["missing_receive_associations"],["peer"])
+        self.assertNotIn("private-material",json.dumps(status))
+
+    def test_health_does_not_treat_an_offline_peer_as_a_missing_association(self):
+        row=self.health_row();row["rx_sc"]=[]
+        self.assertTrue(D.macsec_health([row])["healthy"])
+        row["rx_sc"]=[{"sci":"retired","active":False,"sa_list":[]}]
+        self.assertTrue(D.macsec_health([row])["healthy"])
+
+    def test_health_requires_protection_and_the_actual_encoding_association(self):
+        self.assertFalse(D.macsec_health([])["healthy"])
+        for key,value in [("encrypt",False),("protect",False),("replay",False),
+                          ("validate","check"),("window",1),("encoding_sa",2)]:
+            row=self.health_row();row[key]=value
+            with self.subTest(key=key):self.assertFalse(D.macsec_health([row])["healthy"])
+
+    def test_health_recovery_debounces_and_preserves_cooldown_across_restarts(self):
+        bad={"healthy":False};good={"healthy":True}
+        since,due=D.health_recovery_due(bad,10,0,None,{},"boot")
+        self.assertEqual(since,10);self.assertFalse(due)
+        self.assertFalse(D.health_recovery_due(bad,80,0,since,{},"boot")[1])
+        self.assertTrue(D.health_recovery_due(bad,100,0,since,{},"boot")[1])
+        previous={"boot_id":"boot","monotonic":100}
+        self.assertFalse(D.health_recovery_due(bad,150,0,110,previous,"boot")[1])
+        self.assertTrue(D.health_recovery_due(bad,161,0,110,previous,"boot")[1])
+        self.assertEqual(D.health_recovery_due(good,401,200,300,previous,"boot"),(None,False))
+        self.assertTrue(D.health_recovery_due(bad,100,0,10,previous,"new-boot")[1])
+        self.assertFalse(D.health_recovery_due(bad,119,0,0,{},"boot",failure_seconds=120)[1])
+        self.assertTrue(D.health_recovery_due(bad,120,0,0,{},"boot",failure_seconds=120)[1])
+
+    def test_local_mka_control_is_bounded_and_allows_only_rekey_operations(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root)/"state";state.mkdir();control=Path(root)/"ctrl";control.mkdir()
+            D.save(state/"profile.json",{"lower":"eth0"})
+            requests=[]
+            with D.socket.socket(D.socket.AF_UNIX,D.socket.SOCK_DGRAM) as server:
+                server.bind(str(control/"eth0"));server.settimeout(3)
+                def respond():
+                    for reply in (b"1\n",b"OK\n"):
+                        data,peer=server.recvfrom(64);requests.append(data);server.sendto(reply,peer)
+                worker=threading.Thread(target=respond,daemon=True);worker.start()
+                self.assertEqual(D.wpa_control(state,"MKA_REKEY_CAPABILITY",control),b"1\n")
+                self.assertEqual(D.wpa_control(state,"MKA_REKEY",control),b"OK\n")
+                worker.join(timeout=3);self.assertFalse(worker.is_alive())
+            self.assertEqual(requests,[b"MKA_REKEY_CAPABILITY",b"MKA_REKEY"])
+            self.assertEqual(list(state.iterdir()),[state/"profile.json"])
+            with self.assertRaises(D.DeployError):D.wpa_control(state,"GET_NETWORK all",control)
+
+    def test_native_health_files_follow_mka_and_roll_back_without_changing_agent(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root)/"state";state.mkdir()
+            original=state/"deploy_root.py";original.write_bytes(b"original deployed agent")
+            units=Path(root)/"units"
+            with patch.object(D,"UNIT_DIR",units):D.configure_native_health(state,{"role":"kube01"})
+            unit=(units/"qrab-macsec-health.service").read_text()
+            self.assertIn("BindsTo=qrab-macsec.service",unit)
+            self.assertIn("After=qrab-macsec.service",unit)
+            self.assertIn("health-agent.py agent --state",unit)
+            self.assertEqual((units/"qrab-macsec.service.d/90-qrab-health.conf").read_text(),
+                             "[Unit]\nWants=qrab-macsec-health.service\n")
+            self.assertEqual(D.restore_files(state),[])
+            self.assertFalse((state/"health-agent.py").exists())
+            self.assertEqual(original.read_bytes(),b"original deployed agent")
+
     def test_node_wait_overrides_generated_netplan_lower_and_rolls_back(self):
         netplan = """[Service]
 ExecStart=

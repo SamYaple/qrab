@@ -6,23 +6,34 @@ ARG WPASUPPLICANT_VERSION=2:2.11-7
 ARG NFTABLES_VERSION=1.1.7-3
 COPY contrib/images/apt-https.sh /usr/local/libexec/qrab-apt-https
 RUN sh /usr/local/libexec/qrab-apt-https && \
-    printf '%s\n' 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian forky main' > /etc/apt/sources.list.d/qrab-link-tools.list && \
+    printf '%s\n' 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian forky main' \
+      'deb-src [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian forky main' > /etc/apt/sources.list.d/qrab-link-tools.list && \
     apt-get update --error-on=any && \
-    apt-get install -y --no-install-recommends "wpasupplicant=${WPASUPPLICANT_VERSION}" "nftables=${NFTABLES_VERSION}" && \
-    rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /out/licenses && \
-    cp /usr/sbin/wpa_supplicant /out/wpa_supplicant && cp /usr/sbin/nft /out/nft && \
-    ldd /usr/sbin/wpa_supplicant /usr/sbin/nft > /out/runtime-libraries.txt && \
-    for library in $(awk '/=> \// {print $3} /^[[:space:]]*\// {print $1}' /out/runtime-libraries.txt); do \
+    apt-get install -y --no-install-recommends build-essential pkg-config patch libssl-dev \
+      libnl-3-dev libnl-genl-3-dev libnl-route-3-dev "nftables=${NFTABLES_VERSION}"
+WORKDIR /build
+RUN apt-get source --only-source "wpa=${WPASUPPLICANT_VERSION}"
+COPY contrib/network-encryption/wpa-mka-rekey.patch /build/wpa-mka-rekey.patch
+COPY contrib/network-encryption/wpa-macsec.config /build/wpa-2.11/wpa_supplicant/.config
+RUN patch --fuzz=0 -d /build/wpa-2.11 -p1 < /build/wpa-mka-rekey.patch && \
+    make -C /build/wpa-2.11/wpa_supplicant -j4 wpa_supplicant && \
+    /build/wpa-2.11/wpa_supplicant/wpa_supplicant -v
+RUN set -eu; mkdir -p /out/licenses && \
+    cp /build/wpa-2.11/wpa_supplicant/wpa_supplicant /out/wpa_supplicant && cp /usr/sbin/nft /out/nft && \
+    ldd /out/wpa_supplicant /usr/sbin/nft > /out/runtime-libraries.txt && \
+    for library in $(awk '/=> \// {print $3} /^[[:space:]]*\// && $1 !~ /:$/ {print $1}' /out/runtime-libraries.txt); do \
         cp -L --parents "$library" /out; \
     done && \
     dpkg-query -W -f='${binary:Package}\t${Version}\n' > /out/packages.txt && \
-    cp -a /usr/share/doc/. /out/licenses/
+    cp -a /usr/share/doc/. /out/licenses/ && \
+    cp /build/wpa-2.11/debian/copyright /out/licenses/wpa-copyright && \
+    sha256sum /build/wpa-mka-rekey.patch /build/wpa-2.11/wpa_supplicant/.config \
+      /build/wpa_2.11*.dsc /build/wpa_2.11*.tar.* > /out/source-hashes.txt
 COPY contrib/network-encryption/run-wpa /out/run-wpa
 COPY contrib/network-encryption/run-nft /out/run-nft
 RUN chmod 0755 /out/run-wpa /out/run-nft
 FROM scratch AS bundle
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.title="qrab native MKA tool bundle" \
-      org.opencontainers.image.version="2.11-7"
+      org.opencontainers.image.version="2.11-7-qrab-mka-rekey1"
 COPY --from=tools /out/ /

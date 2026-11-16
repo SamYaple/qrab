@@ -36,6 +36,10 @@ PROBE_PORT = 41377
 ROLLBACK_SECONDS = 720
 CAPTURE_SECONDS = 5
 CAPTURE_BUFFER_BYTES = 8 * 1024 * 1024
+HEALTH_STARTUP_SECONDS = 90
+HEALTH_FAILURE_SECONDS = 10
+HEALTH_PRIORITY_STEP_SECONDS = 5
+HEALTH_COOLDOWN_SECONDS = 60
 GUARD_TABLE = "qrab_native_link"
 SEARCH_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 DIAGNOSTIC_STATE = None
@@ -567,7 +571,8 @@ def inspect_host(state):
             "the MACsec kernel module is unavailable")
     require(not LOWER_FILE.exists() and not UPPER_FILE.exists(),
             "managed networkd overrides already exist")
-    require(not (UNIT_DIR / "qrab-macsec.service").exists(),
+    require(not (UNIT_DIR / "qrab-macsec.service").exists()
+            and not (UNIT_DIR / "qrab-macsec-health.service").exists(),
             "a native MACsec service is already installed")
     snapshot = {"lower": lower, "routes": bgp_routes(), "bgp": tcp_peers(179),
                 "iscsi": tcp_peers(3260),
@@ -664,6 +669,203 @@ ExecStart={WAIT_ONLINE} --interface={UPPER}:routable --ipv4 --dns --timeout=120
 """
     remember_write(state, UNIT_DIR / "systemd-networkd-wait-online.service.d/80-qrab-macsec.conf",
                    content.encode())
+
+
+def macsec_health(rows):
+    matches = [row for row in rows if row.get("ifname") == UPPER]
+    if len(matches) != 1:
+        return {"healthy": False, "reason": "upper missing or ambiguous"}
+    row = matches[0]
+    protected = (row.get("protect") and row.get("encrypt") and row.get("replay")
+                 and row.get("validate") == "strict" and row.get("window") == 0)
+    transmitting = any(sa.get("active") and sa.get("an") == row.get("encoding_sa")
+                       for sa in row.get("sa_list", []))
+    # An absent peer is normal during an outage. An active receive channel
+    # with no usable association is not: MKA can recreate an SC after peer
+    # churn without reinstalling its SAs, while the supplicant stays running.
+    missing = [sc.get("sci") for sc in row.get("rx_sc", [])
+               if sc.get("active") and not any(sa.get("active") for sa in sc.get("sa_list", []))]
+    return {"healthy": bool(protected and transmitting and not missing),
+            "protected": bool(protected), "transmitting": transmitting,
+            "missing_receive_associations": missing}
+
+
+def health_recovery_due(status, now, started, bad_since, previous, boot_id, *, failure_seconds=None):
+    if status["healthy"]:
+        return None, False
+    if bad_since is None:
+        bad_since = now
+    last = previous.get("monotonic", -HEALTH_COOLDOWN_SECONDS)
+    if previous.get("boot_id") != boot_id:
+        last = -HEALTH_COOLDOWN_SECONDS
+    threshold = HEALTH_FAILURE_SECONDS if failure_seconds is None else failure_seconds
+    return bad_since, (now - started >= HEALTH_STARTUP_SECONDS
+                       and now - bad_since >= threshold
+                       and now - last >= HEALTH_COOLDOWN_SECONDS)
+
+
+def wpa_control(state, command, control_dir=None):
+    require(command in ("MKA_REKEY_CAPABILITY", "MKA_REKEY"), "unsupported MKA control request")
+    lower = load(state / "profile.json")["lower"]
+    require(re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", lower) is not None, "invalid MKA interface")
+    directory = Path("/run/qrab-macsec") if control_dir is None else Path(control_dir)
+    with tempfile.TemporaryDirectory(prefix="mka-", dir=state) as private:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
+            client.bind(str(Path(private) / "ctl"))
+            client.settimeout(3)
+            client.connect(str(directory / lower))
+            client.send(command.encode())
+            return client.recv(64)
+
+
+def health_monitor(state):
+    boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    record = state / "health-recovery.json"
+    previous = load(record) if record.exists() else {}
+    # Stagger peers so a key-server recovery can settle before another peer
+    # retries. Every interval remains shorter than node eviction's grace.
+    threshold = HEALTH_FAILURE_SECONDS + HEALTH_PRIORITY_STEP_SECONDS * (int(load(state / "profile.json")["priority"]) // 16)
+    started = time.monotonic()
+    bad_since = None
+    while True:
+        status = macsec_health(jrun(["ip", "-j", "-s", "macsec", "show"]))
+        now = time.monotonic()
+        bad_since, recover = health_recovery_due(status, now, started, bad_since, previous, boot_id,
+                                               failure_seconds=threshold)
+        if recover:
+            previous = {"boot_id": boot_id, "monotonic": now, "at": time.time(), "status": status}
+            save(record, previous)
+            require(wpa_control(state, "MKA_REKEY") == b"OK\n", "MKA rekey request was rejected")
+            print(json.dumps({"native_mka_rekey_requested": status}), flush=True)
+            bad_since = None
+        time.sleep(5)
+
+
+def configure_native_health(state, profile):
+    helper = state / "health-agent.py"
+    remember_write(state, helper, Path(__file__).read_bytes())
+    unit = f"""[Unit]
+Description=Verify native MACsec receive associations
+BindsTo=qrab-macsec.service
+After=qrab-macsec.service
+[Service]
+ExecStart=/usr/bin/python3 -I {helper} agent --state {state} health-monitor
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={state}
+PrivateTmp=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+"""
+    remember_write(state, UNIT_DIR / "qrab-macsec-health.service", unit.encode())
+    remember_write(state, UNIT_DIR / "qrab-macsec.service.d/90-qrab-health.conf",
+                   b"[Unit]\nWants=qrab-macsec-health.service\n")
+
+
+def install_native_health(state):
+    require(current_phase(state) == "committed" and not (state / "uncommitted").exists(),
+            "association health upgrade requires a committed deployment")
+    command = run(["systemctl", "show", "qrab-macsec.service", "-p", "ExecStart", "--value"])
+    require(str(state / "mka.conf") in command.stdout.decode(), "state is not the active MKA service")
+    release = load(state / "health-release.json")
+    require(re.fullmatch(r"[0-9a-f]{64}", release["wpa_sha256"]) is not None,
+            "invalid health supplicant hash")
+    require(re.fullmatch(r"[0-9a-f]{64}", release["tools_archive_sha256"]) is not None,
+            "invalid health archive hash")
+    archive = state / "health-tools.tar.gz"
+    require(digest(archive.read_bytes()) == release["tools_archive_sha256"], "health tool archive hash mismatch")
+    tools = state / ("tools-health-" + release["wpa_sha256"][:12])
+    if not tools.exists():
+        temporary = Path(tempfile.mkdtemp(prefix=".health-tools-", dir=state))
+        try:
+            with tarfile.open(archive) as contents:
+                for item in contents:
+                    path = Path(item.name)
+                    require(not path.is_absolute() and ".." not in path.parts, "unsafe health archive member")
+                    require(item.isfile() or item.isdir(), "health archive contains a link or special file")
+                contents.extractall(temporary, filter="data")
+            require(digest((temporary / "wpa_supplicant").read_bytes()) == release["wpa_sha256"],
+                    "health supplicant hash mismatch")
+            run([temporary / "run-wpa", "-v"])
+            os.rename(temporary, tools)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+    require(tools.is_dir() and not tools.is_symlink(), "untrusted health tool directory")
+    require(digest((tools / "wpa_supplicant").read_bytes()) == release["wpa_sha256"],
+            "installed health supplicant changed")
+    profile = load(state / "profile.json")
+    override = ("[Service]\nExecStart=\nExecStart=" + str(tools / "run-wpa")
+                + " -Dmacsec_linux -i" + profile["lower"] + " -c" + str(state / "mka.conf") + "\n")
+    try:
+        supported = wpa_control(state, "MKA_REKEY_CAPABILITY") == b"1\n"
+    except OSError:
+        supported = False
+    main_pid = int(run(["systemctl", "show", "qrab-macsec.service", "-p", "MainPID", "--value"]).stdout.strip() or b"0")
+    try:
+        running = Path(f"/proc/{main_pid}/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        running = []
+    restart = os.fsencode(tools / "wpa_supplicant") not in running or not supported
+    remember_write(state, UNIT_DIR / "qrab-macsec.service.d/85-qrab-health-tools.conf", override.encode())
+    configure_native_health(state, load(state / "profile.json"))
+    run(["systemctl", "daemon-reload"])
+    run(["systemctl", "restart", "qrab-macsec.service" if restart else "qrab-macsec-health.service"], timeout=70)
+    end = time.monotonic() + 90
+    stable = None
+    requested = -10
+    while time.monotonic() < end:
+        rows = [row for row in jrun(["ip", "-j", "-s", "macsec", "show"]) if row.get("ifname") == UPPER]
+        status = macsec_health(rows)
+        now = time.monotonic()
+        if status["healthy"] and len(rows[0].get("rx_sc", [])) == 3:
+            stable = now if stable is None else stable
+            if now - stable >= 5:
+                require(wpa_control(state, "MKA_REKEY_CAPABILITY") == b"1\n", "MKA rekey capability is missing")
+                return {"association_health": "installed", "deployment_phase": current_phase(state),
+                        "wpa_sha256": release["wpa_sha256"], "health": status}
+        else:
+            stable = None
+            if now - requested >= 10:
+                requested = now
+                try:
+                    wpa_control(state, "MKA_REKEY")
+                except OSError:
+                    pass  # The native service may still be opening its socket.
+        time.sleep(1)
+    raise DeployError("health upgrade did not establish all receive associations")
+
+
+def prove_native_health(state):
+    profile = load(state / "profile.json")
+    rows = [row for row in jrun(["ip", "-j", "-s", "macsec", "show"]) if row.get("ifname") == UPPER]
+    status = macsec_health(rows)
+    require(status["healthy"] and len(rows[0].get("rx_sc", [])) == 3, "receive associations are incomplete")
+    require(not addresses(profile["lower"]), "a raw-lower IP address remains")
+    guarded = json.loads(nft(state, "-j", "list", "table", "netdev", GUARD_TABLE).stdout)
+    require(firewall_semantics(guarded) == load(state / "guard-semantics.json"), "raw guard changed")
+    peers = 0
+    for role, host in HOSTS.items():
+        if role == profile["role"]:
+            continue
+        with socket.socket() as connection:
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, UPPER.encode() + b"\0")
+            connection.settimeout(5)
+            connection.bind((profile["ip"], 0))
+            connection.connect((host["ip"], 22))
+            require(connection.recv(64).startswith(b"SSH-"), "peer SSH transport did not answer")
+            peers += 1
+    capture_state = state / "health-capture"
+    capture_state.mkdir(mode=0o700, exist_ok=True)
+    save(capture_state / "profile.json", {"lower": profile["lower"]})
+    capture = capture_clear(capture_state)
+    watcher = run(["systemctl", "is-active", "qrab-macsec-health.service"], check=False)
+    require(watcher.returncode == 0, "association health watcher is not active")
+    return {"health": status, "peer_paths": peers, "capture": capture}
 
 
 def render_network(profile, before):
@@ -883,6 +1085,7 @@ def stage(state):
     phase(state, "staging")
     for name, content in systemd_units(state, profile).items():
         remember_write(state, UNIT_DIR / name, content.encode())
+    configure_native_health(state, profile)
     atomic(state / "mka.conf", mka_config(profile).encode())
     remember_write(state, Path("/etc/modules-load.d/qrab-macsec.conf"), b"macsec\n")
     run(["modprobe", "macsec"])
@@ -1018,6 +1221,7 @@ def activate(state):
                    + " --node-ip=" + profile["ip"] + "\n")
         remember_write(state, UNIT_DIR / "kubelet.service.d/80-qrab-macsec.conf", kubelet.encode())
         configure_wait_online(state, profile)
+        configure_native_health(state, profile)
     # Preserve the local IP continuously, then remove its clear lower binding.
     production_addresses(profile)
     run(["networkctl", "reload"])
@@ -1036,6 +1240,7 @@ def activate(state):
     run(["systemctl", "enable", "qrab-macsec.service", "qrab-macsec-guard.service"])
     run(["systemctl", "start", "qrab-macsec-guard.service"])
     phase(state, "activated")
+    run(["systemctl", "start", "qrab-macsec-health.service"])
     return {"phase": "activated"}
 
 
@@ -1238,6 +1443,9 @@ def agent(state, action):
     if action == "probe-server":
         probe_server(state)
         return {}
+    if action == "health-monitor":
+        health_monitor(state)
+        return {}
     if action == "status":
         return {"phase": current_phase(state), "role": load(state / "profile.json")["role"]}
     if action == "stop-control":
@@ -1252,7 +1460,8 @@ def agent(state, action):
         return rollback(target)
     actions = {"inspect": inspect_host, "stage": stage, "peers": peer_checks,
                "activate": activate, "verify": verify, "capture": capture_clear,
-               "commit": commit, "rollback": rollback, "timeout-rollback": timeout_rollback}
+               "commit": commit, "rollback": rollback, "timeout-rollback": timeout_rollback,
+               "install-health": install_native_health, "health-proof": prove_native_health}
     require(action in actions, "unknown agent action")
     lock = os.open(state / "agent.lock", os.O_CREAT | os.O_RDWR, 0o600)
     try:
@@ -1455,7 +1664,7 @@ def rollback_all(state, user):
     return results
 
 
-def staging_peers(state, user, seconds=60):
+def staging_peers(state, user, seconds=180):
     # New members and a newly elected key server may take several MKA rounds
     # to install every receive SC. Never move production addresses until a
     # complete round of all twelve directed TCP paths succeeds.
@@ -1528,6 +1737,111 @@ def deploy_cluster(state, user):
         raise
 
 
+def upgrade_cluster_health(state, user, kit):
+    require(current_phase(state) == "committed" and not (state / "uncommitted").exists(),
+            "association health upgrade requires a committed deployment")
+    require(load(state / "profile.json")["role"] == "gateway", "run the upgrade on the gateway")
+    source = (kit / "deploy_root.py").read_bytes()
+    release = (kit / "deployment-release.json").read_bytes()
+    tools = (kit / "tools.tar.gz").read_bytes()
+    require(digest(tools) == json.loads(release)["tools_archive_sha256"], "health kit archive hash mismatch")
+    files = {"health-agent.py": source, "health-release.json": release, "health-tools.tar.gz": tools}
+    body = io.BytesIO()
+    with tarfile.open(fileobj=body, mode="w:gz") as archive:
+        for name, data in files.items():
+            item = tarfile.TarInfo(name); item.mode = 0o600; item.size = len(data)
+            archive.addfile(item, io.BytesIO(data))
+    payload = body.getvalue()
+    code = f"""import fcntl,hashlib,importlib.util,io,json,os,pathlib,sys,tarfile
+state=pathlib.Path({str(state)!r})
+payload=sys.stdin.buffer.read()
+assert hashlib.sha256(payload).hexdigest()=={digest(payload)!r}
+archive=tarfile.open(fileobj=io.BytesIO(payload))
+members=archive.getmembers()
+assert len(members)==3 and {{m.name for m in members}}=={{'health-agent.py','health-release.json','health-tools.tar.gz'}}
+assert all(m.isfile() for m in members)
+spec=importlib.util.spec_from_file_location('deployed',state/'deploy_root.py')
+deployed=importlib.util.module_from_spec(spec);spec.loader.exec_module(deployed)
+deployed.state_path(str(state))
+assert deployed.current_phase(state)=='committed' and not (state/'uncommitted').exists()
+assert deployed.load(state/'profile.json')['role']==EXPECTED_ROLE
+lock=os.open(state/'agent.lock',os.O_CREAT|os.O_RDWR,0o600)
+try:
+ fcntl.flock(lock,fcntl.LOCK_EX)
+ for member in members:deployed.remember_write(state,state/member.name,archive.extractfile(member).read())
+finally:os.close(lock)
+print(json.dumps({{'staged':{digest(source)!r}}}))
+"""
+    staged = {}
+    results = {}
+    # Stage all public inputs before any MKA service restarts. No profile,
+    # CAK, backup, user SSH key or SVID is copied by this operation.
+    for role in HOSTS:
+        try:
+            if role == "gateway":
+                lock = os.open(state / "agent.lock", os.O_CREAT | os.O_RDWR, 0o600)
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    for name, data in files.items():
+                        remember_write(state, state / name, data)
+                finally:
+                    os.close(lock)
+                staged[role] = {"staged": digest(source)}
+            else:
+                command = shlex.join(["sudo", "-n", "/usr/bin/python3", "-I", "-c",
+                                      code.replace("EXPECTED_ROLE", repr(role))])
+                result = ssh_run(user, HOSTS[role], command, data=payload, timeout=120)
+                staged[role] = json.loads(result.stdout)
+                require(staged[role].get("staged") == digest(source), "unexpected health staging receipt")
+        except (DeployError, OSError, ValueError) as error:
+            staged[role] = {"error": str(error)}
+    receipt = {"source_sha256": digest(source), "staged": staged, "hosts": results}
+    save(state / "health-upgrade.json", receipt)
+    require(not any("error" in result for result in staged.values()),
+            f"health staging is partial; no MKA activation attempted; inspect {state}/health-upgrade.json")
+    for role in HOSTS:
+        for attempt in range(3):
+            try:
+                if role == "gateway":
+                    results[role] = agent(state, "install-health")
+                else:
+                    command = shlex.join(["sudo", "-n", "/usr/bin/python3", "-I",
+                                          str(state / "health-agent.py"), "agent", "--state", str(state),
+                                          "install-health"])
+                    result = ssh_run(user, HOSTS[role], command, timeout=120)
+                    results[role] = json.loads(result.stdout)
+                break
+            except (DeployError, OSError, ValueError) as error:
+                results[role] = {"error": str(error)}
+                if attempt < 2:
+                    try:
+                        wpa_control(state, "MKA_REKEY")
+                    except OSError:
+                        pass
+                    time.sleep(3)
+        save(state / "health-upgrade.json", receipt)
+        if role == "gateway" and "error" in results[role]:
+            break
+    require(not any("error" in result for result in results.values()),
+            f"association health upgrade is partial; inspect {state}/health-upgrade.json")
+    for role in HOSTS:
+        try:
+            if role == "gateway":
+                proof = agent(state, "health-proof")
+            else:
+                command = shlex.join(["sudo", "-n", "/usr/bin/python3", "-I",
+                                      str(state / "health-agent.py"), "agent", "--state", str(state), "health-proof"])
+                proof = json.loads(ssh_run(user, HOSTS[role], command, timeout=40).stdout)
+            results[role]["proof"] = proof
+        except (DeployError, OSError, ValueError) as error:
+            results[role]["proof"] = {"error": str(error)}
+    save(state / "health-upgrade.json", receipt)
+    require(not any("error" in result["proof"] for result in results.values()),
+            f"health installed but transport proof is incomplete; inspect {state}/health-upgrade.json")
+    return {"state": str(state), "association_health": "installed", "hosts": results,
+            "source_sha256": digest(source)}
+
+
 def coordinator(action, user, kit, selected):
     require(os.geteuid() == 0, "run this script as root on the physical gateway")
     BASE.mkdir(mode=0o700, exist_ok=True)
@@ -1539,6 +1853,11 @@ def coordinator(action, user, kit, selected):
         index = BASE / "current.json"
         if not selected and index.exists():
             selected = load(index)["state"]
+        if action == "health-upgrade":
+            require(selected, "no current deployment; specify --state")
+            state = state_path(selected)
+            print(json.dumps({"state": str(state), "action": action, "operator_user": user}), flush=True)
+            return upgrade_cluster_health(state, user, kit)
         if action in ("status", "rollback"):
             require(selected, "no current deployment; specify --state")
             state = state_path(selected)
@@ -1571,7 +1890,7 @@ def coordinator(action, user, kit, selected):
 
 def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("preflight", "deploy", "status", "rollback", "agent"))
+    parser.add_argument("action", choices=("preflight", "deploy", "status", "rollback", "health-upgrade", "agent"))
     parser.add_argument("--operator-user", default="bob",
                         help="local account whose SSH configuration/keys reach the nodes (default: bob)")
     parser.add_argument("--state")
@@ -1582,7 +1901,10 @@ def arguments(argv=None):
 def main():
     args = arguments()
     os.umask(0o077)
-    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(DeployError("terminated")))
+    handler = (signal.SIG_DFL if args.action == "agent"
+               and args.agent_action in ("probe-server", "health-monitor")
+               else lambda *_: (_ for _ in ()).throw(DeployError("terminated")))
+    signal.signal(signal.SIGTERM, handler)
     if args.action == "agent":
         require(os.geteuid() == 0, "agent requires root")
         state = state_path(args.state)
