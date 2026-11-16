@@ -125,7 +125,7 @@ Native `/redfish` routes to Redfish :8444 directly. Other console paths route to
 BMC :8443. The browser `/bmc/redfish` adapter remains a separate authenticated BMC
 route; it still reaches its same-VM Redfish over mTLS.
 
-The [POC helper](../contrib/kubernetes/redfish-poc/apply-console.sh) renders
+The [console helper](../contrib/kubernetes/examples/qrab-demo/render-console.sh) renders
 `console.yaml` only after an existing VM has an immutable UID. It binds the
 Service selector and both expected peer IDs to that UID. It creates no VM or
 identity claim. Replacing a VM resource requires an explicit new binding;

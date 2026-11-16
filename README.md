@@ -5,9 +5,8 @@ runtime is driven by the Rust `qrab-operator` and the namespaced
 `VirtualMachine` and `VirtualMachineMigration` CRDs. In each VM pod
 `qrab-manager` supervises QEMU through a private QMP socket; the BMC and Redfish
 sidecars reach it through the manager's control socket. Video, keyboard and USB
-mouse input use a private VNC socket. The live VM, `qrab-redfish-poc`, boots
-signed media through Secure Boot-capable UEFI with a persistent swtpm TPM2 and
-no guest NIC. `qrab-manager` also remains available as a standalone supervisor.
+mouse input use a private VNC socket. A VM can boot signed media through
+Secure Boot-capable UEFI with a persistent swtpm TPM2 and no guest NIC. `qrab-manager` also remains available as a standalone supervisor.
 
 | Component | Responsibility |
 | --- | --- |
@@ -67,8 +66,8 @@ own ([contrib/kubernetes/README.md](contrib/kubernetes/README.md)):
 ```sh
 kubectl apply -k contrib/kubernetes   # operator with storage client, monitoring
 kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
-kubectl apply -k contrib/kubernetes/redfish-poc
-bash contrib/kubernetes/check.sh qrab qrab-redfish-poc
+# then create a VM from a renamed copy of contrib/kubernetes/examples/qrab-demo
+bash contrib/kubernetes/check.sh qrab <vm>
 ```
 
 Read [protocol.md](docs/protocol.md) for the transport contract and

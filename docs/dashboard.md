@@ -333,7 +333,7 @@ absent and their POST routes are 404; viewing `/images` needs only a sign-in.
 
 Admin wins when both apply. Deleting additionally requires the VM to carry
 `app.kubernetes.io/managed-by: qrab-dashboard`, which only dashboard launches
-set, so qrab-redfish-poc and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
+set, so hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
 BMC and Redfish at the next sign-in; sessions last at most 15 minutes.
 
 The VM directory shows configured disk counts separately from reported
@@ -736,7 +736,7 @@ ingress and host, and reach the API server, DNS, Kanidm (192.168.0.251:443)
 and VM Pods on 8443 (BMC workload console) and 8444 (Redfish workload API). The second,
 `qrab-vm-from-dashboard`, selects every VM Pod and admits the dashboard on 8443
 and 8444. Cilium policies are additive, so per-VM policies such as
-`qrab-demo` (the qrab-redfish-poc console's) keep working and gain only the
+`qrab-demo` (the sample console's) keep working and gain only the
 dashboard. A VM Pod
 without a policy of its own, such as every dashboard-launched VM, becomes
 ingress default-deny once this policy selects it: only the dashboard to 8443

@@ -1,27 +1,26 @@
-# SAMPLE ONLY (contrib/kubernetes/README.md). The qrab-demo VM was retired;
-# on this cluster the qrab-demo Service, Ingress, Certificate, CiliumNetworkPolicy
-# and host belong to ../../redfish-poc. Copy and rename every name, selector,
-# claim and host before applying (never reuse the retained qrab-demo-state
-# claim); this directory deliberately has no kustomization.
+# SAMPLE ONLY (contrib/kubernetes/README.md). The qrab-demo VM was retired.
+# Copy and rename every name, selector, host and Kanidm callback, then render the
+# immutable VM UID with render-console.sh; never apply a stale identity binding.
+# This directory deliberately has no kustomization.
 apiVersion: v1
 kind: Service
 metadata:
   name: qrab-demo
 spec:
-  # component: vm keeps the VM's NIC Pods (component: vm-nic) out of the BMC Service.
   selector:
     app.kubernetes.io/name: qrab
     app.kubernetes.io/component: vm
     app.kubernetes.io/instance: qrab-demo
+    qrab.yapplesauce.com/owner-uid: QRAB_VM_UID
   ports:
-  - name: http
-    port: 8080
-    # Numeric: the port belongs to the BMC sidecar (a restartable init container).
-    targetPort: 8080
-  # Native Redfish clients reach this sidecar directly through the Ingress.
-  - name: redfish
-    port: 8081
-    targetPort: 8081
+  - name: bmc-mtls
+    port: 8443
+    targetPort: bmc-mtls
+    appProtocol: https
+  - name: redfish-mtls
+    port: 8444
+    targetPort: redfish-mtls
+    appProtocol: https
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -29,31 +28,31 @@ metadata:
   name: qrab-demo
   annotations:
     ingress.cilium.io/force-https: enabled
+    ingress.cilium.io/spiffe-backends: '{"qrab-demo:bmc-mtls":"spiffe://yapplesauce.com/kubernetes/qrab/vm/QRAB_VM_UID/bmc","qrab-demo:redfish-mtls":"spiffe://yapplesauce.com/kubernetes/qrab/vm/QRAB_VM_UID/redfish"}'
 spec:
   ingressClassName: cilium
   tls:
-  - hosts: [qrab-demo.yapplesauce.com]
+  - hosts:
+    - qrab-demo.yapplesauce.com
     secretName: qrab-demo-tls
   rules:
   - host: qrab-demo.yapplesauce.com
     http:
       paths:
-      # Native Redfish traffic bypasses the BMC. Browser UI management uses
-      # the distinct /bmc/redfish path on the BMC's OIDC session adapter.
       - path: /redfish
         pathType: Prefix
         backend:
           service:
             name: qrab-demo
             port:
-              name: redfish
+              name: redfish-mtls
       - path: /
         pathType: Prefix
         backend:
           service:
             name: qrab-demo
             port:
-              name: http
+              name: bmc-mtls
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -61,7 +60,8 @@ metadata:
   name: qrab-demo-tls
 spec:
   secretName: qrab-demo-tls
-  dnsNames: [qrab-demo.yapplesauce.com]
+  dnsNames:
+  - qrab-demo.yapplesauce.com
   issuerRef:
     kind: ClusterIssuer
     name: letsencrypt-production
@@ -80,12 +80,16 @@ spec:
       app.kubernetes.io/name: qrab
       app.kubernetes.io/component: vm
       app.kubernetes.io/instance: qrab-demo
+      qrab.yapplesauce.com/owner-uid: QRAB_VM_UID
   ingress:
-  - fromEntities: [ingress, host]
+  - fromEntities:
+    - ingress
     toPorts:
     - ports:
-      - {port: '8080', protocol: TCP}
-      - {port: '8081', protocol: TCP}
+      - port: '8443'
+        protocol: TCP
+      - port: '8444'
+        protocol: TCP
   egress:
   - toEndpoints:
     - matchLabels:
@@ -93,15 +97,19 @@ spec:
         k8s:k8s-app: kube-dns
     toPorts:
     - ports:
-      - {port: '53', protocol: UDP}
-      - {port: '53', protocol: TCP}
-  - toCIDR: [192.168.0.251/32]
+      - port: '53'
+        protocol: UDP
+      - port: '53'
+        protocol: TCP
+  - toCIDR:
+    - 192.168.0.251/32
     toPorts:
     - ports:
-      - {port: '443', protocol: TCP}
-  # Native QEMU iSCSI uses the Pod's storage network. Guest NICs are taps in
-  # separate NIC anchor Pods and never use this Pod's network.
-  - toCIDR: [10.203.0.1/32]
+      - port: '443'
+        protocol: TCP
+  - toCIDR:
+    - 10.203.0.1/32
     toPorts:
     - ports:
-      - {port: '3260', protocol: TCP}
+      - port: '3260'
+        protocol: TCP
