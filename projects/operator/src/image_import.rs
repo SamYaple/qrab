@@ -162,11 +162,15 @@ impl Importer {
                         "automountServiceAccountToken": false,
                         "enableServiceLinks": false,
                         "restartPolicy": "Never",
+                        // Every node is a tainted control-plane node.
+                        "tolerations": [{"key": "node-role.kubernetes.io/control-plane", "operator": "Exists", "effect": "NoSchedule"}],
                         "securityContext": {"runAsNonRoot": true, "runAsUser": 10001, "runAsGroup": 10001,
                             "fsGroup": 10001, "seccompProfile": {"type": "RuntimeDefault"}},
                         "containers": [{
                             "name": CONTAINER,
                             "image": self.job_image,
+                            // zot-delegated-pulls admits zot images only with Always.
+                            "imagePullPolicy": "Always",
                             "command": command,
                             "terminationMessagePolicy": "File",
                             "resources": {"requests": {"cpu": "250m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}},

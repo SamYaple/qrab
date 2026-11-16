@@ -229,6 +229,11 @@ async fn an_import_inspects_stages_writes_and_seals() {
     let inspect = h.cluster.created.lock().unwrap()[0].clone();
     let pod = &inspect["spec"]["template"]["spec"];
     assert_eq!(pod["automountServiceAccountToken"], false);
+    assert_eq!(pod["containers"][0]["imagePullPolicy"], "Always");
+    assert_eq!(
+        pod["tolerations"][0]["key"],
+        "node-role.kubernetes.io/control-plane"
+    );
     assert_eq!(
         pod["containers"][0]["securityContext"]["readOnlyRootFilesystem"],
         true

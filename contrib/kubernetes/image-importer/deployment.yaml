@@ -20,6 +20,10 @@ spec:
       automountServiceAccountToken: true
       enableServiceLinks: false
       terminationGracePeriodSeconds: 10
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
