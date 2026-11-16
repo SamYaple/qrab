@@ -26,7 +26,7 @@ namespaces/configurations afterward. Bundled libraries replace no host package.
 - MKA automatically rekeyed after the disposable transmit packet number was
   advanced near exhaustion, with no reset or packet-number/key reuse.
 - Restarting the key server recovered connectivity with a fresh session key.
-- A short lower-link capture counted 37 MACsec frames, four MKA frames and zero
+- A short lower-link capture counted 36 MACsec frames, six MKA frames and zero
   clear IP frames. This is not a production or performance capture.
 
 [Machine-readable evidence](../contrib/network-encryption/prototype-evidence.json)

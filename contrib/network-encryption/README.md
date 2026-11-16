@@ -48,11 +48,13 @@ It creates its switch and all three endpoints in private network namespaces,
 keeps CAKs in a root-only `/run` directory and removes the namespaces afterward.
 IPv4/IPv6 UDP, 8 KiB TCP on ports 179/3260, preserved source addresses, a wrong
 CAK, plaintext injection, replay and key-server restart have passed on kube01.
-A lower-link capture recorded 37 MACsec frames, four MKA frames and zero clear
+A lower-link capture recorded 36 MACsec frames, six MKA frames and zero clear
 IP frames; restart established a different session-key identifier. Advancing
 the isolated transmit packet number near exhaustion also triggered automatic
 MKA rekey and restored traffic with a different session key. The port checks
 are synthetic TCP echo, not real iSCSI/BGP protocol or fencing tests.
+The restart check requires nonempty, disjoint old/new session-key identifier
+sets; merely retiring an old SA cannot satisfy it after automatic rekey.
 
 The current deployed Cilium host firewall rejects MACsec/MKA traffic. A
 separate fork change passes those frames only on explicitly named external

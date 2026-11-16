@@ -223,7 +223,7 @@ except socket.timeout:print(json.dumps({'plaintextRefused':True}))
         assert rekeyed, 'MKA did not rekey near packet-number exhaustion'
         # Restart the key server with the same long-term CAK. MKA must
         # establish fresh session state rather than reuse a static transmit SA.
-        before_id=[v.get('key') for v in state('a').get('sa_list',[])]
+        before_id={v.get('key') for v in state('a').get('sa_list',[]) if v.get('key')}
         supplicants['a'].terminate();supplicants['a'].wait(timeout=3)
         supplicants['a']=launch(peers['a'],'wpa-a-restarted',[str(tools/'run-wpa'),'-Dmacsec_linux','-ieth0','-c',str(configs['a'])])
         for _ in range(100):
@@ -239,8 +239,8 @@ except socket.timeout:print(json.dumps({'plaintextRefused':True}))
             if result.returncode==0:break
             time.sleep(.2)
         else:raise RuntimeError('MKA did not recover after key-server restart')
-        after_id=[v.get('key') for v in state('a').get('sa_list',[])]
-        assert before_id and after_id and before_id != after_id, 'session key identity did not change after restart'
+        after_id={v.get('key') for v in state('a').get('sa_list',[]) if v.get('key')}
+        assert before_id and after_id and before_id.isdisjoint(after_id), 'session key identity was reused after restart'
         # Only structural metadata leaves the test, not key/config/log contents.
         print(json.dumps({'trustedIPv4': True, 'trustedIPv6': True, 'wrongCAKRefused': True, 'tcp': tcp_results,
                           'interfaces': links, 'lowerCapture':captured, 'replayRefused':True, **plain_result,
