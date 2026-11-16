@@ -8,7 +8,9 @@ COPY projects ./projects
 RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-manager-target,target=/src/target,sharing=locked cargo build --release --locked -p manager --bin qrab-manager -p bmc --bin qrab-bmc -p qrab-redfish --bin qrab-redfish && rustup target add x86_64-unknown-linux-musl && cargo build --release --locked --target x86_64-unknown-linux-musl -p qrab-guest-agent --bin qrab-guest-agent -p qrab-spire-relay --bin qrab-spire-relay && mkdir -p /out && cp /src/target/release/qrab-manager /src/target/release/qrab-bmc /src/target/release/qrab-redfish /src/target/x86_64-unknown-linux-musl/release/qrab-guest-agent /src/target/x86_64-unknown-linux-musl/release/qrab-spire-relay /out/
 
 FROM ${DEBIAN_IMAGE} AS demo-guest
-RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip tpm2-tools systemd-ukify systemd-boot-efi dosfstools mtools fdisk e2fsprogs diffutils && rm -rf /var/lib/apt/lists/*
+COPY --from=manager-build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY contrib/images/apt-https.sh /usr/local/libexec/qrab-apt-https
+RUN sh /usr/local/libexec/qrab-apt-https && apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip tpm2-tools systemd-ukify systemd-boot-efi dosfstools mtools fdisk e2fsprogs diffutils && rm -rf /var/lib/apt/lists/*
 COPY contrib/images/guest-init /guest/init
 COPY contrib/images/make-initramfs.py /make-initramfs.py
 COPY contrib/images/prepare-guest.py /prepare-guest.py
