@@ -238,6 +238,40 @@ pub fn parse_stage(output: &Value, image: &str, generation: u32) -> StorageResul
     Ok(report)
 }
 
+/// The root wrapper refuses a status query for a missing stage with
+/// `stage-not-found`; the importer sees that as phase `Absent`.
+///
+/// ```
+/// use qrab_operator::storage::{stage_or_absent, StagePhase, StorageError};
+/// let absent = stage_or_absent(Err(StorageError::Refused("stage-not-found".into())), "cirros", 2).unwrap();
+/// assert_eq!((absent.phase, absent.generation), (StagePhase::Absent, 0));
+/// assert!(stage_or_absent(Err(StorageError::Refused("forbidden".into())), "cirros", 2).is_err());
+/// ```
+pub fn stage_or_absent(
+    output: StorageResult<Value>,
+    image: &str,
+    generation: u32,
+) -> StorageResult<StageReport> {
+    match output {
+        Ok(output) => parse_stage(&output, image, generation),
+        Err(StorageError::Refused(code)) if code == "stage-not-found" => Ok(StageReport {
+            image: image.to_owned(),
+            image_generation: generation,
+            capacity_bytes: None,
+            target_iqn: format!("iqn.2026-11.com.yapplesauce:qrab.stage.{image}.g{generation}"),
+            initiator_iqn: format!(
+                "iqn.2026-11.com.yapplesauce:qrab.importer.{image}.g{generation}"
+            ),
+            portal: String::new(),
+            lun: 0,
+            chap_username: format!("qrab-stage-{image}-g{generation}"),
+            generation: 0,
+            phase: StagePhase::Absent,
+        }),
+        Err(error) => Err(error),
+    }
+}
+
 pub fn origin(raw: &str) -> anyhow::Result<url::Url> {
     let parsed = url::Url::parse(raw)?;
     anyhow::ensure!(
@@ -624,7 +658,7 @@ impl ImageStorage for HttpStorage {
     async fn stage_status(&self, image: &str, generation: u32) -> StorageResult<StageReport> {
         let operation =
             json!({"name":"vm-image-stage-status","image":image,"image_generation":generation});
-        parse_stage(&self.rpc(operation, None).await?, image, generation)
+        stage_or_absent(self.rpc(operation, None).await, image, generation)
     }
     async fn stage_create(
         &self,
