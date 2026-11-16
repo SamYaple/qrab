@@ -22,9 +22,20 @@ sudo ./deploy-root.sh status
 sudo ./deploy-root.sh rollback
 ```
 
-Use `--operator-user bob` explicitly from a root login shell if needed.
+The operator defaults to `bob` regardless of `SUDO_USER` or the root caller.
+Use `--operator-user` only to select another existing local SSH account.
+The initial JSON line prints the selected account. A real SSH plus
+noninteractive sudo check on all three nodes runs before keys, tool copies or
+node staging directories are created. SSH runs from that account's home, so a
+root-only working directory cannot interfere.
 No SSH key or agent is copied to a node. Auxiliary SSH uses the original host
 configuration and host-key alias.
+
+For a failed `runuser`/SSH attempt, the root-only `last-command.json` contains
+the public command arguments and SSH stderr, never input/key material. Share
+only those two fields and the phase, rather than the private profile or backup
+files. The new connection check also reports the account/node and classifies
+common authentication, host-key and connection failures directly.
 
 The cutover briefly interrupts network/API traffic. Avoid concurrent VM
 creation, deletion and migration: changing routes or storage sessions makes
@@ -154,6 +165,8 @@ exact archive hash. The output directory must be new.
 python3 -m unittest discover -s contrib/network-encryption/tests
 sudo python3 contrib/network-encryption/tests/check-nft.py \
   contrib/network-encryption/deploy_root.py /path/to/exported-image
+sudo python3 contrib/network-encryption/tests/check-ssh.py \
+  contrib/network-encryption/deploy_root.py automation
 sudo python3 contrib/network-encryption/check-macsec.py \
   --tools /path/to/exported-image \
   --deployment-agent contrib/network-encryption/deploy_root.py

@@ -62,14 +62,14 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def run(argv, *, data=None, check=True, timeout=40):
+def run(argv, *, data=None, check=True, timeout=40, cwd=None):
     argv = [str(v) for v in argv]
     executable = shutil.which(argv[0], path=SEARCH_PATH)
     require(executable is not None, f"required command is missing: {argv[0]}")
     argv[0] = executable
     try:
         result = subprocess.run(argv, input=data, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, timeout=timeout)
+                                stderr=subprocess.PIPE, timeout=timeout, cwd=cwd)
     except subprocess.TimeoutExpired:
         raise DeployError(f"{Path(argv[0]).name} exceeded its {timeout}s deadline") from None
     if check and result.returncode:
@@ -1181,12 +1181,67 @@ def agent(state, action):
 def ssh_command(user, host, command, *, aux=False):
     account = pwd.getpwnam(user)
     target = host["aux"] if aux else host["ip"]
-    return ["runuser", "-u", account.pw_name, "--", "ssh", "-T",
+    ssh = shutil.which("ssh", path=SEARCH_PATH)
+    require(ssh is not None, "OpenSSH client is missing")
+    return ["runuser", "-u", account.pw_name, "--", ssh, "-T",
             "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
             "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5",
             "-o", "ServerAliveCountMax=2", "-o", "HostKeyAlias=" + host["ip"],
             "-o", "HostName=" + target, "-o", "ForwardAgent=no",
             "automation@" + host["ip"], command]
+
+
+def ssh_run(user, host, command, *, aux=False, data=None, check=True, timeout=40):
+    # A root login may have an inaccessible working directory. Use the
+    # intended account's real home without inheriting caller identity defaults.
+    account = pwd.getpwnam(user)
+    require(Path(account.pw_dir).is_dir(), "operator home directory is missing")
+    return run(ssh_command(user, host, command, aux=aux), data=data,
+               check=check, timeout=timeout, cwd=account.pw_dir)
+
+
+def ssh_failure_reason(stderr):
+    message = stderr.decode(errors="replace").lower()
+    for phrase, description in (
+        ("host key verification failed", "strict host-key verification failed"),
+        ("remote host identification has changed", "the recorded host key does not match"),
+        ("permission denied", "SSH authentication or remote sudo was denied"),
+        ("connection refused", "the node refused the SSH connection"),
+        ("timed out", "the SSH connection timed out"),
+        ("no route to host", "the node is unreachable"),
+        ("could not resolve", "SSH could not resolve the configured host"),
+    ):
+        if phrase in message:
+            return description
+    return "SSH or remote sudo failed"
+
+
+def ssh_preflight(user):
+    account = pwd.getpwnam(user)
+    require(account.pw_uid != 0, "select the unprivileged operator account with --operator-user")
+    code = "import json,os,socket;print(json.dumps({'uid':os.geteuid(),'node':socket.gethostname()}))"
+    command = shlex.join(["sudo", "-n", "/usr/bin/python3", "-I", "-c", code])
+    results = {}
+    for role in ("kube01", "kube02", "kube03"):
+        host = HOSTS[role]
+        result = ssh_run(user, host, command, check=False, timeout=20)
+        if result.returncode:
+            detail = ""
+            if DIAGNOSTIC_STATE is not None:
+                save(DIAGNOSTIC_STATE / "last-command.json",
+                     {"argv": ssh_command(user, host, command), "exit": result.returncode,
+                      "stderr": result.stderr.decode(errors="replace")[-65536:]})
+                detail = f"; private diagnostics: {DIAGNOSTIC_STATE}/last-command.json"
+            raise DeployError(f"SSH preflight for {role} as operator {user}: "
+                              + ssh_failure_reason(result.stderr) + detail)
+        try:
+            value = json.loads(result.stdout)
+        except ValueError:
+            raise DeployError(f"SSH preflight for {role} returned unexpected output") from None
+        require(value.get("uid") == 0 and value.get("node", "").split(".")[0] == role,
+                f"SSH preflight did not reach root on the expected node {role}")
+        results[role] = {"ssh": "verified", "sudo": "verified"}
+    return results
 
 
 def rpc(state, role, action, user, aux=False):
@@ -1199,8 +1254,7 @@ def rpc(state, role, action, user, aux=False):
         remaining = load(state / "profile.json")["deadline"] - time.time() - 15
         require(remaining > 0, "deployment rollback deadline expired")
         timeout = min(timeout, max(1, int(remaining)))
-    return json.loads(run(ssh_command(user, HOSTS[role], command, aux=aux),
-                          timeout=timeout).stdout)
+    return json.loads(ssh_run(user, HOSTS[role], command, aux=aux, timeout=timeout).stdout)
 
 
 def package(state, role, profile, source, tools, release):
@@ -1240,6 +1294,9 @@ def extract_tools(state):
 def prepare(state, user, kit):
     global DIAGNOSTIC_STATE
     DIAGNOSTIC_STATE = state
+    # Check the actual root-to-operator SSH context before keys, tool copies,
+    # node staging directories or any native configuration are created.
+    save(state / "ssh-preflight.json", ssh_preflight(user))
     release = load(kit / "deployment-release.json")
     source = (kit / "deploy_root.py").read_bytes()
     tools = (kit / "tools.tar.gz").read_bytes()
@@ -1258,10 +1315,10 @@ def prepare(state, user, kit):
             command = ("sudo -n sh -c " + shlex.quote(
                 f"set -eu; umask 077; test ! -e {state}; mkdir -p {BASE}; "
                 f"mkdir -m 0700 {state}; tar -xzf - -C {state}"))
-            run(ssh_command(user, host, command), data=body, timeout=100)
+            ssh_run(user, host, command, data=body, timeout=100)
             command = shlex.join(["sudo", "-n", "/usr/bin/python3", "-I",
                                   str(state / "deploy_root.py"), "agent", "--state", str(state), "unpack"])
-            run(ssh_command(user, host, command), timeout=40)
+            ssh_run(user, host, command, timeout=40)
         result[role] = rpc(state, role, "inspect", user)
         require(abs(time.time() - result[role]["clock"]) < 5,
                 "host clocks differ by more than five seconds")
@@ -1367,7 +1424,7 @@ def coordinator(action, user, kit, selected):
                     "a previous deployment is incomplete; run status/rollback first")
         state = BASE / secrets.token_hex(12)
         state.mkdir(mode=0o700)
-        print(json.dumps({"state": str(state), "action": action}), flush=True)
+        print(json.dumps({"state": str(state), "action": action, "operator_user": user}), flush=True)
         prepare(state, user, kit)
         if action == "preflight":
             return {"state": str(state), "preflight": "passed", "network_changes": False}
@@ -1377,14 +1434,18 @@ def coordinator(action, user, kit, selected):
         os.close(lock)
 
 
-def main():
+def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("preflight", "deploy", "status", "rollback", "agent"))
-    operator = os.environ.get("SUDO_USER", "bob")
-    parser.add_argument("--operator-user", default="bob" if operator == "root" else operator)
+    parser.add_argument("--operator-user", default="bob",
+                        help="local account whose SSH configuration/keys reach the nodes (default: bob)")
     parser.add_argument("--state")
     parser.add_argument("agent_action", nargs="?")
-    args = parser.parse_intermixed_args()
+    return parser.parse_intermixed_args(argv)
+
+
+def main():
+    args = arguments()
     os.umask(0o077)
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(DeployError("terminated")))
     if args.action == "agent":

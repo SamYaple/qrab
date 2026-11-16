@@ -81,5 +81,24 @@
     "check-macsec.py": "73f0a01868184fd276c6cc851ecc1b6c4c032dab9811f8b10d825894fd9ea0e1",
     "tests/check-nft.py": "c62c974584e2e092eab1fbb7ed901efe8e060432bf1571a07fd5bc4195160ac0",
     "tests/test_deploy_root.py": "7a653ac7c7753132380a8d0615aa28e3b799301b3af76eaa13937e222e87b07e"
+  },
+  "sshContextUpdate": {
+    "unitContracts": 32,
+    "rootBoundaryFixture": {
+      "runuserSsh": true,
+      "operatorHomeFromRootOnlyCwd": true,
+      "stdinPreserved": true,
+      "remoteSudoVerified": true,
+      "sudoCallerCannotSelectIdentity": true
+    },
+    "operatorDefault": "bob, independent of SUDO_USER",
+    "originalFailedState": "44af3234a6df27c1d932a088",
+    "originalSshStderrAvailable": false,
+    "nodeStagingObserved": false,
+    "sourceHashes": {
+      "deploy_root.py": "7c49f6cffa1b80120ac12e2a924c55494fd64a2ac6970f1d07a6d60169082167",
+      "tests/check-ssh.py": "d2ca7da161293a6f01f0cdcb2018b248532e12732f66e21a8ce354619f932563",
+      "tests/test_deploy_root.py": "5ece912e4fd1ab8dc89dbdf8c97552920173949eef866b45773ef8f23629da68"
+    }
   }
 }

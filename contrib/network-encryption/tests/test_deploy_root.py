@@ -182,6 +182,55 @@ class FileTransactions(unittest.TestCase):
 
 
 class BootAndIdentity(unittest.TestCase):
+    def test_operator_default_does_not_follow_the_sudo_caller(self):
+        for caller in ("root", "other-admin", "bob"):
+            with self.subTest(caller=caller), patch.dict(os.environ, {"SUDO_USER": caller}):
+                self.assertEqual(D.arguments(["deploy"]).operator_user, "bob")
+        self.assertEqual(D.arguments(["deploy", "--operator-user", "other"]).operator_user, "other")
+
+    def test_ssh_runs_from_the_operator_home(self):
+        account=D.pwd.getpwnam("root")
+        with patch.object(D,"run",return_value="checked") as execute:
+            self.assertEqual(D.ssh_run("root",D.HOSTS["kube01"],"true"),"checked")
+        self.assertEqual(execute.call_args.kwargs["cwd"],account.pw_dir)
+        self.assertTrue(Path(execute.call_args.args[0][4]).is_absolute())
+
+    def test_ssh_preflight_verifies_all_nodes_and_root(self):
+        account=type("Account",(),{"pw_uid":1002})()
+        replies=[subprocess.CompletedProcess([],0,json.dumps({"uid":0,"node":role}).encode(),b"")
+                 for role in ("kube01","kube02","kube03")]
+        with patch.object(D.pwd,"getpwnam",return_value=account), \
+             patch.object(D,"ssh_run",side_effect=replies) as execute:
+            results=D.ssh_preflight("bob")
+        self.assertEqual(set(results),{"kube01","kube02","kube03"})
+        self.assertEqual(execute.call_count,3)
+        self.assertTrue(all(v.kwargs["check"] is False for v in execute.call_args_list))
+
+    def test_ssh_preflight_rejects_wrong_identity_and_reports_context(self):
+        account=type("Account",(),{"pw_uid":1002})()
+        with patch.object(D.pwd,"getpwnam",return_value=account), \
+             patch.object(D,"ssh_run",return_value=subprocess.CompletedProcess(
+                 [],255,b"",b"Permission denied (publickey).")), \
+             patch.object(D,"DIAGNOSTIC_STATE",None):
+            with self.assertRaisesRegex(D.DeployError,"kube01 as operator bob.*authentication"):
+                D.ssh_preflight("bob")
+        with patch.object(D.pwd,"getpwnam",return_value=account), \
+             patch.object(D,"ssh_run",return_value=subprocess.CompletedProcess(
+                 [],0,b'{"uid":1000,"node":"kube01"}',b"")):
+            with self.assertRaisesRegex(D.DeployError,"expected node"):
+                D.ssh_preflight("bob")
+
+    def test_ssh_failure_cannot_create_keys_or_stage_nodes(self):
+        with tempfile.TemporaryDirectory() as root, \
+             patch.object(D,"DIAGNOSTIC_STATE",None), \
+             patch.object(D,"ssh_preflight",side_effect=D.DeployError("no SSH")), \
+             patch.object(D.secrets,"token_hex",side_effect=AssertionError("keys created")), \
+             patch.object(D,"package",side_effect=AssertionError("node staging started")):
+            state=Path(root)
+            with self.assertRaisesRegex(D.DeployError,"no SSH"):
+                D.prepare(state,"bob",Path("/no-kit-needed"))
+            self.assertEqual(list(state.iterdir()),[])
+
     def test_keepalived_preserves_ips_and_only_moves_devices(self):
         source = """global_defs { router_id kube01 }\n vrrp_instance KUBERNETES_API {\n    interface enp0s2\n    unicast_src_ip 10.203.0.11\n    virtual_ipaddress {\n        10.203.0.10/24 dev enp0s2\n    }\n}\n"""
         changed = D.render_keepalived(source)
