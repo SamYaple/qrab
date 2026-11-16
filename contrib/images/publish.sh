@@ -11,6 +11,14 @@ image="$registry/qrab/$component:$tag"
 revision=$(git rev-parse HEAD)
 actual=$(podman image inspect "$image" --format '{{index .Labels "org.opencontainers.image.revision"}}')
 [[ $actual == "$revision" ]] || { echo 'image source revision does not match HEAD' >&2; exit 1; }
+# Rust components record the revision their binaries were compiled from
+# (contrib/images/cargo-fresh); a shared cargo cache must not ship another tree.
+if [[ $component == manager || $component == operator || $component == dashboard || $component == tpm-issuer ]]; then
+  container=$(podman create "$image")
+  built=$(podman cp "$container:/usr/share/qrab/build-revision" - | tar -xO) || built=
+  podman rm -f "$container" >/dev/null
+  [[ $built == "$revision" ]] || { echo "image binaries were built from '${built:-nothing recorded}', not $revision" >&2; exit 1; }
+fi
 # Exchange immediately before each individual push; credentials are never
 # embedded in images or manifests. Other registries use caller-managed login.
 if [[ $registry == zot.yapplesauce.com ]]; then

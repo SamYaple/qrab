@@ -2,9 +2,11 @@ ARG RUST_IMAGE=docker.io/library/rust@sha256:4277ce860337f6cfa1b679891bbf689a447
 ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392
 FROM ${RUST_IMAGE} AS build
 WORKDIR /src
+COPY contrib/images/cargo-fresh /usr/local/bin/cargo-fresh
+ARG QRAB_REVISION=unknown
 COPY Cargo.toml Cargo.lock ./
 COPY projects ./projects
-RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-dashboard-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-dashboard --bin qrab-dashboard && mkdir -p /out && cp /src/target/release/qrab-dashboard /out/
+RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-dashboard-target,target=/src/target,sharing=locked cargo-fresh prepare && cargo build --release --locked -p qrab-dashboard --bin qrab-dashboard && cargo-fresh collect "$QRAB_REVISION" /out /src/target/release/qrab-dashboard
 
 FROM ${DEBIAN_IMAGE}
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
@@ -15,6 +17,7 @@ LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastruct
       org.opencontainers.image.description="qrab VM dashboard: launch, inspect and open VM consoles through one OIDC client"
 RUN sh /usr/local/libexec/qrab-apt-https && apt-get update --error-on=any && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/qrab-dashboard /usr/local/bin/qrab-dashboard
+COPY --from=build /out/build-revision /usr/share/qrab/build-revision
 # Vendored noVNC for the console and shared BMC interface.
 COPY projects/dashboard/assets/novnc /opt/qrab/dashboard/novnc
 ENV DASHBOARD_NOVNC_DIR=/opt/qrab/dashboard/novnc
