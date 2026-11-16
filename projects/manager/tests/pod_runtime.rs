@@ -29,6 +29,12 @@ fn arguments_separate_paths_from_qemu_option_syntax() {
         read_only: true,
     });
     config.validate().unwrap();
+    // The relay port is off by default; the operator enables it per VM.
+    assert!(!config
+        .arguments(Path::new("/tmp/a,b/qmp.sock"))
+        .iter()
+        .any(|a| a.contains("spire")));
+    config.spire_relay.enabled = true;
     let args = config.arguments(Path::new("/tmp/a,b/qmp.sock"));
     assert!(args.iter().any(|a| a.contains("path=/tmp/a,,b/qmp.sock")));
     let blockdev = args.windows(2).find(|a| a[0] == "-blockdev").unwrap();
