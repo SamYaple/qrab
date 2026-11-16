@@ -146,7 +146,7 @@ impl Config {
             "a group cannot grant both Redfish admin and viewer access"
         );
         let listen: SocketAddr = std::env::var("REDFISH_LISTEN")
-            .unwrap_or_else(|_| "0.0.0.0:8081".into())
+            .unwrap_or_else(|_| "127.0.0.1:8081".into())
             .parse()
             .context("REDFISH_LISTEN must be a socket address")?;
         let metrics_listen: SocketAddr = std::env::var("REDFISH_METRICS_LISTEN")

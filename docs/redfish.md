@@ -845,3 +845,9 @@ container-scoped per-VM identities and the existing user-token/role checks.
 See [management enrollment and live diagnostics](dashboard.md#workload-tls-enrollment-and-verification).
 Metrics9181 and Prometheus history now use [observability workload TLS](observability.md); ingress-facing HTTP has its own transport
 boundaries and do not become mTLS through this workload listener.
+
+The [ingress implementation](ingress.md) admits the exact ingress SVID on8444
+for direct native Redfish routing. Its ordinary8081 listener becomes loopback
+health-only in workload mode, with local exec probes. Metrics9181 retains its
+separate operator/telemetry SVID allowlist. These source changes have a separate
+platform/app rollout from the completed observability batch.

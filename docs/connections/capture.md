@@ -229,3 +229,10 @@ disabled IDs, externally unobserved boundaries, evidence file/hash/time ranges,
 and capture/trace losses. Correlating records across these points gives a useful
 end-to-end explanation without claiming that a missing event or encrypted pcap
 proves no data moved.
+
+For the [ingress implementation](../ingress.md), capture8445/8443/8444 as
+backend TLS, the Envoy SDS Unix stream as credential delivery (I10), and the
+local exec/loopback health boundary separately. Inspect only public certificate
+metadata and cluster URI/SDS references; never export workload private keys from
+SDS or a complete unredacted secret dump. The source implementation has a
+separate rollout record; the original plain ingress captures remain historical.

@@ -649,7 +649,7 @@ delete and `get` on ConfigMap `proton-catalog` only.
 | `DASHBOARD_KANIDM_TOKEN_FILE` | File with the API token of service account `qrab-dashboard-groups` |
 | `DASHBOARD_NAMESPACE` | Default `qrab` |
 | `DASHBOARD_STORAGE_NODE` | Storage node for data disks, e.g. `kube03`; without it, launches with disks are refused |
-| `DASHBOARD_LISTEN` | Default `0.0.0.0:8080` |
+| `DASHBOARD_LISTEN` | Default `127.0.0.1:8080`; local health-only when workload TLS is enabled |
 | `DASHBOARD_CA_FILE` | Optional PEM CA for an isolated test Kanidm |
 | `DASHBOARD_ALLOW_LOOPBACK_HTTP` | `true` permits HTTP only for a loopback dashboard origin (development) |
 | `DASHBOARD_NOVNC_DIR` | noVNC directory; the image sets `/opt/qrab/dashboard/novnc` |
@@ -1021,3 +1021,10 @@ application401 without a user token, wrong-UID refusal and mandatory client
 certificates. See the [dated evidence](connections/platform-evidence.md#management-workload-mtls-rollout-2026-11-15-22562304-utc)
 for scope and verification limits. This does not disposition the separate
 plaintext ingress/metrics/storage/link work.
+
+The [ingress transport](ingress.md) adds a dedicated8445 workload listener that
+admits the image-attested Cilium ingress SVID and retains all dashboard user
+checks. Kubelet health uses bounded local exec probes. The ordinary loopback
+listener hides application routes in workload mode; its declaration does not
+provide a remote plaintext backend. Public HTTPS/OIDC and VM8443/8444 clients
+remain separate hops.

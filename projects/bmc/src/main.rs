@@ -17,6 +17,18 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["probe-health"] || args.as_slice() == ["probe-ready"] {
+        let path = if args[0] == "probe-ready" {
+            "/readyz"
+        } else {
+            "/healthz"
+        };
+        let address = std::env::var("BMC_LISTEN")
+            .unwrap_or_else(|_| "127.0.0.1:8080".into())
+            .parse()?;
+        qrab_spiffe::http::probe_health(address, path).await?;
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{USAGE}\n--config runs the VM in this process; --socket is the sidecar mode for a separate qrab-manager.\nSee docs/bmc.md for required BMC_* configuration.");
         return Ok(());
@@ -27,6 +39,7 @@ async fn main() -> Result<()> {
     );
     qrab_spiffe::http::install_tls13_provider()?;
     let config = bmc::config::Config::from_env()?;
+    qrab_spiffe::http::require_loopback(config.listen)?;
     let oidc = match &config.browser {
         None => None,
         Some(browser) => {
@@ -181,8 +194,14 @@ async fn serve_http(
     let shutdown = |mut signal: watch::Receiver<bool>| async move {
         let _ = signal.wait_for(|v| *v).await;
     };
+    let ordinary_app = if workload.is_some() {
+        app.clone()
+            .layer(axum::middleware::from_fn(qrab_spiffe::http::health_only))
+    } else {
+        app.clone()
+    };
     let ordinary =
-        axum::serve(listener, app.clone()).with_graceful_shutdown(shutdown(stopped.clone()));
+        axum::serve(listener, ordinary_app).with_graceful_shutdown(shutdown(stopped.clone()));
     let protected = async move {
         match workload {
             Some(listener) => {

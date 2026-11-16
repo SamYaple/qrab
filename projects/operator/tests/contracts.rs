@@ -77,7 +77,7 @@ fn api_server_defaults_and_canonical_quantities_do_not_restart_a_vm() {
     }
     stored["spec"]["nodeName"] = json!("kube03");
     stored["spec"]["dnsPolicy"] = json!("ClusterFirst");
-    stored["spec"]["initContainers"][0]["readinessProbe"]["httpGet"]["scheme"] = json!("HTTP");
+    stored["spec"]["initContainers"][0]["readinessProbe"]["successThreshold"] = json!(1);
     stored["spec"]["initContainers"][0]["terminationMessagePath"] = json!("/dev/termination-log");
     stored["spec"]["containers"][0]["env"][0]["valueFrom"]["fieldRef"]["apiVersion"] = json!("v1");
     stored["spec"]["tolerations"].as_array_mut().unwrap().push(json!({"key":"node.kubernetes.io/not-ready","operator":"Exists","effect":"NoExecute","tolerationSeconds":300}));
@@ -519,7 +519,7 @@ fn existing_specs_keep_the_bmc_and_gain_its_redfish_sidecar() {
         assert_eq!(bmc["BMC_WORKLOAD_LISTEN"], "0.0.0.0:8443");
         assert_eq!(
             bmc["BMC_WORKLOAD_PEERS"],
-            "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard"
+            "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard,spiffe://yapplesauce.com/kubernetes/kube-system/qrab-ingress"
         );
         assert_eq!(
             bmc["BMC_REDFISH_SPIFFE_ID"],
@@ -696,25 +696,19 @@ fn operator_renders_exactly_the_enabled_sidecars() {
             .flat_map(|c| c["ports"].as_array().unwrap().clone())
             .map(|p| p["containerPort"].as_u64().unwrap())
             .collect();
-        let expected_ports: Vec<u64> = [
-            (8080, bmc),
-            (8443, bmc),
-            (8081, redfish),
-            (8444, redfish),
-            (9181, redfish),
-        ]
-        .into_iter()
-        .filter_map(|(port, on)| on.then_some(port))
-        .collect();
+        let expected_ports: Vec<u64> = [(8443, bmc), (8444, redfish), (9181, redfish)]
+            .into_iter()
+            .filter_map(|(port, on)| on.then_some(port))
+            .collect();
         assert_eq!(ports, expected_ports);
         if redfish {
             let redfish = env(sidecars.iter().find(|c| c["name"] == "redfish").unwrap());
             assert_eq!(redfish["REDFISH_OIDC_AUDIENCE"], "qrab-redfish");
             assert_eq!(redfish["REDFISH_WORKLOAD_LISTEN"], "0.0.0.0:8444");
             let expected_peers = if bmc {
-                "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard,spiffe://yapplesauce.com/kubernetes/qrab/vm/owner-one/bmc"
+                "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard,spiffe://yapplesauce.com/kubernetes/kube-system/qrab-ingress,spiffe://yapplesauce.com/kubernetes/qrab/vm/owner-one/bmc"
             } else {
-                "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard"
+                "spiffe://yapplesauce.com/kubernetes/qrab/qrab-dashboard,spiffe://yapplesauce.com/kubernetes/kube-system/qrab-ingress"
             };
             assert_eq!(redfish["REDFISH_WORKLOAD_PEERS"], expected_peers);
             assert_eq!(
@@ -1809,10 +1803,15 @@ fn redfish_metrics_port_is_declared_and_admitted_only_from_prometheus_and_the_op
     let redfish = sidecar(&pod, "redfish");
     assert_eq!(
         redfish["ports"],
-        json!([{"name":"redfish","containerPort":8081},{"name":"redfish-mtls","containerPort":8444},{"name":"metrics","containerPort":9181}])
+        json!([{"name":"redfish-mtls","containerPort":8444},{"name":"metrics","containerPort":9181}])
     );
-    // Probes stay on the API listener; the metrics listener serves only /metrics.
-    assert_eq!(redfish["readinessProbe"]["httpGet"]["port"], "redfish");
+    // Probes execute inside the container against the local health-only listener.
+    assert_eq!(
+        redfish["readinessProbe"]["exec"]["command"],
+        json!(["qrab-redfish", "probe-ready"])
+    );
+    assert!(redfish["readinessProbe"].get("httpGet").is_none());
+    assert_eq!(env(&redfish)["REDFISH_LISTEN"], "127.0.0.1:8081");
     assert_eq!(env(&redfish)["REDFISH_METRICS_LISTEN"], "0.0.0.0:9181");
     assert_eq!(env(&redfish)["REDFISH_METRICS_PEERS"], "spiffe://yapplesauce.com/kubernetes/qrab/qrab-operator,spiffe://yapplesauce.com/kubernetes/monitoring/qrab-telemetry");
     assert!(!sidecar(&pod, "bmc")["ports"]

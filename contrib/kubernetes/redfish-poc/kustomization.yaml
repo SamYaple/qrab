@@ -4,4 +4,3 @@ namespace: qrab
 resources:
 - state.yaml
 - vm.yaml
-- console.yaml

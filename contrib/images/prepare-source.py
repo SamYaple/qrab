@@ -47,5 +47,6 @@ for patch in manifest.get('patches', []):
         raise SystemExit('Bad QEMU patch digest: ' + str(path))
     # Not `git apply`: inside this repository it skips paths outside the cwd.
     subprocess.run(['patch', '-p1', '--forward', '--batch', '--silent', '-i', str(path)], cwd=source, check=True)
+shutil.copyfile(ROOT / 'contrib/images/apt-https.sh', context / 'apt-https.sh')
 (context / 'qemu-source.json').write_text(json.dumps(manifest, indent=2) + '\n')
 print(context)

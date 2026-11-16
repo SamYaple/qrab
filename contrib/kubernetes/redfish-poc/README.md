@@ -10,7 +10,8 @@ kubectl apply -k contrib/kubernetes
 
 This POC uses fresh identity and Redfish-state claims. Deleted earlier VMs'
 retained claims are recovery artifacts and are never adopted, reset or deleted.
-`console.yaml` serves the VM at `qrab-demo.yapplesauce.com`; its Service,
+The separate `apply-console.sh` binds `console.yaml` to the VM's current immutable
+UID and serves it at `qrab-demo.yapplesauce.com`; its Service,
 Ingress and CiliumNetworkPolicy keep the name `qrab-demo` (Certificate
 `qrab-demo-tls`) from the retired qrab-demo VM, but belong to this bundle.
 Private DNS must resolve the host to the Cilium Ingress address.
@@ -27,6 +28,7 @@ that approved media namespace and reject escape to identity or Secrets.
 
 ```sh
 kubectl apply -k contrib/kubernetes/redfish-poc
+bash contrib/kubernetes/redfish-poc/apply-console.sh
 ```
 
 Start in SetupMode, enroll the public test profile through fixed authenticated
@@ -46,3 +48,10 @@ python3 contrib/experiments/redfish-rollout-test.py --vm qrab-redfish-poc \
 Use a deliberate loopback port-forward, or the HTTPS origin with private DNS.
 `redfish-authenticated-poc.py` performs real Kanidm PKCE checks and holds its
 ID token in memory only. Its explicit commands do not retry mutations.
+
+The console helper requires an existing `qrab-redfish-poc` and never creates a
+VM or identity claim. It binds both the Service selector and SPIFFE backend IDs
+to the observed UID. Run it again after intentionally replacing the VM resource.
+BMC8443 and direct native Redfish8444 use ingress mTLS; ordinary HTTP health is
+local and probed with exec. [Ingress transport](../../../docs/ingress.md) describes
+platform enrollment and the fixed Envoy SDS bootstrap dependency.

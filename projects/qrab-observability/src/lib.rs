@@ -205,6 +205,7 @@ impl App {
     pub fn history_router(self) -> Router {
         Router::new()
             .route("/api/v1/query_range", get(history))
+            .layer(axum::middleware::from_fn(close_history_connection))
             .with_state(self)
     }
     async fn fetch(&self, client: &reqwest::Client, url: url::Url) -> Result<(String, Bytes)> {
@@ -238,6 +239,18 @@ impl App {
         .await
         .context("query deadline")?
     }
+}
+
+async fn close_history_connection(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        header::CONNECTION,
+        axum::http::HeaderValue::from_static("close"),
+    );
+    response
 }
 
 fn reply(result: Result<(String, Bytes)>) -> Response {
@@ -709,7 +722,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(3)).await;
         tls.write_all(
             format!(
-                "GET {} HTTP/1.1\r\nHost: telemetry\r\nConnection: close\r\n\r\n",
+                "GET {} HTTP/1.1\r\nHost: telemetry\r\n\r\n",
                 path("one-source")
             )
             .as_bytes(),
@@ -717,7 +730,11 @@ mod tests {
         .await
         .unwrap();
         let mut expired = String::new();
-        tls.read_to_string(&mut expired).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), tls.read_to_string(&mut expired))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(expired.to_ascii_lowercase().contains("connection: close"));
         assert!(expired.starts_with("HTTP/1.1 401"));
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         // The same X509Source receives a replacement SVID and new connections work.

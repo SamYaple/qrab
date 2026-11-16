@@ -7,11 +7,11 @@ spec:
     matchLabels:
       app.kubernetes.io/name: qrab-dashboard
   ingress:
-  # The Cilium ingress and kubelet probes.
-  - fromEntities: [ingress, host]
+  # Only the authenticated Cilium ingress reaches the workload listener.
+  - fromEntities: [ingress]
     toPorts:
     - ports:
-      - {port: '8080', protocol: TCP}
+      - {port: '8445', protocol: TCP}
   egress:
   - toEntities: [kube-apiserver]
   - toEndpoints:
