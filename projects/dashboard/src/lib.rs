@@ -6,6 +6,7 @@ pub mod access;
 pub mod auth;
 pub mod bmc;
 mod bmc_page;
+pub mod cleanup;
 pub mod cluster;
 pub mod config;
 pub mod console;
@@ -525,7 +526,7 @@ async fn delete(
     flash(
         &session,
         format!(
-            "Deleted VM {name}. Its state PVC {} was kept: it holds the TPM identity and firmware variables. Provisioned guest disks and access groups are retained too. Ask an administrator to clean up retained resources before reusing this VM name.",
+            "Deleted VM {name}. Its state PVC {} was kept: it holds the TPM identity and firmware variables. Its Kanidm access groups are deleted as it goes; provisioned guest disks are retained. Ask an administrator to remove the state PVC before reusing this VM name.",
             vm.spec.state_volume_claim
         ),
     )

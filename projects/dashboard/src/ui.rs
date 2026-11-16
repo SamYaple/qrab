@@ -873,7 +873,7 @@ fn delete_form(detail: &Detail, csrf: &str) -> Element {
             h2 { id: "delete-title", "Delete this VM" }
             p { class: "muted prose", "Removes this VM, its Pod and ConfigMap. The state PVC "
                 code { "{detail.state_pvc}" } " is kept: it holds the VM's firmware variables and TPM identity." }
-            p { class: "muted prose", "Provisioned guest disks keep their data; their connections are closed as the VM is removed. Access groups are kept too. Ask an administrator to clean up retained resources before reusing this VM name." }
+            p { class: "muted prose", "Its Kanidm access groups are deleted with it. Provisioned guest disks keep their data; their connections are closed as the VM is removed. The state PVC is kept: ask an administrator to remove it before reusing this VM name." }
             form { class: "delete-confirmation", method: "post", action: "{action}",
                 input { r#type: "hidden", name: "csrf", value: "{csrf}" }
                 label { r#for: "confirm-name", "Type " code { "{detail.row.name}" } " to confirm deletion" }

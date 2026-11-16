@@ -40,6 +40,25 @@ refused "the dashboard grants itself the console" \
 refused "the dashboard sets running and another field together" \
   "{\"spec\":{\"running\":$flipped,\"restartNonce\":\"dashboard-check\"}}"
 refused "the dashboard adds a label" '{"metadata":{"labels":{"qrab-dashboard-check":"x"}}}'
+# Finalizers: the dashboard may add or remove only its own.
+own=qrab.yapplesauce.com/access-groups
+finalizers=$(kubectl -n "$ns" get virtualmachine "$existing" -o json | python3 -I -c '
+import json, sys
+own = sys.argv[1]
+f = json.load(sys.stdin)["metadata"].get("finalizers", [])
+others = [x for x in f if x != own]
+print(json.dumps(others))
+print(json.dumps(others + [own]))
+print(json.dumps(others + ["example.com/dashboard-check"]))
+print(json.dumps([x for x in others if x != "qrab.yapplesauce.com/iscsi-state"] if "qrab.yapplesauce.com/iscsi-state" in others else others[1:]))
+' "$own")
+{ read -r without_own; read -r with_own; read -r with_foreign; read -r one_less; }<<<"$finalizers"
+allowed "the dashboard adds its own finalizer" "{\"metadata\":{\"finalizers\":$with_own}}"
+allowed "the dashboard removes its own finalizer" "{\"metadata\":{\"finalizers\":$without_own}}"
+refused "the dashboard adds another finalizer" "{\"metadata\":{\"finalizers\":$with_foreign}}"
+if [[ $one_less != "$without_own" ]]; then
+  refused "the dashboard removes another component's finalizer" "{\"metadata\":{\"finalizers\":$one_less}}"
+fi
 if output=$(patch '{"spec":{"restartNonce":"admin-check"}}'); then
   echo "ok: other identities are not restricted by this policy"
 else

@@ -29,6 +29,8 @@ struct FakeCluster {
     deleted: Mutex<Vec<(String, String)>>,
     /// `set_running` calls: (name, uid, running).
     running: Mutex<Vec<(String, String, bool)>>,
+    /// `set_vm_finalizers` calls: (name, finalizers).
+    finalizer_writes: Mutex<Vec<(String, Vec<String>)>>,
     fail_vm_create: std::sync::atomic::AtomicBool,
     /// Appears after the first read misses it (a race with the preflight).
     racing_pvc: Mutex<Option<PersistentVolumeClaim>>,
@@ -125,6 +127,37 @@ impl cluster::Cluster for FakeCluster {
             .lock()
             .unwrap()
             .push((name.into(), uid.into(), running));
+        Ok(())
+    }
+    async fn set_vm_finalizers(
+        &self,
+        name: &str,
+        uid: &str,
+        resource_version: &str,
+        finalizers: &[String],
+    ) -> anyhow::Result<()> {
+        let mut vms = self.vms.lock().unwrap();
+        let Some(index) = vms.iter().position(|v| {
+            v.metadata.name.as_deref() == Some(name) && v.metadata.uid.as_deref() == Some(uid)
+        }) else {
+            anyhow::bail!("virtualmachines \"{name}\" not found");
+        };
+        let vm = &mut vms[index];
+        anyhow::ensure!(
+            vm.metadata.resource_version.as_deref() == Some(resource_version),
+            "the object has been modified"
+        );
+        self.finalizer_writes
+            .lock()
+            .unwrap()
+            .push((name.into(), finalizers.to_vec()));
+        vm.metadata.finalizers = Some(finalizers.to_vec());
+        let next = resource_version.parse::<u64>().unwrap_or(0) + 1;
+        vm.metadata.resource_version = Some(next.to_string());
+        // The API server removes a terminating object once its finalizers are gone.
+        if vm.metadata.deletion_timestamp.is_some() && finalizers.is_empty() {
+            vms.remove(index);
+        }
         Ok(())
     }
     async fn vpn_profiles(&self) -> anyhow::Result<Vec<qrab_proton::crd::VpnProfile>> {
@@ -398,6 +431,8 @@ fn fake_bmc(label: &'static str, log: Log) -> axum::Router {
 #[derive(Default)]
 struct Directory {
     groups: HashMap<String, String>,
+    /// Group name to description.
+    descriptions: HashMap<String, String>,
     members: HashMap<String, Vec<String>>,
     /// Lookups miss even existing groups.
     blind: bool,
@@ -469,18 +504,26 @@ fn fake_kanidm(log: Log, dir: Arc<Mutex<Directory>>) -> axum::Router {
                     Json(serde_json::json!({"attrs": {"name": [id], "uuid": [BOB]}}))
                         .into_response()
                 }
-                (Method::GET, ["v1", "group", id]) => match dir.groups.get(*id) {
+                (Method::GET, ["v1", "group", id]) => match dir
+                    .groups
+                    .iter()
+                    .find(|(name, uuid)| name.as_str() == *id || uuid.as_str() == *id)
+                {
                     Some(_) if dir.blind => StatusCode::NOT_FOUND.into_response(),
-                    Some(uuid) => {
-                        Json(serde_json::json!({"attrs": {"name": [id], "uuid": [uuid]}}))
-                            .into_response()
+                    Some((name, uuid)) => {
+                        let description = dir.descriptions.get(name).cloned().unwrap_or_default();
+                        Json(serde_json::json!({"attrs": {
+                            "name": [name], "uuid": [uuid], "description": [description]}}))
+                        .into_response()
                     }
                     None => StatusCode::NOT_FOUND.into_response(),
                 },
                 (Method::POST, ["v1", "group"]) => {
                     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
                     let name = v["attrs"]["name"][0].as_str().unwrap().to_owned();
+                    let description = v["attrs"]["description"][0].as_str().unwrap().to_owned();
                     let id = uuid::Uuid::new_v4().to_string();
+                    dir.descriptions.insert(name.clone(), description);
                     dir.groups.insert(name, id);
                     Json(serde_json::Value::Null).into_response()
                 }
@@ -3476,4 +3519,165 @@ async fn a_launch_attaches_a_vpn_profile_and_the_vm_page_shows_its_port() {
         assert!(detail.contains(cell), "{cell}: {detail}");
     }
     assert!(!detail.contains("vpn-ch-p2p"));
+}
+
+fn terminating() -> Option<k8s_openapi::apimachinery::pkg::apis::meta::v1::Time> {
+    Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(
+        Default::default(),
+    ))
+}
+
+#[tokio::test]
+async fn deleting_a_launched_vm_deletes_only_its_own_access_groups() {
+    use crate::cleanup::{FINALIZER, reconcile};
+    let h = harness().await;
+    h.cluster.vms.lock().unwrap().clear();
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (status, _, _) = send(
+        &h,
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            "csrf=correct&name=web&cpus=1&memory_mib=512",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let created = h.cluster.created_vms.lock().unwrap()[0].clone();
+    assert_eq!(
+        created["metadata"]["finalizers"],
+        serde_json::json!([FINALIZER])
+    );
+    let (admins_name, admins) = h.dir.lock().unwrap().launched("admins");
+    let (_, viewers) = h.dir.lock().unwrap().launched("viewers");
+    // Entries that are not this VM's own groups: a platform group whose
+    // description imitates one, another VM's launch-ID group, and junk.
+    const OPERATORS: &str = "11111111-1111-4111-8111-111111111111";
+    const OTHER: &str = "22222222-2222-4222-8222-222222222222";
+    const OTHER_NAME: &str = "qrab_vm_ffffffffffffffffffffffffffffffff_admins";
+    {
+        let mut dir = h.dir.lock().unwrap();
+        for (name, uuid, description) in [
+            (
+                "qrab_operators",
+                OPERATORS,
+                "qrab VM qrab/web admins, launched by mallory",
+            ),
+            (
+                OTHER_NAME,
+                OTHER,
+                "qrab VM qrab/db admins, launched by bob through qrab-dashboard",
+            ),
+        ] {
+            dir.groups.insert(name.into(), uuid.into());
+            dir.descriptions.insert(name.into(), description.into());
+        }
+    }
+    let mut vm: VirtualMachine = serde_json::from_value(created).unwrap();
+    vm.metadata.uid = Some("uid-web".into());
+    vm.metadata.resource_version = Some("7".into());
+    let console = vm.spec.console.as_mut().unwrap();
+    console
+        .admin_groups
+        .extend([OPERATORS.into(), OTHER.into(), "not a group".into()]);
+    // A live VM keeps its groups and its finalizer.
+    h.cluster.vms.lock().unwrap().push(vm);
+    reconcile(h.cluster.as_ref(), &h.state.kanidm, "qrab")
+        .await
+        .unwrap();
+    assert!(h.cluster.finalizer_writes.lock().unwrap().is_empty());
+    assert!(h.dir.lock().unwrap().groups.contains_key(&admins_name));
+    // `kubectl delete`: one pass deletes its two groups, then drops the
+    // finalizer, and the API server removes the VM.
+    h.cluster.vms.lock().unwrap()[0].metadata.deletion_timestamp = terminating();
+    reconcile(h.cluster.as_ref(), &h.state.kanidm, "qrab")
+        .await
+        .unwrap();
+    {
+        let dir = h.dir.lock().unwrap();
+        assert!(!dir.groups.values().any(|g| *g == admins || *g == viewers));
+        assert!(dir.groups.contains_key("qrab_operators"));
+        assert!(dir.groups.contains_key(OTHER_NAME));
+    }
+    assert!(h.cluster.vms.lock().unwrap().is_empty());
+    assert_eq!(
+        *h.cluster.finalizer_writes.lock().unwrap(),
+        [("web".to_string(), Vec::<String>::new())]
+    );
+}
+
+#[tokio::test]
+async fn older_dashboard_vms_get_the_finalizer_and_kanidm_failures_keep_it() {
+    use crate::cleanup::{FINALIZER, reconcile};
+    const ISCSI: &str = "qrab.yapplesauce.com/iscsi-state";
+    const LEGACY: &str = "33333333-3333-4333-8333-333333333333";
+    let h = harness().await;
+    h.cluster.vms.lock().unwrap().clear();
+    // Launched before the finalizer existed, with a pre-launch-ID group name.
+    let mut legacy = vm(
+        "old",
+        serde_json::json!({"console": {"adminGroups": [LEGACY]}}),
+        Some(ALICE),
+    );
+    legacy.metadata.resource_version = Some("1".into());
+    legacy.metadata.finalizers = Some(vec![ISCSI.into()]);
+    legacy.metadata.labels = Some(
+        [(
+            crate::access::MANAGED_BY.to_string(),
+            crate::access::MANAGER.to_string(),
+        )]
+        .into(),
+    );
+    // A hand-made VM is left alone.
+    let mut manual = vm("manual", serde_json::json!({}), None);
+    manual.metadata.resource_version = Some("1".into());
+    h.cluster.vms.lock().unwrap().extend([legacy, manual]);
+    {
+        let mut dir = h.dir.lock().unwrap();
+        dir.groups
+            .insert("qrab_vm_qrab_old_admins".into(), LEGACY.into());
+        dir.descriptions.insert(
+            "qrab_vm_qrab_old_admins".into(),
+            "qrab VM qrab/old admins, launched by alice through qrab-dashboard".into(),
+        );
+    }
+    reconcile(h.cluster.as_ref(), &h.state.kanidm, "qrab")
+        .await
+        .unwrap();
+    assert_eq!(
+        *h.cluster.finalizer_writes.lock().unwrap(),
+        [(
+            "old".to_string(),
+            vec![ISCSI.to_string(), FINALIZER.to_string()]
+        )]
+    );
+    // While Kanidm is unreachable the terminating VM keeps the finalizer.
+    h.cluster.vms.lock().unwrap()[0].metadata.deletion_timestamp = terminating();
+    let unreachable = kanidm::Kanidm::new("http://127.0.0.1:1", "t".into(), None, true).unwrap();
+    reconcile(h.cluster.as_ref(), &unreachable, "qrab")
+        .await
+        .unwrap();
+    assert_eq!(h.cluster.finalizer_writes.lock().unwrap().len(), 1);
+    reconcile(h.cluster.as_ref(), &h.state.kanidm, "qrab")
+        .await
+        .unwrap();
+    assert!(
+        !h.dir
+            .lock()
+            .unwrap()
+            .groups
+            .contains_key("qrab_vm_qrab_old_admins")
+    );
+    // Only the dashboard's own finalizer was removed; the operator's remains.
+    let vms = h.cluster.vms.lock().unwrap();
+    let old = vms
+        .iter()
+        .find(|v| v.metadata.name.as_deref() == Some("old"))
+        .unwrap();
+    assert_eq!(
+        old.metadata.finalizers.as_deref(),
+        Some(&[ISCSI.to_string()][..])
+    );
+    assert_eq!(vms.len(), 2);
 }

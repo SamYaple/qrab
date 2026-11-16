@@ -38,6 +38,10 @@
       {
         "expression": "(has(object.metadata.labels) ? object.metadata.labels : {}) == (has(oldObject.metadata.labels) ? oldObject.metadata.labels : {}) && (has(object.metadata.annotations) ? object.metadata.annotations : {}) == (has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {})",
         "message": "the dashboard may not change a VirtualMachine's labels or annotations"
+      },
+      {
+        "expression": "(has(object.metadata.finalizers) ? object.metadata.finalizers : []).filter(f, f != 'qrab.yapplesauce.com/access-groups') == (has(oldObject.metadata.finalizers) ? oldObject.metadata.finalizers : []).filter(f, f != 'qrab.yapplesauce.com/access-groups')",
+        "message": "the dashboard may add or remove only its own finalizer qrab.yapplesauce.com/access-groups"
       }
     ]
   }

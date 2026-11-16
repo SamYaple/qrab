@@ -100,6 +100,11 @@ async fn main() -> anyhow::Result<()> {
         consoles: Arc::new(tokio::sync::Semaphore::new(16)),
         console_subjects: Default::default(),
     };
+    tokio::spawn(qrab_dashboard::cleanup::run(
+        state.cluster.clone(),
+        state.kanidm.clone(),
+        config.namespace.clone(),
+    ));
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(origin=%config.origin, namespace=%config.namespace, "qrab-dashboard started");
     let app = qrab_dashboard::router(state);
