@@ -17,6 +17,18 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["probe-health"] || args.as_slice() == ["probe-ready"] {
+        let path = if args[0] == "probe-ready" {
+            "/readyz"
+        } else {
+            "/healthz"
+        };
+        let address = std::env::var("REDFISH_LISTEN")
+            .unwrap_or_else(|_| "127.0.0.1:8081".into())
+            .parse()?;
+        qrab_spiffe::http::probe_health(address, path).await?;
+        return Ok(());
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{USAGE}\nSee docs/redfish.md for required REDFISH_* configuration.");
         return Ok(());
@@ -24,6 +36,7 @@ async fn main() -> Result<()> {
     ensure!(args.len() == 2 && args[0] == "--socket", USAGE);
     qrab_spiffe::http::install_tls13_provider()?;
     let config = qrab_redfish::config::Config::from_env()?;
+    qrab_spiffe::http::require_loopback(config.listen)?;
     let workload = qrab_redfish::workload::Config::from_env(config.listen, config.metrics_listen)?;
     let identity = match &workload {
         Some(c) => Some(c.identity().await?),
@@ -97,7 +110,12 @@ async fn main() -> Result<()> {
     let shutdown = |mut stopped: watch::Receiver<bool>| async move {
         let _ = stopped.wait_for(|v| *v).await;
     };
-    let api = axum::serve(listener, app).with_graceful_shutdown(shutdown(stopped.clone()));
+    let ordinary_app = if workload.is_some() {
+        app.layer(axum::middleware::from_fn(qrab_spiffe::http::health_only))
+    } else {
+        app
+    };
+    let api = axum::serve(listener, ordinary_app).with_graceful_shutdown(shutdown(stopped.clone()));
     let metrics_stopped = stopped.clone();
     let exporter = async move {
         match metrics_tls {

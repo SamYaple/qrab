@@ -124,7 +124,7 @@ impl Config {
             namespace,
             storage_node,
             listen: std::env::var("DASHBOARD_LISTEN")
-                .unwrap_or_else(|_| "0.0.0.0:8080".into())
+                .unwrap_or_else(|_| "127.0.0.1:8080".into())
                 .parse()
                 .context("DASHBOARD_LISTEN must be a socket address")?,
             ca: std::env::var_os("DASHBOARD_CA_FILE")

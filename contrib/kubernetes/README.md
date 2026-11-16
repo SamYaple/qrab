@@ -12,7 +12,7 @@ separate operations.
 | `operator/` | The same without the storage client, for a cluster without the storage service | `kubectl apply -k contrib/kubernetes/operator`. On this cluster it strips `QRAB_STORAGE_*` from the operator: never apply it here |
 | `monitoring/` | The static PodMonitor and the Grafana "qrab VM" dashboard ConfigMap | Through the root bundle (it has no kustomization of its own) |
 | `dashboard/` | The VM dashboard; its Secret comes from `install-secret.py` | `kubectl apply -k contrib/kubernetes/dashboard` ([dashboard.md](../../docs/dashboard.md)); a `--server-side` apply needs `--force-conflicts` to take the image from the client-side field manager |
-| `redfish-poc/` | The live VM `qrab-redfish-poc` with its claims and the `qrab-demo.yapplesauce.com` console (Service, Ingress and CiliumNetworkPolicy `qrab-demo`, Certificate `qrab-demo-tls`) | `kubectl apply -k contrib/kubernetes/redfish-poc`, client-side ([README](redfish-poc/README.md)) |
+| `redfish-poc/` | The live VM `qrab-redfish-poc` with its claims and the `qrab-demo.yapplesauce.com` console (Service, Ingress and CiliumNetworkPolicy `qrab-demo`, Certificate `qrab-demo-tls`) | `kubectl apply -k contrib/kubernetes/redfish-poc`, then `bash contrib/kubernetes/redfish-poc/apply-console.sh` for the existing UID, client-side ([README](redfish-poc/README.md)) |
 | `kvm-device-plugin/` | The `/dev/kvm` device plugin DaemonSet | Its own apply ([operator.md](../../docs/operator.md#kvm-acceleration)) |
 | `examples/qrab-demo/` | Sample VM, console and iSCSI patch of the retired `qrab-demo` VM | Never applied as is (below) |
 

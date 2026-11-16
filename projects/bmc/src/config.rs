@@ -111,7 +111,7 @@ impl Config {
         let var = |name: &str| var(name).filter(|value| !value.is_empty());
         let required = |name: &str| var(name).with_context(|| format!("{name} is required"));
         let listen = var("BMC_LISTEN")
-            .unwrap_or_else(|| "0.0.0.0:8080".into())
+            .unwrap_or_else(|| "127.0.0.1:8080".into())
             .parse()?;
         let uuids = |name: &str| -> Result<HashSet<String>> {
             var(name)

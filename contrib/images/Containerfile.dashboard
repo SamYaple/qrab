@@ -7,11 +7,13 @@ COPY projects ./projects
 RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-dashboard-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-dashboard --bin qrab-dashboard && mkdir -p /out && cp /src/target/release/qrab-dashboard /out/
 
 FROM ${DEBIAN_IMAGE}
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY contrib/images/apt-https.sh /usr/local/libexec/qrab-apt-https
 ARG QRAB_REVISION=unknown
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.revision="${QRAB_REVISION}" \
       org.opencontainers.image.description="qrab VM dashboard: launch, inspect and open VM consoles through one OIDC client"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN sh /usr/local/libexec/qrab-apt-https && apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/qrab-dashboard /usr/local/bin/qrab-dashboard
 # Vendored noVNC for the console and shared BMC interface.
 COPY projects/dashboard/assets/novnc /opt/qrab/dashboard/novnc

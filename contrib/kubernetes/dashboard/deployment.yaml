@@ -5,7 +5,6 @@ metadata:
   labels:
     app.kubernetes.io/name: qrab-dashboard
 spec:
-  # Sessions and pending logins live in process memory: one replica.
   replicas: 1
   strategy:
     type: Recreate
@@ -18,12 +17,10 @@ spec:
         app.kubernetes.io/name: qrab-dashboard
     spec:
       serviceAccountName: qrab-dashboard
-      # Every node is a control-plane node, as for the operator.
       tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
-      # The dashboard reads and creates VMs through the Kubernetes API.
       automountServiceAccountToken: true
       enableServiceLinks: false
       terminationGracePeriodSeconds: 10
@@ -36,7 +33,8 @@ spec:
           type: RuntimeDefault
       hostAliases:
       - ip: 192.168.0.251
-        hostnames: [idm.yaple.net]
+        hostnames:
+        - idm.yaple.net
       containers:
       - name: dashboard
         # Placeholder: pinned to the published immutable digest by the release pin commit.
@@ -60,20 +58,32 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - {name: DASHBOARD_STORAGE_NODE, value: kube03}
-        - {name: DASHBOARD_LISTEN, value: '0.0.0.0:8080'}
-        - {name: QRAB_SPIFFE_ENDPOINT_SOCKET, value: 'unix:/run/spire/agent.sock'}
+        - name: DASHBOARD_STORAGE_NODE
+          value: kube03
+        - name: DASHBOARD_LISTEN
+          value: 127.0.0.1:8080
+        - name: QRAB_SPIFFE_ENDPOINT_SOCKET
+          value: unix:/run/spire/agent.sock
+        - name: DASHBOARD_WORKLOAD_LISTEN
+          value: 0.0.0.0:8445
+        - name: DASHBOARD_WORKLOAD_PEERS
+          value: spiffe://yapplesauce.com/kubernetes/kube-system/qrab-ingress
         ports:
-        - name: http
-          containerPort: 8080
+        - name: dashboard-mtls
+          containerPort: 8445
         resources:
-          requests: {cpu: 50m, memory: 64Mi}
-          limits: {cpu: '1', memory: 256Mi}
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: '1'
+            memory: 256Mi
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities:
-            drop: [ALL]
+            drop:
+            - ALL
         volumeMounts:
         - name: secrets
           mountPath: /run/secrets/qrab-dashboard
@@ -82,23 +92,38 @@ spec:
           mountPath: /run/spire
           readOnly: true
         startupProbe:
-          httpGet: {path: /healthz, port: http}
           periodSeconds: 2
           failureThreshold: 30
+          exec:
+            command:
+            - /usr/local/bin/qrab-dashboard
+            - probe-health
+          timeoutSeconds: 3
         readinessProbe:
-          httpGet: {path: /readyz, port: http}
           periodSeconds: 5
+          exec:
+            command:
+            - /usr/local/bin/qrab-dashboard
+            - probe-health
+          timeoutSeconds: 3
         livenessProbe:
-          httpGet: {path: /healthz, port: http}
           periodSeconds: 10
+          exec:
+            command:
+            - /usr/local/bin/qrab-dashboard
+            - probe-health
+          timeoutSeconds: 3
       volumes:
       - name: workload-socket
-        csi: {driver: csi.spiffe.io, readOnly: true}
-      # Files readable by the pod's fsGroup only; never env or argv.
+        csi:
+          driver: csi.spiffe.io
+          readOnly: true
       - name: secrets
         secret:
           secretName: qrab-dashboard
-          defaultMode: 0440
+          defaultMode: 288
           items:
-          - {key: oidc-client-secret, path: oidc-client-secret}
-          - {key: kanidm-token, path: kanidm-token}
+          - key: oidc-client-secret
+            path: oidc-client-secret
+          - key: kanidm-token
+            path: kanidm-token
