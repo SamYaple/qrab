@@ -29,6 +29,25 @@ if [ -x /usr/sbin/qrab-spire-relay ]; then
     (while :; do /usr/sbin/qrab-spire-relay </dev/null; sleep 1; done) &
     echo QRAB_SPIRE_RELAY_STARTED
 fi
+# Guest workload identity (docs/spire-vm.md): a VM with spec.guestIdentity gets
+# a read-only qrab-identity disk carrying its DevID key blobs, agent.conf and
+# spire-agent. The SPIRE agent attests with tpm_devid on this vTPM through the
+# relay above; a root workload then prints the SVID it is issued.
+identity_disk=
+for serial in /sys/block/vd*/serial; do
+    [ "$(cat "$serial" 2>/dev/null)" = qrab-identity ] && identity_disk=/dev/${serial#/sys/block/} && identity_disk=${identity_disk%/serial}
+done
+if [ -n "$identity_disk" ] && mkdir -p /run/qrab-identity && mount -t vfat -o ro "$identity_disk" /run/qrab-identity; then
+    echo QRAB_IDENTITY_DISK_MOUNTED
+    mkdir -p /var/lib/spire/agent /run/spire-agent/public
+    agent=/run/qrab-identity/tools/spire-agent
+    (while :; do "$agent" run -config /run/qrab-identity/agent.conf </dev/null 2>&1 | sed 's/^/spire-agent: /'; sleep 5; done) &
+    (while :; do
+        id=$("$agent" api fetch x509 -socketPath /run/spire-agent/public/api.sock 2>/dev/null | sed -n 's/^SPIFFE ID:[[:space:]]*//p' | head -1)
+        echo "QRAB_GUEST_SVID ${id:-none}"
+        sleep 20
+    done) &
+fi
 # There is no udev: online vCPUs and memory blocks the host hot-adds after a
 # Pod resize, and log each resulting guest size on the serial console. Only
 # devices that appear after boot are onlined, once each, so a CPU or memory

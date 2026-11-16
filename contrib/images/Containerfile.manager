@@ -1,5 +1,7 @@
 ARG RUST_IMAGE=docker.io/library/rust@sha256:4277ce860337f6cfa1b679891bbf689a447f4b3f4f55701742614ad31321cee7
 ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392
+# spire-agent 1.15.3 for guest identity disks; see the spire-agent stage.
+ARG SPIRE_AGENT_IMAGE=zot.yapplesauce.com/qrab/spire-agent@sha256:77164ebd4ac2bdcda829dacf7c6242586d56a32dc234cc60f476950237069510
 ARG QEMU_IMAGE=localhost/qrab-qemu:11.1.3
 FROM ${RUST_IMAGE} AS manager-build
 WORKDIR /src
@@ -8,11 +10,11 @@ COPY projects ./projects
 RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-manager-target,target=/src/target,sharing=locked cargo build --release --locked -p manager --bin qrab-manager -p bmc --bin qrab-bmc -p qrab-redfish --bin qrab-redfish && rustup target add x86_64-unknown-linux-musl && cargo build --release --locked --target x86_64-unknown-linux-musl -p qrab-guest-agent --bin qrab-guest-agent -p qrab-spire-relay --bin qrab-spire-relay && mkdir -p /out && cp /src/target/release/qrab-manager /src/target/release/qrab-bmc /src/target/release/qrab-redfish /src/target/x86_64-unknown-linux-musl/release/qrab-guest-agent /src/target/x86_64-unknown-linux-musl/release/qrab-spire-relay /out/
 
 # The guest's SPIRE agent, carried on each guest-identity VM's qrab-identity
-# disk (tools/) so a minimal guest needs no network or package install.
-FROM ${DEBIAN_IMAGE} AS spire-agent
-ARG SPIRE_VERSION=1.15.3
-ARG SPIRE_SHA256=ca1a4d1155317bdd2afc7f36663828a10410c7c840e54725b90b4064b0a301c7
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/* && curl -fsSLo /spire.tar.gz "https://github.com/spiffe/spire/releases/download/v${SPIRE_VERSION}/spire-${SPIRE_VERSION}-linux-amd64-musl.tar.gz" && echo "${SPIRE_SHA256}  /spire.tar.gz" | sha256sum -c - && tar -xzf /spire.tar.gz -C / "spire-${SPIRE_VERSION}/bin/spire-agent" && install -D -m 0755 "/spire-${SPIRE_VERSION}/bin/spire-agent" /out/spire-agent
+# disk (tools/) so a minimal guest needs no network or package install. It is
+# the static spire-agent 1.15.3 the native SPIRE agents on kube01-03 run
+# (sha256 3f2f2a7ed936ab13b763b05ce77286d2a30dd68fc57014f0f499c30607730ca6),
+# published from there as this internal image.
+FROM ${SPIRE_AGENT_IMAGE} AS spire-agent
 
 FROM ${DEBIAN_IMAGE} AS demo-guest
 RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip tpm2-tools systemd-ukify systemd-boot-efi dosfstools mtools fdisk e2fsprogs diffutils && rm -rf /var/lib/apt/lists/*
@@ -36,7 +38,7 @@ COPY --from=manager-build /out/qrab-bmc /usr/local/bin/qrab-bmc
 COPY --from=manager-build /out/qrab-redfish /usr/local/bin/qrab-redfish
 # guest_identity.guest_tools_dir: copied into the qrab-identity disk's tools/.
 COPY --from=manager-build /out/qrab-spire-relay /usr/libexec/qrab/guest-tools/qrab-spire-relay
-COPY --from=spire-agent /out/spire-agent /usr/libexec/qrab/guest-tools/spire-agent
+COPY --from=spire-agent /spire-agent /usr/libexec/qrab/guest-tools/spire-agent
 COPY projects/bmc/assets /opt/qrab/bmc/assets
 ENV BMC_ASSETS_DIR=/opt/qrab/bmc/assets
 COPY --from=demo-guest /out /opt/qrab/demo
