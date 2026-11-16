@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "source_revision": "4aa556497c7e1ab72ccb6bf04a1aac13852e01fb",
+  "source_revision": "bc7e422e7d6e4d3d80a3b71fb1ec21f8559977f6",
   "qemu": {
-    "image": "zot.yapplesauce.com/qrab/qemu@sha256:12cacc1fe8ee75adeedcaa90adc93388f8aa9afcd9a6feaf658e96430a87b4ca",
+    "image": "zot.yapplesauce.com/qrab/qemu@sha256:1187d49e124d53a1c82e8b51c7cdf11c116ccd4fbf821b46f51b1e822eb3e312",
     "version": "11.1.3",
     "source_revision": "005c61c0ef6f6ae615283440b4bb7be51b2c6ddd",
     "patches": [
       "contrib/images/qemu-patches/0001-net-stream-reset-send-state-on-disconnect.patch@sha256:fc4c4c02dc7016571297d4bad7f15be417b82d88cd116093118d126d8ac6b4c4"
     ],
-    "built_from": "69124156b2f7",
+    "built_from": "f97a3de1e2257881b01dc1155041266553833283",
     "runtime_packages": [
       "libiscsi7:amd64\t1.20.0-4",
       "libtpms0:amd64\t0.9.2-3.2",
@@ -17,32 +17,32 @@
     ]
   },
   "manager": {
-    "image": "zot.yapplesauce.com/qrab/manager@sha256:2612574ab886d2e1dc7e6baef21354b3646f16f6520807370dab2669bc3c53ce",
+    "image": "zot.yapplesauce.com/qrab/manager@sha256:e165cfc654ce85fdfeeab57b500471d6a2dc2abc2e55942be1eac175e865f220",
     "bmc_version": "0.2.0",
     "redfish_version": "0.1.0",
     "guest_agent_version": "0.1.0",
-    "source_revision": "4aa556497c7e1ab72ccb6bf04a1aac13852e01fb"
+    "source_revision": "bc7e422e7d6e4d3d80a3b71fb1ec21f8559977f6"
   },
   "demo_guest_packages": [
     "busybox-static\t1:1.37.0-6+b9",
     "diffutils\t1:3.10-4",
     "e2fsprogs\t1.47.2-3+b12",
-    "linux-image-6.12.116+deb13-amd64\t6.12.116-1",
-    "linux-image-6.12.116+deb13-amd64-unsigned\t",
-    "linux-image-amd64\t6.12.116-1",
+    "linux-image-6.12.117+deb13-amd64\t6.12.117-1",
+    "linux-image-6.12.117+deb13-amd64-unsigned\t",
+    "linux-image-amd64\t6.12.117-1",
     "linux-image-generic\t",
     "systemd-boot-efi:amd64\t257.13-1~deb13u1",
     "systemd-ukify\t257.13-1~deb13u1",
     "tpm2-tools\t5.7-1"
   ],
   "operator": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:7f7b15ae224a2169548553c0f3584c854fb21a7c134dc1763d074b1c6359249e",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:c75cf38dd6690440e71c1175e5aa6ee872a904273355ebcd21b9de2d3c92d0ad",
     "version": "0.1.0",
-    "source_revision": "4aa556497c7e1ab72ccb6bf04a1aac13852e01fb"
+    "source_revision": "bc7e422e7d6e4d3d80a3b71fb1ec21f8559977f6"
   },
   "dashboard": {
-    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:03fb75bf059774d11a6a25a8af3ff7c1cffb3a6172805400a42c4d361ed26f03",
-    "source_revision": "026e00267eff2535e486316d5de8967ce9533d7c"
+    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:3e05ed075b7785bf723177b5e3710baf42a44a116895ae483393ddd71dcd620c",
+    "source_revision": "bc7e422e7d6e4d3d80a3b71fb1ec21f8559977f6"
   },
   "netd": {
     "image": "zot.yapplesauce.com/qrab/operator@sha256:88818c3fb502a0e51c610bc934132ed72f201a457a5c8a50d62e7a4ac93dba2e",
@@ -55,8 +55,13 @@
     "source_revision": "b2022f5bb61210439bbd19fbff091642bd926fef"
   },
   "observability": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:3a87af89b6a3fc25ed4166e323ef2212a5d4b126ff69e811bc8f915157e1e6e3",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:c75cf38dd6690440e71c1175e5aa6ee872a904273355ebcd21b9de2d3c92d0ad",
     "version": "0.1.0",
-    "source_revision": "694f43519c9ab9a0fc9290ce0c4fac1f106c7bc0"
+    "source_revision": "bc7e422e7d6e4d3d80a3b71fb1ec21f8559977f6"
+  },
+  "cilium_operator": {
+    "image": "zot.yapplesauce.com/infrastructure/cilium-operator-generic@sha256:b44bd24f9ad290f90edb7ba8c7c99ce479934056c0ce8e056aba7261b3f10e1e",
+    "source_revision": "dc87287dfbb12b1884c7f371608926a777e4b814",
+    "version": "1.20.2"
   }
 }
