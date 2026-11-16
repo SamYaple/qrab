@@ -14,10 +14,32 @@
 # that, to show the oracle failing on a release without the copy).
 #
 #   bash contrib/check-nic-ct-handoff.sh [vm-name]
+#
+# An existing Python Pod can be the client to exercise cross-node encryption:
+#   CLIENT_POD=probe CLIENT_POD_NAMESPACE=default \
+#     MIGRATION_TARGETS=kube02,kube03 STREAM_PADDING=4096 \
+#     bash contrib/check-nic-ct-handoff.sh encrypted-ct
+# Keep that client on a different node from both VM destinations. Padding
+# increases the wire payload while the client's log retains only the counter.
 set -euo pipefail
 vm=${1:-nicct}
 ns=qrab
+client_pod=${CLIENT_POD:-}
+client_ns=${CLIENT_POD_NAMESPACE:-default}
+stream_padding=${STREAM_PADDING:-0}
+targets=()
+if [[ -n ${MIGRATION_TARGETS:-} ]]; then
+  IFS=, read -r -a targets <<< "$MIGRATION_TARGETS"
+fi
+[[ $vm =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || exit 2
+[[ $client_ns =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || exit 2
+[[ -z $client_pod || $client_pod =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || exit 2
+[[ $stream_padding =~ ^[0-9]{1,5}$ ]] && ((10#$stream_padding <= 16384)) || exit 2
+for target in "${targets[@]}"; do
+  [[ $target =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || exit 2
+done
 moves=${MOVES:-2}
+if [[ ${#targets[@]} -gt 0 && -z ${MOVES:-} ]]; then moves=${#targets[@]}; fi
 max_gap=${MAX_GAP_S:-3}
 work=$(mktemp -d)
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*"; }
@@ -83,13 +105,17 @@ spec:
     userData: |
       #!/bin/sh
       while true; do
-        i=0; while true; do i=\$((i + 1)); echo \$i; sleep 0.5; done | nc -l -p 5000
+        i=0; while true; do i=\$((i + 1)); printf '%s %*s\n' "\$i" $stream_padding ''; sleep 0.5; done | nc -l -p 5000
       done &
 EOF
 wait_for 420 "VM Running" sh -c "[ \"\$(kubectl -n $ns get virtualmachine $vm -o jsonpath='{.status.phase}')\" = Running ]"
 address=$(field virtualmachine "$vm" '{.status.nics[0].address}')
 # The client: connects once, never writes, logs each line it reads.
-python3 -u -c '
+client_command=(python3)
+if [[ -n $client_pod ]]; then
+  client_command=(kubectl -n "$client_ns" exec -i "$client_pod" -- python3)
+fi
+"${client_command[@]}" -u -c '
 import socket,sys,time
 for _ in range(240):
     try:
@@ -110,6 +136,8 @@ for i in $(seq 1 "$moves"); do
   source_node=$(field virtualmachine "$vm" '{.status.nodeName}')
   source_pod=$(field virtualmachine "$vm" '{.status.podName}')
   target=kube0$(( (${source_node#kube0} % 3) + 1 ))
+  if [[ ${#targets[@]} -gt 0 ]]; then target=${targets[$(((i - 1) % ${#targets[@]}))]}; fi
+  [[ $target != "$source_node" ]] || fail "move $i targets the current node"
   start=$(date +%s.%N)
   log "move $i: $source_node -> $target"
   kubectl apply -f - >/dev/null <<EOF

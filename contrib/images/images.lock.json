@@ -17,11 +17,11 @@
     ]
   },
   "manager": {
-    "image": "zot.yapplesauce.com/qrab/manager@sha256:e165cfc654ce85fdfeeab57b500471d6a2dc2abc2e55942be1eac175e865f220",
+    "image": "zot.yapplesauce.com/qrab/manager@sha256:480be89f821a799d375a099d631e7c7a16e5605e07dd165d18129be564d8245a",
     "bmc_version": "0.2.0",
     "redfish_version": "0.1.0",
     "guest_agent_version": "0.1.0",
-    "source_revision": "bc7e422e7d6e4d3d80a3b71fb1ec21f8559977f6"
+    "source_revision": "c35750354bbc1545efbfeb4b522ff5f3c3ee243b"
   },
   "demo_guest_packages": [
     "busybox-static\t1:1.37.0-6+b9",
@@ -62,6 +62,11 @@
   "cilium_operator": {
     "image": "zot.yapplesauce.com/infrastructure/cilium-operator-generic@sha256:b44bd24f9ad290f90edb7ba8c7c99ce479934056c0ce8e056aba7261b3f10e1e",
     "source_revision": "dc87287dfbb12b1884c7f371608926a777e4b814",
+    "version": "1.20.2"
+  },
+  "cilium_agent": {
+    "image": "zot.yapplesauce.com/infrastructure/cilium@sha256:6575d06b830d70814399c686a14ade8bebb1b021dac01f9da45fc21fa51b85e7",
+    "source_revision": "b62a4ec4f00c17b37f411ebd2ed589be7b3bb222",
     "version": "1.20.2"
   }
 }

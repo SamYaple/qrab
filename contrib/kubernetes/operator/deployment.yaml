@@ -42,7 +42,7 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         - name: QRAB_VM_IMAGE
-          value: zot.yapplesauce.com/qrab/manager@sha256:e165cfc654ce85fdfeeab57b500471d6a2dc2abc2e55942be1eac175e865f220
+          value: zot.yapplesauce.com/qrab/manager@sha256:480be89f821a799d375a099d631e7c7a16e5605e07dd165d18129be564d8245a
         - name: QRAB_OIDC_ISSUER
           value: https://idm.yaple.net/oauth2/openid/qrab-bmc
         - name: QRAB_OIDC_CLIENT_ID
