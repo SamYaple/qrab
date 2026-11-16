@@ -455,13 +455,16 @@ sign in again they are the VM's viewer as its creator; after that, its admin.
 
 Deleting a VM (console admin of a dashboard-launched VM, type its name to
 confirm) deletes the VirtualMachine
-with a UID precondition. Its Pod, ConfigMap and disk Secrets follow. The
-state PVC stays: it holds the firmware variables and TPM identity, and an
-administrator deletes it deliberately. Provisioned guest disks retain their data
+with a UID precondition. Its Pod, ConfigMap and disk Secrets follow, and so
+does the state PVC `<name>-state`: once the VM has bound it, the operator
+makes the VM its controller owner (only a PVC labelled
+`app.kubernetes.io/managed-by: qrab-dashboard` without another controller), so
+garbage collection deletes it with the VM. The `zfs-block` volume behind it is
+Retain-only: the PV turns Released and its zvol stays until it is destroyed on
+the storage host ([retained storage](iscsi.md#destroying-retained-data)). Provisioned guest disks retain their data
 after their connections are closed (see [retained storage](iscsi.md#destroying-retained-data)).
-The confirmation form repeats the exact VM name and explains these retained
-resources; an administrator must remove the existing PVC before the dashboard
-can reuse the name.
+The confirmation form repeats the exact VM name and explains what is kept.
+Once the VM and its PVC are gone the name can be launched again.
 
 The VM's Kanidm access groups are deleted with it, however it is deleted
 (here or with `kubectl delete`), through the dashboard's finalizer

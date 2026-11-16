@@ -526,7 +526,7 @@ async fn delete(
     flash(
         &session,
         format!(
-            "Deleted VM {name}. Its state PVC {} was kept: it holds the TPM identity and firmware variables. Its Kanidm access groups are deleted as it goes; provisioned guest disks are retained. Ask an administrator to remove the state PVC before reusing this VM name.",
+            "Deleted VM {name}. Its Kanidm access groups and its state PVC {} are deleted as it goes (the PVC once the operator has adopted it, which happens while the VM runs); provisioned guest disks are retained.",
             vm.spec.state_volume_claim
         ),
     )

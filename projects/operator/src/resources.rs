@@ -1981,3 +1981,63 @@ pub fn resize_status(
         max_memory_mib: desired.maximum.memory_mib,
     }
 }
+
+/// The label the dashboard puts on the state PVC it creates for a VM.
+pub const DASHBOARD_MANAGED: (&str, &str) = ("app.kubernetes.io/managed-by", "qrab-dashboard");
+
+/// The merge patch that makes `vm` the controller owner of its state claim,
+/// so garbage collection deletes the claim with the VM. Only a claim the
+/// dashboard created (labelled [`DASHBOARD_MANAGED`]) that has no controller
+/// yet is adopted; a hand-made claim is never touched. The patch is pinned to
+/// the claim's UID and resourceVersion and keeps any other owner.
+///
+/// ```
+/// use k8s_openapi::api::core::v1::PersistentVolumeClaim;
+/// use qrab_operator::{api::VirtualMachine, resources::state_claim_adoption};
+/// let vm: VirtualMachine = serde_json::from_value(serde_json::json!({
+///     "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+///     "metadata": {"name": "web", "namespace": "qrab", "uid": "vm-uid"},
+///     "spec": {"stateVolumeClaim": "web-state"}})).unwrap();
+/// let claim = |labels: serde_json::Value, owners: serde_json::Value| -> PersistentVolumeClaim {
+///     serde_json::from_value(serde_json::json!({"metadata": {"name": "web-state",
+///         "uid": "pvc-uid", "resourceVersion": "5", "labels": labels, "ownerReferences": owners}}))
+///     .unwrap()
+/// };
+/// let dashboard = serde_json::json!({"app.kubernetes.io/managed-by": "qrab-dashboard"});
+/// let patch = state_claim_adoption(&claim(dashboard.clone(), serde_json::json!([])), &vm).unwrap();
+/// assert_eq!(patch["metadata"]["uid"], "pvc-uid");
+/// assert_eq!(patch["metadata"]["resourceVersion"], "5");
+/// let owner = &patch["metadata"]["ownerReferences"][0];
+/// assert_eq!((owner["kind"].as_str(), owner["uid"].as_str()), (Some("VirtualMachine"), Some("vm-uid")));
+/// assert_eq!((owner["controller"].as_bool(), owner["blockOwnerDeletion"].as_bool()), (Some(true), Some(false)));
+/// // Hand-made claims and claims that already have a controller are left alone.
+/// assert!(state_claim_adoption(&claim(serde_json::json!({}), serde_json::json!([])), &vm).is_none());
+/// let controlled = serde_json::json!([{"apiVersion": "v1", "kind": "Other", "name": "x",
+///     "uid": "other", "controller": true}]);
+/// assert!(state_claim_adoption(&claim(dashboard, controlled), &vm).is_none());
+/// ```
+pub fn state_claim_adoption(
+    claim: &k8s_openapi::api::core::v1::PersistentVolumeClaim,
+    vm: &VirtualMachine,
+) -> Option<Value> {
+    let (key, value) = DASHBOARD_MANAGED;
+    let dashboard = claim
+        .metadata
+        .labels
+        .as_ref()
+        .and_then(|l| l.get(key))
+        .is_some_and(|v| v == value);
+    let owners = claim.metadata.owner_references.clone().unwrap_or_default();
+    if !dashboard || owners.iter().any(|o| o.controller == Some(true)) {
+        return None;
+    }
+    let mut owner = vm.controller_owner_ref(&())?;
+    owner.block_owner_deletion = Some(false);
+    let mut all = owners;
+    all.push(owner);
+    Some(json!({"metadata": {
+        "uid": claim.metadata.uid.as_deref()?,
+        "resourceVersion": claim.metadata.resource_version.as_deref()?,
+        "ownerReferences": all,
+    }}))
+}

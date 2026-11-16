@@ -1088,7 +1088,7 @@ async fn a_redfish_refusal_is_a_refused_action_not_a_failure() {
 }
 
 #[tokio::test]
-async fn delete_is_admin_only_confirmed_and_keeps_the_pvc() {
+async fn delete_is_admin_only_confirmed_and_names_what_goes() {
     let h = harness().await;
     let cookie = session(&h.state.sessions, ALICE, &[VIEWERS]).await;
     let (status, _, _) = send(
@@ -1158,7 +1158,7 @@ async fn delete_is_admin_only_confirmed_and_keeps_the_pvc() {
         [("a".to_string(), "uid-a".to_string())]
     );
     let (_, _, body) = send(&h, get("/", Some(&cookie))).await;
-    assert!(body.contains("a-state was kept"));
+    assert!(body.contains("its state PVC a-state are deleted as it goes"));
 }
 
 fn catalog_with_cirros(h: &Harness) {

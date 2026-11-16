@@ -890,6 +890,17 @@ async fn synchronize(
         }
         _ => {}
     }
+    // The dashboard's state claim goes with its VM (docs/dashboard.md).
+    if let Some(patch) = resources::state_claim_adoption(&claim, vm) {
+        claims
+            .patch(
+                &incarnation.state_claim,
+                &PatchParams::default(),
+                &Patch::Merge(patch),
+            )
+            .await?;
+        tracing::info!(vm=%vm.name_any(), claim=%incarnation.state_claim, "the VM now owns its state claim");
+    }
     let Some(nics) = nics else {
         publish(
             vms,
