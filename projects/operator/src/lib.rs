@@ -3,6 +3,8 @@ pub mod api;
 pub mod controller;
 pub mod guest_identity;
 pub mod image;
+pub mod image_import;
+pub mod image_job;
 pub mod migration;
 pub mod nic;
 pub mod power;

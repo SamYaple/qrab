@@ -1,0 +1,15 @@
+# Image importer (docs/images.md): kubectl apply -k contrib/kubernetes/image-importer
+# Prerequisites, in order: the host wrapper and storage daemon with the
+# vm-image-stage-* verbs and TOWL_STORAGE_VM_IMAGE_SUBJECTS, the Kanidm
+# importer account and exchange-shim policy qrab-image-importer, and the
+# kubernetes-gitops identity (ServiceAccount qrab-image-importer, its pull
+# identity and clusterspiffeid.yaml, which is cluster-scoped and lives there).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: qrab
+resources:
+- crd.json
+- rbac.yaml
+- secret-policy.yaml
+- network-policy.yaml
+- deployment.yaml

@@ -1,5 +1,8 @@
 ARG RUST_IMAGE=docker.io/library/rust@sha256:4277ce860337f6cfa1b679891bbf689a447f4b3f4f55701742614ad31321cee7
 ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392
+# qemu-img (vendor/qemu with libiscsi) for the image importer's Jobs.
+ARG QEMU_IMAGE
+FROM ${QEMU_IMAGE} AS qemu
 FROM ${RUST_IMAGE} AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
@@ -11,7 +14,8 @@ ARG QRAB_REVISION=unknown
 LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
       org.opencontainers.image.revision="${QRAB_REVISION}" \
       org.opencontainers.image.description="Minimal namespaced qrab VirtualMachine operator"
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables wireguard-tools && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables wireguard-tools libglib2.0-0t64 zlib1g libiscsi7 && rm -rf /var/lib/apt/lists/*
+COPY --from=qemu /opt/qemu/bin/qemu-img /opt/qemu/bin/qemu-img
 COPY --from=build /out/qrab-operator /out/qrab-kvm-device-plugin /out/qrab-netd /out/qrab-proton /out/qrab-observability /usr/local/bin/
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/qrab-operator"]

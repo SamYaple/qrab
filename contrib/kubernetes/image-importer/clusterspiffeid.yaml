@@ -1,0 +1,25 @@
+# Belongs in kubernetes-gitops (infrastructure/spiffe-identities): the
+# exchange shim's qrab-image-importer policy trusts exactly this ID. Pin the
+# image selector to the published digest at rollout. Job containers
+# (image-job) match no entry and mount no Workload API socket.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: qrab-image-importer
+spec:
+  className: kubernetes-tpm
+  spiffeIDTemplate: spiffe://yapplesauce.com/kubernetes/qrab/qrab-image-importer
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: qrab
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-image-importer
+  workloadSelectorTemplates:
+  - k8s:ns:qrab
+  - k8s:sa:qrab-image-importer
+  - k8s:container-name:importer
+  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - unix:uid:10001
+  ttl: 10m
+  admin: false

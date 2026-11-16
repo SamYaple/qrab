@@ -18,7 +18,9 @@ case "$component" in
     podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.manager --build-arg "QRAB_REVISION=$revision" --build-arg "QEMU_IMAGE=$qemu_image" -t "$image" .
     ;;
   operator)
-    podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.operator --build-arg "QRAB_REVISION=$revision" -t "$image" .
+    qemu_image=${QEMU_IMAGE:-$(cat target/images/qemu.ref 2>/dev/null || true)}
+    [[ $qemu_image =~ @sha256:[a-f0-9]{64}$ ]] || { echo 'QEMU_IMAGE must be an immutable published digest reference (it supplies qemu-img)' >&2; exit 1; }
+    podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.operator --build-arg "QRAB_REVISION=$revision" --build-arg "QEMU_IMAGE=$qemu_image" -t "$image" .
     ;;
   dashboard)
     podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.dashboard --build-arg "QRAB_REVISION=$revision" -t "$image" .

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qrab-image-importer
+  labels:
+    app.kubernetes.io/name: qrab-image-importer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-image-importer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qrab-image-importer
+    spec:
+      serviceAccountName: qrab-image-importer
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: importer
+        # The Jobs run the same image; both are set by the release pin commit.
+        image: zot.yapplesauce.com/qrab/operator@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: Always
+        args: [image-importer]
+        env:
+        - name: QRAB_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - {name: QRAB_IMAGE_JOB_IMAGE, value: 'zot.yapplesauce.com/qrab/operator@sha256:0000000000000000000000000000000000000000000000000000000000000000'}
+        - {name: QRAB_STORAGE_ORIGIN, value: 'https://10.203.0.1:9477'}
+        - {name: QRAB_STORAGE_EXCHANGE_ORIGIN, value: 'https://10.203.0.10:8444'}
+        - {name: QRAB_STORAGE_CA, value: /etc/qrab-storage-tls/ca.pem}
+        - {name: QRAB_SPIFFE_ENDPOINT_SOCKET, value: 'unix:/run/spire/agent.sock'}
+        - {name: QRAB_IMAGE_EXCHANGE_POLICY, value: qrab-image-importer}
+        ports:
+        - name: health
+          containerPort: 8081
+        resources:
+          requests: {cpu: 20m, memory: 48Mi}
+          limits: {cpu: 500m, memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        readinessProbe:
+          httpGet: {path: /healthz, port: health}
+          periodSeconds: 5
+        livenessProbe:
+          httpGet: {path: /healthz, port: health}
+          periodSeconds: 10
+        volumeMounts:
+        - name: workload-socket
+          mountPath: /run/spire
+          readOnly: true
+        - name: storage-host-ca
+          mountPath: /etc/qrab-storage-tls
+          readOnly: true
+      volumes:
+      - name: workload-socket
+        csi:
+          driver: csi.spiffe.io
+          readOnly: true
+      - name: storage-host-ca
+        configMap:
+          name: qrab-storage-host-ca
+          items:
+          - key: ca.pem
+            path: ca.pem

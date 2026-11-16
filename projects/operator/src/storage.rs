@@ -20,7 +20,11 @@ pub const FENCE_CALL_TIMEOUT: Duration = Duration::from_secs(620);
 /// Timeout for one daemon verb. Each reconcile awaits only its own VM's calls,
 /// so a slow fence never delays other VMs' reconciles.
 pub fn call_timeout(operation: &str) -> Duration {
-    if operation == "vm-disk-fence" {
+    // Seal fences and then hashes up to 64 GiB; abort fences first too.
+    if matches!(
+        operation,
+        "vm-disk-fence" | "vm-image-stage-seal" | "vm-image-stage-abort"
+    ) {
         FENCE_CALL_TIMEOUT
     } else {
         CALL_TIMEOUT
@@ -126,6 +130,113 @@ pub trait StorageApi: Send + Sync {
 }
 
 pub type SharedStorage = Arc<dyn StorageApi>;
+
+/// A sealed (or retired) base-image generation as `vm-image-status` reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ImageReport {
+    pub image: String,
+    pub generation: u32,
+    pub capacity_bytes: u64,
+    /// `publishing`, `sealed` or `retired`.
+    pub phase: String,
+    #[serde(default)]
+    pub import: Option<ImportDigest>,
+    #[serde(default)]
+    pub staged: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ImportDigest {
+    pub sha256: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StagePhase {
+    Provisioned,
+    Preparing,
+    Active,
+    Fencing,
+    Fenced,
+    Sealing,
+    Absent,
+}
+
+/// A stage volume (`vm-image-stage-*`). It never carries the credential.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StageReport {
+    pub image: String,
+    pub image_generation: u32,
+    #[serde(default)]
+    pub capacity_bytes: Option<u64>,
+    pub target_iqn: String,
+    pub initiator_iqn: String,
+    pub portal: String,
+    pub lun: u32,
+    pub chap_username: String,
+    pub generation: u64,
+    pub phase: StagePhase,
+}
+
+/// The image importer's storage verbs (container/image-service §2-§3).
+#[async_trait::async_trait]
+pub trait ImageStorage: Send + Sync {
+    /// `Ok(None)` when no such generation exists.
+    async fn image_status(
+        &self,
+        image: &str,
+        generation: u32,
+    ) -> StorageResult<Option<ImageReport>>;
+    /// Phase `Absent` when there is no stage.
+    async fn stage_status(&self, image: &str, generation: u32) -> StorageResult<StageReport>;
+    async fn stage_create(
+        &self,
+        image: &str,
+        generation: u32,
+        capacity: u64,
+    ) -> StorageResult<StageReport>;
+    async fn stage_export(
+        &self,
+        image: &str,
+        generation: u32,
+        credential_generation: u64,
+        secret: &ChapSecret,
+    ) -> StorageResult<StageReport>;
+    async fn stage_seal(
+        &self,
+        image: &str,
+        generation: u32,
+        size: u64,
+        sha256: &str,
+    ) -> StorageResult<ImageReport>;
+    async fn stage_abort(&self, image: &str, generation: u32) -> StorageResult<StageReport>;
+    async fn retire(&self, image: &str, generation: u32) -> StorageResult<ImageReport>;
+}
+
+pub type SharedImageStorage = Arc<dyn ImageStorage>;
+
+pub fn parse_image(output: &Value, image: &str, generation: u32) -> StorageResult<ImageReport> {
+    let report: ImageReport = serde_json::from_value(output["image"].clone())
+        .map_err(|_| StorageError::Unavailable("invalid image report".into()))?;
+    if report.image != image || report.generation != generation {
+        return Err(StorageError::Unavailable(
+            "storage report names another image".into(),
+        ));
+    }
+    Ok(report)
+}
+
+pub fn parse_stage(output: &Value, image: &str, generation: u32) -> StorageResult<StageReport> {
+    let report: StageReport = serde_json::from_value(output["stage"].clone())
+        .map_err(|_| StorageError::Unavailable("invalid stage report".into()))?;
+    if report.image != image || report.image_generation != generation || report.lun != 0 {
+        return Err(StorageError::Unavailable(
+            "storage report names another stage".into(),
+        ));
+    }
+    Ok(report)
+}
 
 pub fn origin(raw: &str) -> anyhow::Result<url::Url> {
     let parsed = url::Url::parse(raw)?;
@@ -279,6 +390,8 @@ enum Bearer {
 
 pub struct HttpStorage {
     bearer: Bearer,
+    /// The exchange shim policy this caller's SVID may use.
+    policy: String,
     storage: reqwest::Client,
     storage_origin: String,
 }
@@ -297,6 +410,25 @@ impl HttpStorage {
         storage_origin: &str,
         ca: &[u8],
     ) -> anyhow::Result<Self> {
+        Self::with_policy(
+            workload_api,
+            exchange_origin,
+            storage_origin,
+            ca,
+            EXCHANGE_POLICY,
+        )
+        .await
+    }
+
+    /// As [`HttpStorage::new`], exchanging for another shim policy (the
+    /// image importer's `qrab-image-importer`).
+    pub async fn with_policy(
+        workload_api: &str,
+        exchange_origin: &str,
+        storage_origin: &str,
+        ca: &[u8],
+        policy: &str,
+    ) -> anyhow::Result<Self> {
         origin(exchange_origin)?;
         origin(storage_origin)?;
         let storage = storage_client(ca)?;
@@ -308,6 +440,7 @@ impl HttpStorage {
                 origin: exchange_origin.into(),
                 identity,
             },
+            policy: policy.into(),
             storage,
             storage_origin: storage_origin.into(),
         })
@@ -317,6 +450,7 @@ impl HttpStorage {
     fn fixed(storage: reqwest::Client, storage_origin: &str, token: &str) -> Self {
         Self {
             bearer: Bearer::Fixed(token.into()),
+            policy: EXCHANGE_POLICY.into(),
             storage,
             storage_origin: storage_origin.into(),
         }
@@ -341,7 +475,7 @@ impl HttpStorage {
         let unavailable = |_| StorageError::Unavailable("identity exchange unavailable".into());
         let response = client
             .post(format!("{origin}/exchange"))
-            .json(&json!({"policy": EXCHANGE_POLICY}))
+            .json(&json!({"policy": self.policy}))
             .send()
             .await
             .map_err(unavailable)?;
@@ -472,6 +606,67 @@ impl StorageApi for HttpStorage {
     }
 }
 
+#[async_trait::async_trait]
+impl ImageStorage for HttpStorage {
+    async fn image_status(
+        &self,
+        image: &str,
+        generation: u32,
+    ) -> StorageResult<Option<ImageReport>> {
+        let operation =
+            json!({"name":"vm-image-status","image":image,"image_generation":generation});
+        match self.rpc(operation, None).await {
+            Ok(output) => parse_image(&output, image, generation).map(Some),
+            Err(StorageError::Refused(code)) if code == "image-not-found" => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+    async fn stage_status(&self, image: &str, generation: u32) -> StorageResult<StageReport> {
+        let operation =
+            json!({"name":"vm-image-stage-status","image":image,"image_generation":generation});
+        parse_stage(&self.rpc(operation, None).await?, image, generation)
+    }
+    async fn stage_create(
+        &self,
+        image: &str,
+        generation: u32,
+        capacity: u64,
+    ) -> StorageResult<StageReport> {
+        let operation = json!({"name":"vm-image-stage-create","image":image,"image_generation":generation,"capacity_bytes":capacity});
+        parse_stage(&self.rpc(operation, None).await?, image, generation)
+    }
+    async fn stage_export(
+        &self,
+        image: &str,
+        generation: u32,
+        credential_generation: u64,
+        secret: &ChapSecret,
+    ) -> StorageResult<StageReport> {
+        let operation = json!({"name":"vm-image-stage-export","image":image,"image_generation":generation,"generation":credential_generation});
+        parse_stage(&self.rpc(operation, Some(secret)).await?, image, generation)
+    }
+    async fn stage_seal(
+        &self,
+        image: &str,
+        generation: u32,
+        size: u64,
+        sha256: &str,
+    ) -> StorageResult<ImageReport> {
+        let operation = json!({"name":"vm-image-stage-seal","image":image,"image_generation":generation,"size_bytes":size,"sha256":sha256});
+        parse_image(&self.rpc(operation, None).await?, image, generation)
+    }
+    async fn stage_abort(&self, image: &str, generation: u32) -> StorageResult<StageReport> {
+        let operation =
+            json!({"name":"vm-image-stage-abort","image":image,"image_generation":generation});
+        parse_stage(&self.rpc(operation, None).await?, image, generation)
+    }
+    async fn retire(&self, image: &str, generation: u32) -> StorageResult<ImageReport> {
+        let operation =
+            json!({"name":"vm-image-retire","image":image,"image_generation":generation});
+        parse_image(&self.rpc(operation, None).await?, image, generation)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,6 +675,35 @@ mod tests {
 
     fn report() -> Value {
         json!({"disk":{"schema":2,"vm_uid":UID,"disk":"root","capacity_bytes":67108864,"dataset":"tank/qrab-iscsi/disk-x","target_iqn":"iqn.2026-11.com.yapplesauce:qrab.disk.x.root","initiator_iqn":"iqn.2026-11.com.yapplesauce:qrab.vm.x","portal":"10.203.0.1:3260","lun":0,"chap_username":"qrab-x-root","generation":1,"phase":"active","parent_quota_bytes":1,"root_state":"/var/lib/qrab-iscsi-target","dedicated_hba":"iblock_47"}})
+    }
+
+    #[test]
+    fn stage_and_image_reports_parse_and_must_name_their_generation() {
+        let stage = json!({"stage":{"schema":1,"image":"cirros","image_generation":2,"capacity_bytes":117440512,
+            "dataset":"tank/qrab-iscsi/stage-cirros-g2","target_iqn":"iqn.2026-11.com.yapplesauce:qrab.stage.cirros.g2",
+            "initiator_iqn":"iqn.2026-11.com.yapplesauce:qrab.importer.cirros.g2","portal":"10.203.0.1:3260","lun":0,
+            "chap_username":"qrab-stage-cirros-g2","generation":1,"phase":"active"}});
+        let report = parse_stage(&stage, "cirros", 2).unwrap();
+        assert_eq!(
+            (report.phase, report.capacity_bytes),
+            (StagePhase::Active, Some(117440512))
+        );
+        assert!(parse_stage(&stage, "cirros", 3).is_err());
+        let absent = json!({"stage":{"schema":1,"image":"cirros","image_generation":2,"dataset":"d","target_iqn":"t",
+            "initiator_iqn":"i","portal":"p","lun":0,"chap_username":"c","generation":0,"phase":"absent"}});
+        assert_eq!(
+            parse_stage(&absent, "cirros", 2).unwrap().capacity_bytes,
+            None
+        );
+        let image = json!({"image":{"schema":2,"image":"cirros","generation":2,"capacity_bytes":117440512,
+            "dataset":"tank/qrab-iscsi/image-cirros-g2","snapshot":"tank/qrab-iscsi/image-cirros-g2@sealed","phase":"sealed",
+            "import":{"sha256":"ab","size_bytes":117440512},"staged":true}});
+        let report = parse_image(&image, "cirros", 2).unwrap();
+        assert!(report.staged && report.phase == "sealed");
+        assert_eq!(report.import.unwrap().size_bytes, 117440512);
+        assert!(parse_image(&image, "debian", 2).is_err());
+        assert_eq!(call_timeout("vm-image-stage-seal"), FENCE_CALL_TIMEOUT);
+        assert_eq!(call_timeout("vm-image-stage-create"), CALL_TIMEOUT);
     }
 
     #[test]

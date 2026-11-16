@@ -44,9 +44,15 @@ async fn main() -> Result<()> {
         );
         return Ok(());
     }
+    if args.first().map(String::as_str) == Some("image-job") {
+        return qrab_operator::image_job::main(&args[1..]).await;
+    }
+    if args.as_slice() == ["image-importer"] {
+        return image_importer().await;
+    }
     ensure!(
         args.as_slice() == ["run"],
-        "usage: qrab-operator <run|crd|migration-crd|image-crd|dashboard-update-policy>"
+        "usage: qrab-operator <run|image-importer|image-job|crd|migration-crd|image-crd|dashboard-update-policy>"
     );
     tracing_subscriber::fmt()
         .with_ansi(false)
@@ -231,3 +237,111 @@ async fn main() -> Result<()> {
     }
     Ok(())
 }
+
+/// `qrab-operator image-importer` (docs/images.md): reconciles BaseImages
+/// through the storage service under the importer's own SPIFFE identity.
+async fn image_importer() -> Result<()> {
+    use qrab_operator::{image::BaseImage, image_import};
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_target(false)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "qrab_operator=info,kube=warn".into()),
+        )
+        .init();
+    let namespace = std::env::var("QRAB_NAMESPACE").unwrap_or_else(|_| "qrab".into());
+    let job_image =
+        std::env::var("QRAB_IMAGE_JOB_IMAGE").context("QRAB_IMAGE_JOB_IMAGE is required")?;
+    ensure!(
+        job_image
+            .strip_prefix("zot.yapplesauce.com/qrab/operator@sha256:")
+            .is_some_and(|d| d.len() == 64
+                && d.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))),
+        "QRAB_IMAGE_JOB_IMAGE must pin the qrab/operator repository by digest"
+    );
+    let service_account = std::env::var("QRAB_IMAGE_JOB_SERVICE_ACCOUNT")
+        .unwrap_or_else(|_| image_import::MANAGER.into());
+    let storage_origin =
+        std::env::var("QRAB_STORAGE_ORIGIN").context("QRAB_STORAGE_ORIGIN is required")?;
+    let ca_path =
+        std::env::var("QRAB_STORAGE_CA").unwrap_or_else(|_| "/etc/qrab-storage-tls/ca.pem".into());
+    let ca = std::fs::read(&ca_path).context("read QRAB_STORAGE_CA")?;
+    let exchange = std::env::var("QRAB_STORAGE_EXCHANGE_ORIGIN")
+        .context("QRAB_STORAGE_EXCHANGE_ORIGIN is required")?;
+    let workload = std::env::var("QRAB_SPIFFE_ENDPOINT_SOCKET")
+        .unwrap_or_else(|_| qrab_spiffe::DEFAULT_ENDPOINT.into());
+    let policy = std::env::var("QRAB_IMAGE_EXCHANGE_POLICY")
+        .unwrap_or_else(|_| "qrab-image-importer".into());
+    let storage = Arc::new(
+        qrab_operator::storage::HttpStorage::with_policy(
+            &workload,
+            &exchange,
+            &storage_origin,
+            &ca,
+            &policy,
+        )
+        .await
+        .context("initialize the storage-service client")?,
+    );
+    let client = Client::try_default().await?;
+    let images: Api<BaseImage> = Api::namespaced(client.clone(), &namespace);
+    images
+        .list(&kube::api::ListParams::default().limit(1))
+        .await
+        .context("list BaseImages (install the CRD and RBAC first)")?;
+    let jobs: Api<k8s_openapi::api::batch::v1::Job> = Api::namespaced(client.clone(), &namespace);
+    let importer = Arc::new(image_import::Importer {
+        cluster: Arc::new(image_import::KubeImportCluster::new(client, &namespace)),
+        storage,
+        namespace: namespace.clone(),
+        job_image,
+        service_account,
+    });
+    let controller = Controller::new(images, watcher::Config::default())
+        .owns(
+            jobs,
+            watcher::Config::default().labels("app.kubernetes.io/name=qrab-image-job"),
+        )
+        .run(
+            |image: Arc<BaseImage>, importer: Arc<image_import::Importer>| async move {
+                importer
+                    .reconcile(&image)
+                    .await
+                    .map(kube::runtime::controller::Action::requeue)
+                    .map_err(ImportError)
+            },
+            |_image, error: &ImportError, _| {
+                tracing::warn!(error = %format!("{:#}", error.0), "BaseImage reconcile failed");
+                kube::runtime::controller::Action::requeue(std::time::Duration::from_secs(30))
+            },
+            importer,
+        )
+        .for_each(|result| async move {
+            if let Err(error) = result {
+                tracing::debug!(%error, "image importer event");
+            }
+        });
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8081").await?;
+    let server = axum::serve(
+        listener,
+        Router::new().route("/healthz", get(|| async { "ok" })),
+    );
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    tracing::info!(%namespace, "qrab image importer started");
+    tokio::select! {
+        _ = controller => anyhow::bail!("controller stream ended"),
+        result = server => result.map_err(Into::into),
+        _ = term.recv() => Ok(()),
+    }
+}
+
+#[derive(Debug)]
+struct ImportError(anyhow::Error);
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#}", self.0)
+    }
+}
+impl std::error::Error for ImportError {}

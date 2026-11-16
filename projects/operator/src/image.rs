@@ -24,7 +24,10 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BaseImageSpec {
     /// Catalog name; VMs clone `image-<image>-g<generation>@sealed`.
-    #[schemars(length(min = 1, max = 32), regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$"))]
+    #[schemars(
+        length(min = 1, max = 32),
+        regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$")
+    )]
     pub image: String,
     #[schemars(with = "i32", range(min = 1, max = 999999))]
     pub generation: u32,

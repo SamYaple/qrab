@@ -1,0 +1,33 @@
+# Import Jobs download untrusted images: they may reach only HTTPS on the
+# internet, DNS, and the storage host's iSCSI portal. Nothing reaches them.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: qrab-image-job
+spec:
+  description: "qrab image import Jobs: HTTPS downloads, DNS and the iSCSI portal only"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: qrab-image-job
+  ingress:
+  - {}
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - {port: '53', protocol: UDP}
+      - {port: '53', protocol: TCP}
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toEntities: [world]
+    toPorts:
+    - ports:
+      - {port: '443', protocol: TCP}
+  - toCIDR: [10.203.0.1/32]
+    toPorts:
+    - ports:
+      - {port: '3260', protocol: TCP}
