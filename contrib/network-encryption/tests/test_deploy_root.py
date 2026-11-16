@@ -9,6 +9,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import subprocess
+import struct
 import unittest
 from unittest.mock import patch
 
@@ -25,6 +26,87 @@ def rule(expr, handle=7):
 
 def match(key, value):
     return {"match": {"left": {"meta": {"key": key}}, "op": "==", "right": value}}
+
+
+class CaptureContracts(unittest.TestCase):
+    class Socket:
+        def __init__(self,packet=None,address="target0",dropped=0,auxiliary=None,flags=0):
+            self.packet=packet;self.address=address;self.dropped=dropped;self.calls=[];self.closed=False
+            self.auxiliary=auxiliary or []
+            self.flags=flags
+        def setsockopt(self,*args):self.calls.append(("option",args[1]))
+        def bind(self,value):self.calls.append(("bind",value))
+        def settimeout(self,value):self.calls.append(("timeout",value))
+        def getsockopt(self,level,option,*args):
+            return 65536 if level==D.socket.SOL_SOCKET else struct.pack("II",10,self.dropped)
+        def recvmsg(self,*args):return self.packet,self.auxiliary,self.flags,(self.address,0,0,1,b"")
+        def close(self):self.closed=True
+
+    def test_capture_is_inactive_until_filtered_interface_bind(self):
+        instance=self.Socket()
+        with patch.object(D.socket,"socket",return_value=instance) as factory:
+            self.assertIs(D.capture_socket("target0"),instance)
+        factory.assert_called_once_with(D.socket.AF_PACKET,D.socket.SOCK_RAW,0)
+        self.assertLess(instance.calls.index(("option",26)),instance.calls.index(("bind",("target0",3))))
+        self.assertLess(instance.calls.index(("option",D.socket.SO_RCVBUF)),
+                        instance.calls.index(("bind",("target0",3))))
+
+    def run_capture(self,instance):
+        self.temp=tempfile.TemporaryDirectory();state=Path(self.temp.name)
+        D.save(state/"profile.json",{"lower":"target0"})
+        clock=[0,0,6,6] if instance.packet is not None else [0,6,6]
+        with patch.object(D,"capture_socket",return_value=instance), \
+             patch.object(D.time,"monotonic",side_effect=clock):
+            try:D.capture_clear(state)
+            except D.DeployError as error:
+                return D.load(state/"capture.json"),str(error)
+        return D.load(state/"capture.json"),None
+
+    def tearDown(self):
+        if hasattr(self,"temp"):self.temp.cleanup()
+
+    def test_loss_still_refuses_commit_and_retains_counters(self):
+        instance=self.Socket(dropped=3)
+        record,error=self.run_capture(instance)
+        self.assertIn("dropped 3 of 10",error)
+        self.assertEqual(record["dropped"],3)
+        self.assertEqual(record["kernel_buffer_bytes"],65536)
+        self.assertTrue(instance.closed)
+
+    def test_real_plaintext_and_vlan_are_not_hidden(self):
+        for kind in (0x800,0x86DD,0x8100,0x88A8):
+            with self.subTest(kind=kind):
+                instance=self.Socket(packet=b"x"*12+kind.to_bytes(2,"big")+b"x"*20)
+                record,error=self.run_capture(instance)
+                self.assertIn("plaintext IP or VLAN",error)
+                self.assertEqual(record["dropped"],0)
+                self.assertEqual(sum(record["clear"].values()),1)
+                self.temp.cleanup();del self.temp
+
+    def test_foreign_interface_is_reported_not_classified_as_target(self):
+        record,error=self.run_capture(self.Socket(packet=b"x"*14,address="noise0"))
+        self.assertIn("another interface",error)
+        self.assertEqual(record["wrong_interface"],1)
+
+    def test_vlan_offload_metadata_is_rejected_even_for_priority_tag_zero(self):
+        data=struct.pack("=IIIHHHH",1<<4,64,64,0,14,0,0x8100)
+        instance=self.Socket(packet=b"x"*14,auxiliary=[(263,8,data)])
+        record,error=self.run_capture(instance)
+        self.assertIn("plaintext IP or VLAN",error)
+        self.assertEqual(record["clear"]["unexpected_vlan"],1)
+
+    def test_setup_failure_closes_socket(self):
+        instance=self.Socket()
+        with patch.object(D.socket,"socket",return_value=instance), \
+             patch.object(instance,"bind",side_effect=OSError("bad interface")), \
+             self.assertRaises(OSError):
+            D.capture_socket("target0")
+        self.assertTrue(instance.closed)
+
+    def test_truncated_metadata_is_inconclusive_not_clean(self):
+        record,error=self.run_capture(self.Socket(packet=b"x"*14,flags=D.socket.MSG_CTRUNC))
+        self.assertIn("metadata was truncated",error)
+        self.assertEqual(record["truncated_control"],1)
 
 
 class FirewallContracts(unittest.TestCase):

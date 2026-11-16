@@ -27,6 +27,9 @@ def main():
         if action=="init":module.init_upper(state)
         elif action=="server":module.probe_server(state)
         elif action=="peers":print(json.dumps(module.peer_checks(state)))
+        elif action=="capture":
+            module.CAPTURE_SECONDS=1
+            print(json.dumps(module.capture_clear(state)))
         return
     if os.geteuid()!=0 or len(sys.argv)!=3:
         raise SystemExit("usage: sudo python3 check-topology.py DEPLOY_ROOT_PY EXPORTED_TOOLS")
@@ -97,6 +100,18 @@ def main():
             print(json.dumps({"bridgeMasterBaseline":baseline}),flush=True)
             print(json.dumps({"convergenceSeconds":time.monotonic()-start}),flush=True)
             assert all(v["exit"]==0 for v in baseline.values()),"gateway-on-bridge baseline failed"
+            # The actual gateway captures on the bridge master, not a veth
+            # endpoint. Exercise that placement while all encrypted paths run.
+            capture=launch("gateway","capture",sys.executable,Path(__file__).resolve(),
+                           "--worker",program,root/"gateway","capture")
+            time.sleep(.2)
+            for role in module.HOSTS:
+                command(role,sys.executable,Path(__file__).resolve(),"--worker",program,
+                        root/role,"peers")
+            assert capture.wait(timeout=5)==0,(root/"gateway-capture.log").read_text()
+            evidence=module.load(root/"gateway"/"capture.json")
+            assert evidence["dropped"]==0 and not any(evidence["clear"].values())
+            print(json.dumps({"bridgeMasterCapture":evidence}),flush=True)
             command("gateway","iptables-legacy","-P","INPUT","DROP")
             command("gateway","iptables-legacy","-A","INPUT","-m","conntrack","--ctstate",
                     "ESTABLISHED,RELATED","-j","ACCEPT")

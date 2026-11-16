@@ -119,6 +119,19 @@ and refuse commitment on clear IP, unexpected VLAN frames or packet drops.
 All hosts must pass before commitment. Temporary echo services stop on commit;
 auxiliary addresses remain for administrative recovery.
 
+Capture sockets remain inactive while their buffer and filter are configured.
+Reception starts at a filtered bind to the named lower, preventing unrelated
+interfaces from queuing packets during setup. [Linux packet socket semantics](https://man7.org/linux/man-pages/man7/packet.7.html)
+define this protocol-zero startup behavior. VLAN offload metadata is checked
+alongside Ethernet headers, including priority tags with VID zero.
+
+Every completed window writes `capture.json` before deciding whether to commit.
+It includes the bound interface, actual duration, requested/kernel buffer sizes,
+received/dropped counts, directions, foreign-interface observations and truncated
+control metadata. Zero loss remains required. Truncated metadata or any real
+plaintext/VLAN observation still refuses commitment; increasing buffers or
+discarding an inconclusive window is not used as a substitute for verification.
+
 ## Rollback and receipts
 
 Every participant has a persistent native timer for the same 12-minute deadline.
@@ -187,6 +200,8 @@ sudo python3 contrib/network-encryption/tests/check-topology.py \
 sudo python3 contrib/network-encryption/tests/check-cilium-peer.py \
   contrib/network-encryption/deploy_root.py /path/to/exported-image \
   contrib/network-encryption/deployment-release.json
+sudo python3 contrib/network-encryption/tests/check-capture.py \
+  contrib/network-encryption/deploy_root.py /path/to/previous-deploy_root.py
 sudo python3 contrib/network-encryption/check-macsec.py \
   --tools /path/to/exported-image \
   --deployment-agent contrib/network-encryption/deploy_root.py
@@ -205,6 +220,13 @@ that a deliberate default-drop policy is diagnosed without changing that
 policy. A separate temporary veth/MKA peer exercises the live Cilium host
 datapath, confirms preserved auxiliary source addresses and removes its test
 interface/address/route afterward.
+
+The capture stress fixture reproduces the previous setup race with busy
+unrelated traffic, then checks idle-target isolation, encrypted target traffic,
+actual IPv4/IPv6/tagged target packets, and deliberately induced target queue
+loss. Positive isolation cases require zero drops; adverse cases must fail and
+retain their counters. The bridge-master fixture also checks capture while
+encrypted peer traffic is active.
 
 [Acceptance evidence](deployment-evidence.json) includes the four-member
 fixture, firewall round trips, live node preflights and temporary upper hook

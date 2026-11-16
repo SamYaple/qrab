@@ -157,5 +157,232 @@
       "tests/check-cilium-peer.py": "6b2d8d6d7843a975da1cb299a5eac0cd885e23cb84d8efd17fc2a76a0153ade0",
       "tests/test_deploy_root.py": "3da8eaca55d929e682ba8f1584885d73b4e12a59f3720e6faa410c98ffcb64e7"
     }
+  },
+  "captureStartupUpdate": {
+    "unitContracts": 43,
+    "failedAttempt": "d58ea3854f7d97380bedfd12",
+    "reportedFailure": "gateway-local capture loss after all host verification",
+    "oldFailureCountersAvailable": false,
+    "networkAfterAttempt": "all3nodesandgatewayoriginalnativeaddress/MTUrestored;node rollbackerrors[]",
+    "kernelStress": [
+      {
+        "scenario": "old-unrelated-startup",
+        "error": "lower-link capture dropped packets; verification is inconclusive",
+        "counters": {}
+      },
+      {
+        "scenario": "fixed-unrelated-startup",
+        "error": null,
+        "counters": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 0.6047844649292529,
+          "interface": "target0",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      {
+        "scenario": "fixed-busy-cipher-target",
+        "error": null,
+        "counters": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 0.6054932307451963,
+          "interface": "target0",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      {
+        "scenario": "target-ipv4",
+        "error": "plaintext IP or VLAN was observed on target0; counters: /run/qrab-cap-state-59waxslu/target-ipv4/capture.json",
+        "counters": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 70,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 70,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 0.6062543480657041,
+          "interface": "target0",
+          "kernel_buffer_bytes": 8388608,
+          "received": 70,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      {
+        "scenario": "target-ipv6",
+        "error": "plaintext IP or VLAN was observed on target0; counters: /run/qrab-cap-state-59waxslu/target-ipv6/capture.json",
+        "counters": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 71
+          },
+          "directions": {
+            "incoming": 71,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 0.608309003058821,
+          "interface": "target0",
+          "kernel_buffer_bytes": 8388608,
+          "received": 71,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      {
+        "scenario": "target-vlan",
+        "error": "plaintext IP or VLAN was observed on target0; counters: /run/qrab-cap-state-59waxslu/target-vlan/capture.json",
+        "counters": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0,
+            "unexpected_vlan": 70
+          },
+          "directions": {
+            "incoming": 70,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 0.6064388751983643,
+          "interface": "target0",
+          "kernel_buffer_bytes": 8388608,
+          "received": 70,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      {
+        "scenario": "target-real-loss",
+        "error": "lower-link capture on target0 dropped 100947 of 128245 packets; verification is inconclusive; counters: /run/qrab-cap-state-59waxslu/target-real-loss/capture.json",
+        "counters": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 27294,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 27294,
+            "outgoing": 0
+          },
+          "dropped": 100947,
+          "duration_seconds": 0.6069960640743375,
+          "interface": "target0",
+          "kernel_buffer_bytes": 8192,
+          "received": 128245,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      {
+        "startupRaceReproduced": true,
+        "unrelatedTrafficIsolated": true,
+        "busyCipherFiltered": true,
+        "plaintextStillRefused": true,
+        "actualLossStillRefused": true
+      }
+    ],
+    "bridgeMasterDuringEncryptedTraffic": [
+      {
+        "bridgeMasterBaseline": {
+          "gateway": {
+            "exit": 0,
+            "stderr": ""
+          },
+          "kube01": {
+            "exit": 0,
+            "stderr": ""
+          },
+          "kube02": {
+            "exit": 0,
+            "stderr": ""
+          },
+          "kube03": {
+            "exit": 0,
+            "stderr": ""
+          }
+        }
+      },
+      {
+        "convergenceSeconds": 1.3307910091243684
+      },
+      {
+        "bridgeMasterCapture": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 1.0059581641107798,
+          "interface": "br-kube",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      {
+        "defaultDropDiagnosedWithoutPolicyChange": true,
+        "peerError": {
+          "at": 1794859248.049764,
+          "error": "timed out",
+          "source": "kube01",
+          "source_ip": "192.0.2.11",
+          "step": "connect",
+          "target": "gateway",
+          "target_ip": "192.0.2.1"
+        },
+        "all12PathsPassedAfterMkaConvergence": true
+      }
+    ],
+    "dropThreshold": 0,
+    "plaintextAndVlanRefusalRetained": true,
+    "sourceHashes": {
+      "deploy_root.py": "36e59d4606bdb7e4bbebf4f7f1197f41e4863721b94554e740bfc64e7c4f97a4",
+      "tests/check-capture.py": "65096ecb5a50b648797b8f99a2ee997efe57fb7b654182962ae16d10e6214042",
+      "tests/check-topology.py": "de865c44928a82d1e2b02e2ee33ba6e324e974647cae45c0bbb00c9f415e9e0e",
+      "tests/test_deploy_root.py": "1dadd4f93eebff894c2177d85959c24230865c891d0999d402fae735976993ee"
+    }
   }
 }

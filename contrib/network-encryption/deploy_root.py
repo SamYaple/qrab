@@ -34,6 +34,8 @@ MTU = 1500
 LOWER_MTU = 1532
 PROBE_PORT = 41377
 ROLLBACK_SECONDS = 720
+CAPTURE_SECONDS = 5
+CAPTURE_BUFFER_BYTES = 8 * 1024 * 1024
 GUARD_TABLE = "qrab_native_link"
 SEARCH_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 DIAGNOSTIC_STATE = None
@@ -1048,10 +1050,10 @@ def verify(state):
             "iscsi_connections": len(tcp_peers(3260))}
 
 
-def capture_clear(state):
-    profile = load(state / "profile.json")
-    frames = {"ipv4": 0, "ipv6": 0}
-    capture = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(3))
+def capture_socket(lower):
+    # Protocol zero admits nothing. Binding with ETH_P_ALL arms reception only
+    # after the filter and buffer are installed, on exactly the named device.
+    capture = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, 0)
     # Filter in the kernel so busy encrypted migration/storage traffic cannot
     # consume the capture budget. Tagged frames are treated as inconclusive.
     class Filter(ctypes.Structure):
@@ -1059,35 +1061,81 @@ def capture_clear(state):
                     ("jf", ctypes.c_ubyte), ("k", ctypes.c_uint32)]
     class Program(ctypes.Structure):
         _fields_ = [("length", ctypes.c_ushort), ("instructions", ctypes.POINTER(Filter))]
-    instructions = (Filter * 7)(
+    instructions = (Filter * 9)(
+        Filter(0x20, 0, 0, 0xFFFFF030),  # SKF_AD_VLAN_TAG_PRESENT
+        Filter(0x15, 0, 6, 0),
         Filter(0x28, 0, 0, 12), Filter(0x15, 4, 0, 0x800),
         Filter(0x15, 3, 0, 0x86DD), Filter(0x15, 2, 0, 0x8100),
         Filter(0x15, 1, 0, 0x88A8), Filter(0x06, 0, 0, 0), Filter(0x06, 0, 0, 64))
-    program = Program(7, instructions)
-    capture.setsockopt(socket.SOL_SOCKET, 26, bytes(program))
-    capture.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
-    capture.bind((profile["lower"], 0))
-    capture.settimeout(.1)
-    end = time.monotonic() + 5
-    while time.monotonic() < end:
-        try:
-            packet = capture.recv(64)  # Payload is discarded and never written.
-        except socket.timeout:
-            continue
-        if len(packet) >= 14:
-            protocol = int.from_bytes(packet[12:14], "big")
-            if protocol == 0x800:
-                frames["ipv4"] += 1
-            elif protocol == 0x86DD:
-                frames["ipv6"] += 1
-            elif protocol in (0x8100, 0x88A8):
-                frames["unexpected_vlan"] = frames.get("unexpected_vlan", 0) + 1
-    received, dropped = struct.unpack("II", capture.getsockopt(263, 6, 8))
-    capture.close()
-    require(dropped == 0, "lower-link capture dropped packets; verification is inconclusive")
-    require(not any(frames.values()), "plaintext IP was observed on the native lower")
-    save(state / "capture.json", {"duration_seconds": 5, "received": received,
-                                  "dropped": dropped, "clear": frames})
+    program = Program(9, instructions)
+    try:
+        capture.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, CAPTURE_BUFFER_BYTES)
+        capture.setsockopt(263, 8, 1)  # SOL_PACKET / PACKET_AUXDATA
+        capture.setsockopt(socket.SOL_SOCKET, 26, bytes(program))
+        # AF_PACKET bind tuples take the protocol in host byte order.
+        capture.bind((lower, 3))
+        capture.settimeout(.1)
+        return capture
+    except BaseException:
+        capture.close()
+        raise
+
+
+def capture_clear(state):
+    profile = load(state / "profile.json")
+    lower=profile["lower"]
+    frames = {"ipv4": 0, "ipv6": 0}
+    directions={"incoming":0,"outgoing":0}
+    capture=capture_socket(lower)
+    start=time.monotonic()
+    effective_buffer=capture.getsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF)
+    wrong_interface=0
+    truncated_control=0
+    try:
+        end=start+CAPTURE_SECONDS
+        while time.monotonic() < end:
+            try:
+                packet,ancillary,flags,address = capture.recvmsg(64,socket.CMSG_SPACE(20))
+            except socket.timeout:
+                continue
+            if address[0]!=lower:
+                wrong_interface+=1
+                continue
+            if flags & socket.MSG_CTRUNC:
+                truncated_control+=1
+                continue
+            directions["outgoing" if address[2]==4 else "incoming"]+=1
+            tagged=False
+            for level,kind,data in ancillary:
+                if level==263 and kind==8 and len(data)>=20:
+                    status,*_=struct.unpack("=IIIHHHH",data[:20])
+                    tagged=tagged or bool(status & (1<<4))  # TP_STATUS_VLAN_VALID, including VID0
+            if tagged:
+                frames["unexpected_vlan"]=frames.get("unexpected_vlan",0)+1
+                continue
+            if len(packet) >= 14:
+                protocol = int.from_bytes(packet[12:14], "big")
+                if protocol == 0x800:
+                    frames["ipv4"] += 1
+                elif protocol == 0x86DD:
+                    frames["ipv6"] += 1
+                elif protocol in (0x8100, 0x88A8):
+                    frames["unexpected_vlan"] = frames.get("unexpected_vlan", 0) + 1
+        received,dropped=struct.unpack("II",capture.getsockopt(263,6,8))
+    finally:
+        capture.close()
+    record={"interface":lower,"duration_seconds":time.monotonic()-start,
+            "requested_buffer_bytes":CAPTURE_BUFFER_BYTES,"kernel_buffer_bytes":effective_buffer,
+            "activation":"filtered-interface-bind","received":received,"dropped":dropped,
+            "wrong_interface":wrong_interface,"truncated_control":truncated_control,
+            "clear":frames,"directions":directions}
+    save(state/"capture.json",record)
+    require(wrong_interface==0,"capture admitted packets from another interface")
+    require(truncated_control==0,"capture control metadata was truncated; verification is inconclusive")
+    require(dropped==0,f"lower-link capture on {lower} dropped {dropped} of {received} packets; "
+                      f"verification is inconclusive; counters: {state}/capture.json")
+    require(not any(frames.values()),f"plaintext IP or VLAN was observed on {lower}; "
+                                    f"counters: {state}/capture.json")
     return {"capture_drops": dropped, "clear": frames}
 
 
