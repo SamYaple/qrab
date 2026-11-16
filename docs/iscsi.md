@@ -130,11 +130,12 @@ whole-GiB range with `zfs set quota=<N>G tank/qrab-iscsi` (leaving pool
 headroom for thick reservations); values outside the range fail closed.
 `iscsiDisks` and `disks` may be combined; IDs are unique across both lists.
 
-Base images are administrative. There are two ways to create a generation:
-**publish** a disk that a VM built, or **import** a verified raw image file on
-the storage host. The result is the same sealed generation either way, and
-`vm-image-status`, `vm-disk-clone` and `vm-image-retire` treat both kinds
-identically.
+Base images are administrative. There are three ways to create a generation:
+**publish** a disk that a VM built, **import** a verified raw image file on
+the storage host, or **stage** one that an in-cluster importer writes over
+iSCSI ([below](#staging-a-generation-from-the-cluster)). The result is the same
+sealed generation in every case, and `vm-image-status`, `vm-disk-clone` and
+`vm-image-retire` treat all of them identically.
 
 To publish, build the image on an ordinary provisioned disk,
 stop that VM (the disk is fenced on deletion, or fence it explicitly), then
@@ -151,8 +152,9 @@ update. The operator identity cannot publish or retire. `vm-disk-retire` (also
 administrative) removes a fenced disk's LIO objects and marks it retained.
 `vm-image-retire` stops new clones of a generation and marks it retained; it is
 refused while any disk journal (in any phase, including retired clones), clone
-hold or ZFS origin still descends from the sealed snapshot. Data is never
-destroyed by the API.
+hold or ZFS origin still descends from the sealed snapshot. The API never
+destroys a disk or a sealed image; its only destroy is
+`vm-image-stage-abort` on an unsealed stage.
 
 To import a stock OS image such as CirrOS, a storage-host administrator runs
 the root-only `vm-image-import` command. It is not a storage-daemon verb and
@@ -199,6 +201,39 @@ image's capacity (`capacity_bytes` in the report). Boot a clone with
 The import holds the global journal lock for the whole copy. Storage-daemon
 calls made meanwhile wait 20s and then report `busy`. The operator retries
 these.
+
+### Staging a generation from the cluster
+
+The storage daemon's `vm-image-stage-*` verbs build a generation without a root
+command per image. Root never parses a downloaded file:
+
+1. `vm-image-stage-create` makes a thick, budgeted zvol
+   `tank/qrab-iscsi/stage-<name>-g<gen>` (16MiB..64GiB, whole MiB). It is
+   refused (`image-generation-exists`) if that generation already exists as an
+   image or as a stage of another capacity.
+2. `vm-image-stage-export` exports it with the caller's CHAP secret on stdin to
+   the single initiator `iqn.2026-11.com.yapplesauce:qrab.importer.<name>.g<gen>`
+   as target `iqn.2026-11.com.yapplesauce:qrab.stage.<name>.g<gen>`, user
+   `qrab-stage-<name>-g<gen>`. Credential generations follow `vm-disk-export`.
+3. The importer writes the raw image with userspace libiscsi.
+4. `vm-image-stage-seal --size-bytes S --sha256 HEX` first fences the export
+   with `vm-disk-fence`'s drain barriers. Root then reads the first S bytes of
+   the device itself and hashes them, so the importer's digest is checked, not
+   trusted. On a match, the tool renames the zvol to `image-<name>-g<gen>`
+   without copying it and seals it with import's properties, snapshot and
+   hold. The journal records `"import":{"sha256":...,"size_bytes":S}` plus
+   `"staged":true`, and the image capacity is the stage capacity. A mismatch
+   (`sha256-mismatch`) leaves the stage fenced; re-export with the next
+   generation and a new secret to retry. An interrupted seal reports phase
+   `sealing` and finishes when the same seal is rerun.
+5. `vm-image-stage-abort` fences and destroys an unsealed stage and its
+   journal, after checking the zvol's stage markers and recorded GUID. It
+   reads only `stage-*` journals and destroys only `stage-*` datasets, so it
+   cannot reach an image or a VM disk. A `sealing` stage refuses abort.
+
+While a stage exists, import and publish refuse its generation. Boot restore
+does not re-enable stage exports. Seal holds the journal lock while it hashes,
+like an import copy.
 
 ## Ownership and recovery
 
@@ -251,7 +286,8 @@ recovery; never copy a TPM volume to make another identity.
 
 ## Destroying retained data
 
-All VM storage is Retain-only, and no API destroys data. Deleting a VM, or
+All VM storage is Retain-only, and no API destroys a disk or a sealed image
+(only `vm-image-stage-abort` destroys an unsealed stage). Deleting a VM, or
 dropping a disk from `spec.disks`, fences the export and keeps the zvol, which
 still counts against the `tank/qrab-iscsi` quota. Throwaway VMs therefore leave
 one retained disk each; the live check scripts are tracked by towl

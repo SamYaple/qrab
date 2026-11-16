@@ -14,12 +14,37 @@ deliberately outside both the wrapper's dispatch table and the daemon's
 operation set. The wrapper subcommands take an
 exact flag set, print one JSON report on stdout and one
 `{"error":"<code>","message":...}` line on stderr when refused. Only
-`vm-disk-export` reads a credential, from stdin; reports never contain it.
+`vm-disk-export` and `vm-image-stage-export` read a credential, from stdin;
+reports never contain it.
 Provisioned disks use journal schema 2 (`<uid>.<disk>.json`) and the dataset,
 target and object names `disk-<uid>-<disk>`, `qrab.disk.<uid>.<disk>` and
 `qrab-<uid>-<disk>`, so they cannot collide with the legacy demo record. Sealed
-images are journaled as `image-<name>-g<gen>.json`. The global journal lock
+images are journaled as `image-<name>-g<gen>.json`, unsealed image stages as
+`stage-<name>-g<gen>.json` (below). The global journal lock
 waits up to 20s, then reports `busy`.
+
+### Staging a base image for an in-cluster importer
+
+The `vm-image-stage-*` verbs let an unprivileged importer write a new
+generation over iSCSI while root only hashes and seals it. Root never parses
+the image:
+
+| Verb and exact flags | Effect |
+|---|---|
+| `vm-image-stage-create --image N --image-generation G --capacity-bytes B` | Thick zvol `tank/qrab-iscsi/stage-N-gG` of B bytes (whole MiB, 16MiB..64GiB, budgeted against the parent quota). Refused with `image-generation-exists` if the generation already exists as an image journal or dataset, or as a stage of another capacity. The same stage and capacity again is idempotent. |
+| `vm-image-stage-export --image N --image-generation G --generation K` (CHAP on stdin) | Target `iqn.2026-11.com.yapplesauce:qrab.stage.N.gG` at the usual portal and LUN 0. Its only ACL is `iqn.2026-11.com.yapplesauce:qrab.importer.N.gG`, with CHAP user `qrab-stage-N-gG`. Generations and rotation work exactly as for `vm-disk-export`. |
+| `vm-image-stage-seal --image N --image-generation G --size-bytes S --sha256 HEX` | Fences the export (same drain barriers as `vm-disk-fence`), then root reads and hashes the first S bytes of the zvol itself. S must be a non-zero multiple of 512 and at most the capacity (`invalid-size`). On a match, the tool removes the stage's LIO objects and renames the zvol to `image-N-gG` (no copy). It then seals it exactly as `vm-image-import` does, with `"staged":true` in the journal. A mismatch reports `sha256-mismatch` and leaves the stage fenced; re-export with the next generation to retry. |
+| `vm-image-stage-abort --image N --image-generation G` | Fences, then destroys the stage zvol after checking its stage markers and recorded GUID, and removes its journal. Already absent is success. |
+| `vm-image-stage-status --image N --image-generation G` | Verified state, or `stage-not-found`. |
+
+Stage verbs report `{"ok":true,"stage":{...}}` with `phase` one of
+`provisioned`, `preparing`, `active`, `fencing`, `fenced`, `sealing` or
+`absent`. Seal returns the sealed `image` report. Once the digest matches, the
+stage journal records `seal` (phase `sealing`). From then on, export and abort
+refuse with `stage-sealing`, and only rerunning the same seal finishes it.
+Rerunning a finished seal reports the image. Boot restore never re-enables a
+stage export. An active stage found after a reboot is fenced by its next seal
+or abort.
 
 ### Importing a base image from a raw file
 
@@ -100,9 +125,12 @@ zvols and targets without its root ownership journal/markers are refused.
 Recorded ZFS GUID, identity, size, geometry, reservation and target topology
 must continue to match. The legacy demo has no resize; provisioned disks grow
 only (`vm-disk-expand`), CoW clones are thin but budgeted at their logical size,
-and images are sealed snapshots. There is no destroy or foreign-adopt
-operation. The only destroy is a failed `vm-image-import` discarding the
-unsealed zvol it created itself, after checking that zvol's ownership. The existing `tank/kubernetes-block-storage` tree is unchanged.
+and images are sealed snapshots. There is no foreign-adopt operation and no
+destroy of a disk or sealed image. Only two destroys exist, each limited to an
+unsealed zvol the tool created itself and checked for ownership.
+`vm-image-stage-abort` is the only one the API can reach. The other is a
+failed `vm-image-import` discarding its zvol. The existing
+`tank/kubernetes-block-storage` tree is unchanged.
 
 Manifests and passwords are root-owned0600 below
 `/var/lib/qrab-iscsi-target` (0700). A global root lock serializes administration.

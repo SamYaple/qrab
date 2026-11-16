@@ -215,6 +215,28 @@ impl Store {
         File::open(&self.root)?.sync_all()?;
         Ok(())
     }
+    /// The unsealed stage of one image generation, `stage-<name>-g<gen>.json`.
+    pub fn read_stage(&self, origin: &Origin) -> Result<Option<Record>> {
+        origin.validate()?;
+        let record: Option<Record> = self.load(&self.manifest_path(&origin.stage_key()))?;
+        if let Some(r) = &record {
+            r.validate()?;
+            ensure!(
+                r.spec.stage.as_ref() == Some(origin),
+                "stage manifest identity differs from its path"
+            );
+        }
+        Ok(record)
+    }
+    /// Removes a stage journal after its zvol was destroyed or sealed.
+    pub(crate) fn remove_stage(&self, origin: &Origin) -> Result<()> {
+        if self.read_stage(origin)?.is_none() {
+            return Ok(());
+        }
+        fs::remove_file(self.manifest_path(&origin.stage_key()))?;
+        File::open(&self.root)?.sync_all()?;
+        Ok(())
+    }
     pub fn images(&self) -> Result<Vec<Image>> {
         let mut result = Vec::new();
         for entry in fs::read_dir(&self.root)? {
@@ -267,6 +289,8 @@ impl Store {
             },
         )
     }
+    /// Disk and legacy journals. Stages are excluded: boot restore never
+    /// re-enables a stage export, and no stage is a clone descendant.
     pub fn records(&self) -> Result<Vec<Record>> {
         let mut result = Vec::new();
         for entry in fs::read_dir(&self.root)? {
@@ -274,7 +298,11 @@ impl Store {
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            if name == "pool.json" || !name.ends_with(".json") || name.starts_with("image-") {
+            if name == "pool.json"
+                || !name.ends_with(".json")
+                || name.starts_with("image-")
+                || name.starts_with("stage-")
+            {
                 continue;
             }
             // Unknown journal names fail closed in the UID/disk validation.

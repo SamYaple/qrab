@@ -1,11 +1,13 @@
 use crate::{
-    valid_quota, Backend, Image, Record, Refusal, Spec, HBA, OWNER, PARENT, PARENT_QUOTA, PORTAL,
+    valid_quota, Backend, Image, Origin, Record, Refusal, Spec, HBA, OWNER, PARENT, PARENT_QUOTA,
+    PORTAL,
 };
 use anyhow::{bail, ensure, Context, Result};
 use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
+    os::fd::AsRawFd,
     os::unix::fs::{symlink, FileTypeExt, MetadataExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -23,6 +25,9 @@ const ORIGIN_GENERATION_PROP: &str = "org.qrab:origin-generation";
 const IMAGE_PROP: &str = "org.qrab:image";
 const IMAGE_GENERATION_PROP: &str = "org.qrab:image-generation";
 const STATE_PROP: &str = "org.qrab:state";
+/// Present (as [`STAGING`]) only on an unsealed stage zvol.
+const STAGE_PROP: &str = "org.qrab:stage";
+const STAGING: &str = "staging";
 const IMAGE_HOLD: &str = "qrab-image";
 const ZFS_BOUND: Duration = Duration::from_secs(30);
 /// Bounded full copy of a fenced source into a new image generation.
@@ -392,11 +397,44 @@ impl LinuxHost {
         origin_actual: Option<&str>,
     ) -> Result<String> {
         let unset = "-".to_string();
+        let thick = Self::number(p, "refreservation").is_some_and(|v| v >= spec.capacity_bytes);
+        if let Some(stage) = &spec.stage {
+            ensure!(
+                p.get("type").is_some_and(|v| v == "volume")
+                    && p.get(PROP).is_some_and(|v| v == OWNER)
+                    && p.get(STAGE_PROP).is_some_and(|v| v == STAGING)
+                    && p.get(IMAGE_PROP) == Some(&stage.image)
+                    && p.get(IMAGE_GENERATION_PROP) == Some(&stage.generation.to_string())
+                    && p.get(VM_PROP) == Some(&unset)
+                    && p.get(DISK_PROP) == Some(&unset)
+                    && p.get("origin") == Some(&unset),
+                Refusal("foreign-dataset")
+            );
+            ensure!(
+                Self::number(p, "volsize") == Some(spec.capacity_bytes)
+                    && Self::number(p, "volblocksize") == Some(16384),
+                "zvol geometry drift"
+            );
+            // The seal hashes what reached the device, so writes need not sync.
+            ensure!(
+                thick && p.get("sync").is_some_and(|v| v == "standard"),
+                "stage zvol reservation/sync drift"
+            );
+            let actual = p
+                .get("guid")
+                .ok_or_else(|| anyhow::anyhow!("zvol GUID absent"))?;
+            ensure!(
+                guid.is_none_or(|g| g == actual),
+                Refusal("dataset-replaced")
+            );
+            return Ok(actual.clone());
+        }
         ensure!(
             p.get("type").is_some_and(|v| v == "volume")
                 && p.get(PROP).is_some_and(|v| v == OWNER)
                 && p.get(VM_PROP) == Some(&spec.vm_uid)
-                && p.get(DISK_PROP) == Some(spec.disk.as_ref().unwrap_or(&unset)),
+                && p.get(DISK_PROP) == Some(spec.disk.as_ref().unwrap_or(&unset))
+                && p.get(STAGE_PROP).is_none_or(|v| *v == unset),
             Refusal("foreign-dataset")
         );
         ensure!(
@@ -408,7 +446,7 @@ impl LinuxHost {
             None => ensure!(
                 p.get("origin") == Some(&unset)
                     && p.get(ORIGIN_IMAGE_PROP) == Some(&unset)
-                    && Self::number(p, "refreservation").is_some_and(|v| v >= spec.capacity_bytes),
+                    && thick,
                 "zvol origin/reservation drift"
             ),
             Some(origin) => ensure!(
@@ -444,7 +482,7 @@ impl LinuxHost {
         );
         let p = self.properties(
             &spec.dataset(),
-            "type,guid,volsize,volblocksize,refreservation,sync,origin,org.qrab:owner,org.qrab:vm-uid,org.qrab:disk,org.qrab:origin-image,org.qrab:origin-generation",
+            "type,guid,volsize,volblocksize,refreservation,sync,origin,org.qrab:owner,org.qrab:vm-uid,org.qrab:disk,org.qrab:origin-image,org.qrab:origin-generation,org.qrab:image,org.qrab:image-generation,org.qrab:stage",
         )?;
         let origin_actual = match (&spec.origin, origin_guid) {
             (Some(origin), Some(_)) => Some(self.guid(&origin.snapshot())?),
@@ -641,6 +679,48 @@ impl LinuxHost {
         }
         Ok(())
     }
+    /// Retries a bounded ZFS operation that udev may briefly block by holding
+    /// a fresh or just-released device node open.
+    fn zfs_retry(&self, args: &[&str], what: &'static str) -> Result<()> {
+        let deadline = Instant::now() + ZFS_BOUND;
+        while let Err(error) = self.zfs(args) {
+            if Instant::now() >= deadline {
+                return Err(error.context(what));
+            }
+            thread::sleep(Duration::from_millis(250));
+        }
+        Ok(())
+    }
+    /// Removes a fenced export's portal, TPG, target and backstore objects.
+    /// The caller has checked the topology with [`Self::check_partial`].
+    fn remove_export(spec: &Spec) -> Result<()> {
+        let tpg = Self::tpg(spec);
+        if tpg.exists() {
+            Self::check(&tpg.join("enable"), "0")?;
+            ensure!(
+                !Self::acl(spec).exists() && !Self::lun_link(spec).exists(),
+                Refusal("fence-required")
+            );
+            let portal = tpg.join("np").join(PORTAL);
+            if portal.exists() {
+                fs::remove_dir(&portal)?;
+            }
+            fs::remove_dir(&tpg)?;
+        }
+        if Self::target(spec).exists() {
+            fs::remove_dir(Self::target(spec))?;
+        }
+        let object = Self::object(spec);
+        if object.exists() {
+            let members = object.join("alua/default_tg_pt_gp/members");
+            ensure!(
+                !members.exists() || Self::read(&members)?.is_empty(),
+                "backstore is still exported through a target port"
+            );
+            fs::remove_dir(&object).context("remove the fenced backstore")?;
+        }
+        Ok(())
+    }
     fn flush(&self, spec: &Spec) -> Result<()> {
         let path = spec.device();
         ensure!(
@@ -707,25 +787,30 @@ impl Backend for LinuxHost {
             );
             ensure!(spec.origin.is_none(), "a clone is not a blank zvol");
             let size = spec.capacity_bytes.to_string();
-            let owner = format!("{PROP}={OWNER}");
-            let vm = format!("{VM_PROP}={}", spec.vm_uid);
-            let disk = spec.disk.as_ref().map(|d| format!("{DISK_PROP}={d}"));
             let dataset = spec.dataset();
-            let mut args = vec![
-                "create",
-                "-V",
-                &size,
-                "-b",
-                "16384",
-                "-o",
-                "sync=always",
-                "-o",
-                &owner,
-                "-o",
-                &vm,
-            ];
-            if let Some(disk) = &disk {
-                args.extend(["-o", disk.as_str()]);
+            let properties = match &spec.stage {
+                Some(stage) => vec![
+                    "sync=standard".to_owned(),
+                    format!("{PROP}={OWNER}"),
+                    format!("{IMAGE_PROP}={}", stage.image),
+                    format!("{IMAGE_GENERATION_PROP}={}", stage.generation),
+                    format!("{STAGE_PROP}={STAGING}"),
+                ],
+                None => {
+                    let mut properties = vec![
+                        "sync=always".to_owned(),
+                        format!("{PROP}={OWNER}"),
+                        format!("{VM_PROP}={}", spec.vm_uid),
+                    ];
+                    if let Some(disk) = &spec.disk {
+                        properties.push(format!("{DISK_PROP}={disk}"));
+                    }
+                    properties
+                }
+            };
+            let mut args = vec!["create", "-V", &size, "-b", "16384"];
+            for property in &properties {
+                args.extend(["-o", property.as_str()]);
             }
             args.push(&dataset);
             self.zfs(&args)?;
@@ -997,9 +1082,9 @@ impl Backend for LinuxHost {
         }
         Ok(())
     }
-    fn preflight_new_image(&mut self, image: &Image) -> Result<()> {
+    fn preflight_new_image(&mut self, origin: &Origin) -> Result<()> {
         ensure!(
-            !self.exists(&image.origin.dataset())?,
+            !self.exists(&origin.dataset())?,
             Refusal("image-generation-exists")
         );
         Ok(())
@@ -1010,7 +1095,7 @@ impl Backend for LinuxHost {
             image.import.is_some() && image.dataset_guid.is_none(),
             "only a new import creates an image zvol"
         );
-        self.preflight_new_image(image)?;
+        self.preflight_new_image(&image.origin)?;
         let size = image.capacity_bytes.to_string();
         let owner = format!("{PROP}={OWNER}");
         let name = format!("{IMAGE_PROP}={}", image.origin.image);
@@ -1144,14 +1229,10 @@ impl Backend for LinuxHost {
                 self.zfs(&["release", IMAGE_HOLD, &sealed])?;
             }
         }
-        // udev may still hold the fresh device node open for a moment.
-        let deadline = Instant::now() + ZFS_BOUND;
-        while let Err(error) = self.zfs(&["destroy", "-r", &dataset]) {
-            if Instant::now() >= deadline {
-                return Err(error.context("destroy the unsealed image zvol"));
-            }
-            thread::sleep(Duration::from_millis(250));
-        }
+        self.zfs_retry(
+            &["destroy", "-r", &dataset],
+            "destroy the unsealed image zvol",
+        )?;
         ensure!(!self.exists(&dataset)?, "unsealed image zvol still exists");
         Ok(())
     }
@@ -1172,33 +1253,101 @@ impl Backend for LinuxHost {
     }
     fn retire(&mut self, r: &Record) -> Result<()> {
         self.check_partial(r)?;
-        let spec = &r.spec;
-        let tpg = Self::tpg(spec);
-        if tpg.exists() {
-            Self::check(&tpg.join("enable"), "0")?;
+        Self::remove_export(&r.spec)?;
+        self.zfs(&["set", &format!("{STATE_PROP}=retained"), &r.spec.dataset()])?;
+        Ok(())
+    }
+    fn open_stage(&mut self, stage: &Record) -> Result<Box<dyn Read>> {
+        ensure!(
+            stage.spec.stage.is_some() && stage.zvol_guid.is_some(),
+            "only a provisioned stage is read"
+        );
+        // Ownership, recorded GUID and a drained export.
+        self.verify_fenced(stage)?;
+        let path = stage.spec.device();
+        Self::wait_for_device(&path)?;
+        let mut device = OpenOptions::new()
+            .read(true)
+            .open(&path)
+            .context("open the stage zvol")?;
+        ensure!(
+            device.metadata()?.file_type().is_block_device(),
+            "stage zvol device is not a block device"
+        );
+        ensure!(
+            device.seek(SeekFrom::End(0))? == stage.spec.capacity_bytes,
+            "stage zvol device size differs from the recorded capacity"
+        );
+        // LIO writes bypass this node's page cache; drop any stale pages
+        // (e.g. udev's probe of the blank zvol) before hashing.
+        device.sync_all().context("flush the stage zvol")?;
+        nix::fcntl::posix_fadvise(
+            device.as_raw_fd(),
+            0,
+            0,
+            nix::fcntl::PosixFadviseAdvice::POSIX_FADV_DONTNEED,
+        )
+        .context("drop cached stage zvol pages")?;
+        device.seek(SeekFrom::Start(0))?;
+        Ok(Box::new(device))
+    }
+    fn promote_stage(&mut self, stage: &Record, image: &Image) -> Result<()> {
+        let spec = &stage.spec;
+        let guid = stage
+            .zvol_guid
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("stage zvol GUID is not recorded"))?;
+        ensure!(
+            spec.stage.as_ref() == Some(&image.origin)
+                && image.import.is_some()
+                && image.dataset_guid.as_deref() == Some(guid),
+            "stage and image identity differ"
+        );
+        let (from, to) = (spec.dataset(), image.origin.dataset());
+        if self.exists(&from)? {
+            self.verify_fenced(stage)?;
+            Self::remove_export(spec)?;
+            ensure!(!self.exists(&to)?, Refusal("image-generation-exists"));
+            self.zfs_retry(&["rename", &from, &to], "rename the stage zvol")?;
+        }
+        ensure!(
+            !Self::target(spec).exists() && !Self::object(spec).exists(),
+            "stage export objects remain"
+        );
+        // GUIDs are unique: a matching image dataset is our renamed stage.
+        Self::check_image_identity(image, &self.image_properties(image)?, Some(guid))?;
+        let marker = self.properties(&to, STAGE_PROP)?.remove(STAGE_PROP);
+        ensure!(
+            marker.as_deref().is_some_and(|v| v == STAGING || v == "-"),
+            Refusal("foreign-dataset")
+        );
+        // Import's unsealed shape: thin, and no stage marker.
+        self.zfs(&["set", "refreservation=none", &to])?;
+        if marker.as_deref() == Some(STAGING) {
+            self.zfs(&["inherit", STAGE_PROP, &to])?;
+        }
+        Ok(())
+    }
+    fn destroy_stage(&mut self, stage: &Record) -> Result<()> {
+        let spec = &stage.spec;
+        ensure!(
+            spec.stage.is_some() && stage.seal.is_none(),
+            "only an unsealed stage is destroyed"
+        );
+        let dataset = spec.dataset();
+        if !self.exists(&dataset)? {
             ensure!(
-                !Self::acl(spec).exists() && !Self::lun_link(spec).exists(),
-                Refusal("fence-required")
+                !Self::target(spec).exists() && !Self::object(spec).exists(),
+                "stage export objects remain without their zvol"
             );
-            let portal = tpg.join("np").join(PORTAL);
-            if portal.exists() {
-                fs::remove_dir(&portal)?;
-            }
-            fs::remove_dir(&tpg)?;
+            return Ok(());
         }
-        if Self::target(spec).exists() {
-            fs::remove_dir(Self::target(spec))?;
-        }
-        let object = Self::object(spec);
-        if object.exists() {
-            let members = object.join("alua/default_tg_pt_gp/members");
-            ensure!(
-                !members.exists() || Self::read(&members)?.is_empty(),
-                "backstore is still exported through a target port"
-            );
-            fs::remove_dir(&object).context("remove the fenced backstore")?;
-        }
-        self.zfs(&["set", &format!("{STATE_PROP}=retained"), &spec.dataset()])?;
+        // Stage ownership markers and (once recorded) GUID, then a drained export.
+        self.verify_fenced(stage)?;
+        Self::remove_export(spec)?;
+        // Without -r: a snapshot nobody here made fails the destroy closed.
+        self.zfs_retry(&["destroy", &dataset], "destroy the stage zvol")?;
+        ensure!(!self.exists(&dataset)?, "stage zvol still exists");
         Ok(())
     }
 }
@@ -1206,7 +1355,6 @@ impl Backend for LinuxHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Origin;
 
     fn props(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
         pairs
@@ -1341,6 +1489,79 @@ mod tests {
         assert!(LinuxHost::check_volume_properties(&blank_spec, &p, None, None, None).is_err());
     }
     #[test]
+    fn stage_properties_never_match_a_disk_or_an_image() {
+        let origin = Origin::new("cirros".into(), 2).unwrap();
+        let spec = Spec::stage(origin, 64 << 20).unwrap();
+        let p = props(&[
+            ("type", "volume"),
+            ("guid", "34"),
+            ("volsize", "67108864"),
+            ("volblocksize", "16384"),
+            ("refreservation", "68000000"),
+            ("sync", "standard"),
+            ("origin", "-"),
+            (PROP, OWNER),
+            (VM_PROP, "-"),
+            (DISK_PROP, "-"),
+            (IMAGE_PROP, "cirros"),
+            (IMAGE_GENERATION_PROP, "2"),
+            (STAGE_PROP, STAGING),
+        ]);
+        LinuxHost::check_volume_properties(&spec, &p, Some("34"), None, None).unwrap();
+        // A sealed image (marker inherited away), another generation, or a VM
+        // disk is foreign to the stage.
+        for (key, value) in [
+            (STAGE_PROP, "-"),
+            (IMAGE_GENERATION_PROP, "1"),
+            (VM_PROP, UID),
+            (DISK_PROP, "root"),
+            ("origin", "tank/qrab-iscsi/image-cirros-g1@sealed"),
+        ] {
+            let mut foreign = p.clone();
+            foreign.insert(key.into(), value.into());
+            assert_eq!(
+                refusal_of(LinuxHost::check_volume_properties(
+                    &spec, &foreign, None, None, None
+                )),
+                Some("foreign-dataset"),
+                "{key}"
+            );
+        }
+        assert_eq!(
+            refusal_of(LinuxHost::check_volume_properties(
+                &spec,
+                &p,
+                Some("35"),
+                None,
+                None
+            )),
+            Some("dataset-replaced")
+        );
+        let mut thin = p.clone();
+        thin.insert("refreservation".into(), "0".into());
+        assert!(LinuxHost::check_volume_properties(&spec, &thin, None, None, None).is_err());
+        // A disk spec refuses a zvol carrying the stage marker.
+        let (disk, mut marked) = blank();
+        marked.insert(STAGE_PROP.into(), STAGING.into());
+        assert_eq!(
+            refusal_of(LinuxHost::check_volume_properties(
+                &disk, &marked, None, None, None
+            )),
+            Some("foreign-dataset")
+        );
+        assert_eq!(spec.dataset(), "tank/qrab-iscsi/stage-cirros-g2");
+        assert_eq!(
+            spec.target(),
+            "iqn.2026-11.com.yapplesauce:qrab.stage.cirros.g2"
+        );
+        assert_eq!(
+            spec.initiator(),
+            "iqn.2026-11.com.yapplesauce:qrab.importer.cirros.g2"
+        );
+        assert_eq!(spec.username(), "qrab-stage-cirros-g2");
+        assert_eq!(spec.object(), "qrab-stage-cirros-g2");
+    }
+    #[test]
     fn image_properties_require_ownership_readonly_and_recorded_guid() {
         let image = Image {
             schema: 2,
@@ -1351,6 +1572,7 @@ mod tests {
             source_disk: "golden".into(),
             source_guid: "34".into(),
             import: None,
+            staged: false,
             phase: crate::disk::ImagePhase::Sealed,
             dataset_guid: Some("77".into()),
             snapshot_guid: Some("78".into()),

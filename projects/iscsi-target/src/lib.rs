@@ -9,7 +9,7 @@ use anyhow::{bail, ensure, Result};
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Read, path::PathBuf};
 
-pub use disk::{Image, ImportSource};
+pub use disk::{Image, ImportSource, MAX_IMPORT};
 pub use host::LinuxHost;
 pub use store::Store;
 
@@ -115,11 +115,34 @@ impl Origin {
     pub fn snapshot(&self) -> String {
         format!("{}@sealed", self.dataset())
     }
+    /// The journal key and dataset leaf of this generation's unsealed stage.
+    pub fn stage_key(&self) -> String {
+        format!("stage-{}-g{}", self.image, self.generation)
+    }
+    pub fn stage_target(&self) -> String {
+        format!(
+            "iqn.2026-11.com.yapplesauce:qrab.stage.{}.g{}",
+            self.image, self.generation
+        )
+    }
+    /// The only initiator a stage export maps: the in-cluster importer.
+    pub fn stage_initiator(&self) -> String {
+        format!(
+            "iqn.2026-11.com.yapplesauce:qrab.importer.{}.g{}",
+            self.image, self.generation
+        )
+    }
+    /// The stage's CHAP account and LIO backstore object name.
+    pub fn stage_username(&self) -> String {
+        format!("qrab-{}", self.stage_key())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Spec {
+    /// Empty (and not serialized) only for an image stage.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub vm_uid: String,
     pub capacity_bytes: u64,
     /// Absent only for the legacy single-disk demo record (schema 1).
@@ -127,6 +150,10 @@ pub struct Spec {
     pub disk: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<Origin>,
+    /// The image generation an unsealed stage zvol is written for. A stage
+    /// has no VM, disk ID or origin and is journaled as `stage-*.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<Origin>,
 }
 impl Spec {
     pub fn new(vm_uid: String, capacity_bytes: u64) -> Result<Self> {
@@ -135,6 +162,7 @@ impl Spec {
             capacity_bytes,
             disk: None,
             origin: None,
+            stage: None,
         };
         spec.validate()?;
         Ok(spec)
@@ -150,11 +178,37 @@ impl Spec {
             capacity_bytes,
             disk: Some(disk),
             origin,
+            stage: None,
+        };
+        spec.validate()?;
+        Ok(spec)
+    }
+    /// The thick zvol an importer writes a raw image to before it is sealed.
+    pub fn stage(origin: Origin, capacity_bytes: u64) -> Result<Self> {
+        let spec = Self {
+            vm_uid: String::new(),
+            capacity_bytes,
+            disk: None,
+            origin: None,
+            stage: Some(origin),
         };
         spec.validate()?;
         Ok(spec)
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(stage) = &self.stage {
+            stage.validate()?;
+            ensure!(
+                self.vm_uid.is_empty() && self.disk.is_none() && self.origin.is_none(),
+                "stage manifest is malformed"
+            );
+            ensure!(
+                (MIN_VOLUME..=MAX_IMPORT).contains(&self.capacity_bytes)
+                    && self.capacity_bytes.is_multiple_of(1024 * 1024),
+                Refusal("invalid-capacity")
+            );
+            return Ok(());
+        }
         ensure!(valid_uid(&self.vm_uid), Refusal("invalid-vm-uid"));
         let most = if self.disk.is_some() {
             MAX_DISK
@@ -177,12 +231,18 @@ impl Spec {
     }
     /// The journal key: `<uid>` (legacy demo) or `<uid>.<disk>`.
     pub fn key(&self) -> String {
+        if let Some(stage) = &self.stage {
+            return stage.stage_key();
+        }
         match &self.disk {
             None => self.vm_uid.clone(),
             Some(disk) => format!("{}.{disk}", self.vm_uid),
         }
     }
     pub fn dataset(&self) -> String {
+        if let Some(stage) = &self.stage {
+            return format!("{PARENT}/{}", stage.stage_key());
+        }
         match &self.disk {
             None => format!("{PARENT}/vm-{}", self.vm_uid),
             Some(disk) => format!("{PARENT}/disk-{}-{disk}", self.vm_uid),
@@ -192,6 +252,9 @@ impl Spec {
         PathBuf::from("/dev/zvol").join(self.dataset())
     }
     pub fn target(&self) -> String {
+        if let Some(stage) = &self.stage {
+            return stage.stage_target();
+        }
         match &self.disk {
             None => format!("iqn.2026-11.com.yapplesauce:qrab.disk.{}", self.vm_uid),
             Some(disk) => format!(
@@ -201,15 +264,24 @@ impl Spec {
         }
     }
     pub fn initiator(&self) -> String {
+        if let Some(stage) = &self.stage {
+            return stage.stage_initiator();
+        }
         format!("iqn.2026-11.com.yapplesauce:qrab.vm.{}", self.vm_uid)
     }
     pub fn username(&self) -> String {
+        if let Some(stage) = &self.stage {
+            return stage.stage_username();
+        }
         match &self.disk {
             None => format!("qrab-{}", self.vm_uid.replace('-', "")),
             Some(disk) => format!("qrab-{}-{disk}", self.vm_uid.replace('-', "")),
         }
     }
     pub fn object(&self) -> String {
+        if let Some(stage) = &self.stage {
+            return stage.stage_username();
+        }
         match &self.disk {
             None => format!("qrab-{}", self.vm_uid),
             Some(disk) => format!("qrab-{}-{disk}", self.vm_uid),
@@ -248,11 +320,16 @@ pub struct Record {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin_guid: Option<String>,
     pub chap_password: String,
+    /// A stage whose device hashed to the caller's digest and is being
+    /// sealed. Its zvol may already carry the image name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seal: Option<ImportSource>,
 }
 impl Record {
     fn validate(&self) -> Result<()> {
         self.spec.validate()?;
-        let legacy = self.spec.disk.is_none();
+        let stage = self.spec.stage.is_some();
+        let legacy = self.spec.disk.is_none() && !stage;
         ensure!(
             self.owner == OWNER
                 && if legacy {
@@ -287,6 +364,20 @@ impl Record {
             self.spec.origin.is_some() == self.origin_guid.is_some() || self.zvol_guid.is_none(),
             "clone origin GUID state is malformed"
         );
+        ensure!(
+            !stage || self.phase != Phase::Retired,
+            "stage manifest is malformed"
+        );
+        if let Some(seal) = &self.seal {
+            seal.validate()?;
+            ensure!(
+                stage
+                    && self.zvol_guid.is_some()
+                    && matches!(self.phase, Phase::Provisioned | Phase::Fenced)
+                    && seal.size_bytes <= self.spec.capacity_bytes,
+                "stage seal state is malformed"
+            );
+        }
         Ok(())
     }
     pub fn report(&self) -> Report {
@@ -366,7 +457,7 @@ pub trait Backend {
     /// Records the image dataset and snapshot GUIDs before returning.
     fn publish_image(&mut self, source: &Record, image: &mut Image) -> Result<()>;
     /// Refuses an image dataset that exists without a journal (no adoption).
-    fn preflight_new_image(&mut self, image: &Image) -> Result<()>;
+    fn preflight_new_image(&mut self, origin: &Origin) -> Result<()>;
     /// Creates the owned, still writable zvol of an import. Returns its GUID.
     fn create_image_volume(&mut self, image: &Image) -> Result<String>;
     /// Copies `source` to the new zvol's device node with plain file I/O and
@@ -383,6 +474,15 @@ pub trait Backend {
     fn retire(&mut self, record: &Record) -> Result<()>;
     /// Refuses while any clone hold remains; marks the image retained.
     fn retire_image(&mut self, image: &Image) -> Result<()>;
+    /// Opens a fenced stage's verified zvol device for reading from offset 0,
+    /// past any page cache the export's writes bypassed.
+    fn open_stage(&mut self, stage: &Record) -> Result<Box<dyn std::io::Read>>;
+    /// Removes a fenced stage's LIO objects, renames its zvol to `image`'s
+    /// dataset and gives it import's unsealed properties. Resumable.
+    fn promote_stage(&mut self, stage: &Record, image: &Image) -> Result<()>;
+    /// Removes an unsealed stage's LIO objects and destroys its zvol after
+    /// checking stage ownership and the recorded GUID. Absent is clean.
+    fn destroy_stage(&mut self, stage: &Record) -> Result<()>;
 }
 
 fn password() -> Result<String> {
@@ -432,6 +532,7 @@ pub fn apply<B: Backend>(store: &Store, host: &mut B, spec: Spec) -> Result<Repo
                 zvol_guid: None,
                 origin_guid: None,
                 chap_password: password()?,
+                seal: None,
             };
             store.write(&record)?;
             record
@@ -473,25 +574,23 @@ pub fn apply<B: Backend>(store: &Store, host: &mut B, spec: Spec) -> Result<Repo
 
 /// Persist `Fencing`, drain kernel references, then persist `Fenced`. A
 /// never-exported disk has no export to drain and stays `Provisioned`.
-fn fence_record<B: Backend>(store: &Store, host: &mut B, mut record: Record) -> Result<Report> {
+fn fence_in_place<B: Backend>(store: &Store, host: &mut B, record: &mut Record) -> Result<()> {
     match record.phase {
-        Phase::Fenced => {
-            host.verify_fenced(&record)?;
-            return Ok(record.report());
-        }
-        Phase::Provisioned => {
-            host.verify_volume(&record)?;
-            return Ok(record.report());
-        }
+        Phase::Fenced => return host.verify_fenced(record),
+        Phase::Provisioned => return host.verify_volume(record),
         Phase::Retired => bail!(Refusal("disk-retired")),
         _ => {}
     }
     record.phase = Phase::Fencing;
-    store.write(&record)?;
-    host.fence(&record)?;
-    host.verify_fenced(&record)?;
+    store.write(record)?;
+    host.fence(record)?;
+    host.verify_fenced(record)?;
     record.phase = Phase::Fenced;
-    store.write(&record)?;
+    store.write(record)
+}
+
+fn fence_record<B: Backend>(store: &Store, host: &mut B, mut record: Record) -> Result<Report> {
+    fence_in_place(store, host, &mut record)?;
     Ok(record.report())
 }
 
@@ -537,6 +636,7 @@ pub fn restore<B: Backend>(store: &Store, host: &mut B) -> Result<Vec<Report>> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use anyhow::Context as _;
     use std::collections::BTreeMap;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     pub const UID: &str = "e309f751-5dda-4271-a0f4-4454c9527a59";
@@ -563,6 +663,9 @@ pub(crate) mod tests {
         pub fail_destroy: bool,
         pub written: BTreeMap<String, Vec<u8>>,
         pub destroyed: Vec<String>,
+        /// What an importer wrote to each stage zvol, keyed by stage key.
+        pub stage_data: BTreeMap<String, Vec<u8>>,
+        pub fail_promote: bool,
     }
     impl Backend for Fake {
         fn preflight_new_scope(&mut self) -> Result<()> {
@@ -684,16 +787,16 @@ pub(crate) mod tests {
                 .push("qrab-image".into());
             Ok(())
         }
-        fn preflight_new_image(&mut self, image: &Image) -> Result<()> {
+        fn preflight_new_image(&mut self, origin: &Origin) -> Result<()> {
             ensure!(
-                !self.volumes.contains_key(&image.origin.dataset()),
+                !self.volumes.contains_key(&origin.dataset()),
                 Refusal("image-generation-exists")
             );
             Ok(())
         }
         fn create_image_volume(&mut self, image: &Image) -> Result<String> {
             self.calls.push("import-create");
-            self.preflight_new_image(image)?;
+            self.preflight_new_image(&image.origin)?;
             self.volumes
                 .insert(image.origin.dataset(), image.capacity_bytes);
             Ok("86".into())
@@ -712,17 +815,21 @@ pub(crate) mod tests {
             Ok(written)
         }
         fn seal_new_image(&mut self, image: &mut Image) -> Result<()> {
-            ensure!(image.dataset_guid.as_deref() == Some("86"), "GUID drift");
+            let guid = image.dataset_guid.clone().context("GUID absent")?;
+            ensure!(
+                self.volumes.get(&image.origin.dataset()) == Some(&image.capacity_bytes),
+                "image zvol absent"
+            );
             // A failure after the hold must still be cleaned up.
-            self.holds
-                .entry(image.origin.snapshot())
-                .or_default()
-                .push("qrab-image".into());
+            let holds = self.holds.entry(image.origin.snapshot()).or_default();
+            if !holds.iter().any(|h| h == "qrab-image") {
+                holds.push("qrab-image".into());
+            }
             ensure!(!self.fail_seal, "seal failed");
             image.snapshot_guid = Some("88".into());
             self.images.insert(
                 image.origin.key(),
-                (image.capacity_bytes, "86".into(), "88".into()),
+                (image.capacity_bytes, guid, "88".into()),
             );
             Ok(())
         }
@@ -759,6 +866,45 @@ pub(crate) mod tests {
         fn retire(&mut self, r: &Record) -> Result<()> {
             self.verify_fenced(r)?;
             self.retired.push(r.spec.key());
+            Ok(())
+        }
+        fn open_stage(&mut self, stage: &Record) -> Result<Box<dyn Read>> {
+            self.calls.push("stage-read");
+            self.verify_volume(stage)?;
+            self.verify_fenced(stage)?;
+            let mut data = self
+                .stage_data
+                .get(&stage.spec.key())
+                .cloned()
+                .unwrap_or_default();
+            data.resize(stage.spec.capacity_bytes as usize, 0);
+            Ok(Box::new(std::io::Cursor::new(data)))
+        }
+        fn promote_stage(&mut self, stage: &Record, image: &Image) -> Result<()> {
+            self.calls.push("stage-promote");
+            ensure!(!self.fail_promote, "promote failed");
+            let (from, to) = (stage.spec.dataset(), image.origin.dataset());
+            if let Some(size) = self.volumes.remove(&from) {
+                self.verify_fenced(stage)?;
+                ensure!(!self.volumes.contains_key(&to), "image dataset exists");
+                self.volumes.insert(to.clone(), size);
+                if let Some(data) = self.stage_data.remove(&stage.spec.key()) {
+                    self.written.insert(image.origin.key(), data);
+                }
+            }
+            ensure!(
+                self.volumes.get(&to) == Some(&image.capacity_bytes),
+                "promoted image absent"
+            );
+            Ok(())
+        }
+        fn destroy_stage(&mut self, stage: &Record) -> Result<()> {
+            self.calls.push("stage-destroy");
+            self.verify_fenced(stage)?;
+            if self.volumes.remove(&stage.spec.dataset()).is_some() {
+                self.destroyed.push(stage.spec.dataset());
+            }
+            self.stage_data.remove(&stage.spec.key());
             Ok(())
         }
     }

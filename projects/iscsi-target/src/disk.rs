@@ -1,12 +1,13 @@
 //! Provisioned VM disks and sealed CoW base images behind the storage daemon.
 //!
-//! Every operation is keyed by VM UID and disk ID, takes the global journal
-//! lock and checks recorded ZFS GUIDs/ownership before mutating anything.
-//! Credentials arrive only through [`export`]'s argument (the CLI reads stdin)
-//! and never appear in reports, argv or errors.
+//! Every operation is keyed by VM UID and disk ID (or image generation for a
+//! stage), takes the global journal lock and checks recorded ZFS
+//! GUIDs/ownership before mutating anything. Credentials arrive only through
+//! [`export`]'s and [`stage_export`]'s argument (the CLI reads stdin) and
+//! never appear in reports, argv or errors.
 use crate::{
-    fence_record, prepare_pool, valid_password, Backend, Origin, Phase, Record, Refusal, Report,
-    Spec, Store, MIN_VOLUME, OWNER,
+    fence_in_place, fence_record, prepare_pool, valid_password, Backend, Origin, Phase, Record,
+    Refusal, Report, Spec, Store, MIN_VOLUME, OWNER, PARENT, PORTAL,
 };
 use anyhow::{bail, ensure, Result};
 use serde::{Deserialize, Serialize};
@@ -34,7 +35,7 @@ pub struct ImportSource {
     pub size_bytes: u64,
 }
 impl ImportSource {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         ensure!(valid_sha256(&self.sha256), Refusal("invalid-sha256"));
         ensure!(self.size_bytes > 0, Refusal("source-empty"));
         ensure!(
@@ -79,6 +80,10 @@ pub struct Image {
     /// journal stays byte-compatible with earlier releases.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<ImportSource>,
+    /// An import sealed in place from an importer-written stage zvol, whose
+    /// capacity the importer chose. Absent (false) for every other journal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub staged: bool,
     pub phase: ImagePhase,
     pub dataset_guid: Option<String>,
     pub snapshot_guid: Option<String>,
@@ -88,6 +93,7 @@ impl Image {
         self.origin.validate()?;
         match &self.import {
             None => {
+                ensure!(!self.staged, "image manifest is malformed");
                 Spec::disk(
                     self.source_vm_uid.clone(),
                     self.source_disk.clone(),
@@ -102,11 +108,17 @@ impl Image {
             }
             Some(import) => {
                 import.validate()?;
+                let capacity = if self.staged {
+                    Spec::stage(self.origin.clone(), self.capacity_bytes).is_ok()
+                        && import.size_bytes <= self.capacity_bytes
+                } else {
+                    self.capacity_bytes == import_capacity(import.size_bytes)
+                };
                 ensure!(
                     self.source_vm_uid.is_empty()
                         && self.source_disk.is_empty()
                         && self.source_guid.is_empty()
-                        && self.capacity_bytes == import_capacity(import.size_bytes),
+                        && capacity,
                     "image manifest is malformed"
                 );
             }
@@ -138,6 +150,7 @@ impl Image {
             source_vm_uid: self.source_vm_uid.clone(),
             source_disk: self.source_disk.clone(),
             import: self.import.clone(),
+            staged: self.staged,
         }
     }
 }
@@ -157,6 +170,8 @@ pub struct ImageReport {
     pub source_disk: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub import: Option<ImportSource>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub staged: bool,
 }
 
 /// Total logical zvol size stays within the dedicated parent quota, so thin
@@ -180,26 +195,28 @@ fn existing(store: &Store, uid: &str, disk: &str) -> Result<Record> {
 
 /// Finish (or verify) a provisioned record. A record without a GUID is an
 /// interrupted creation and resumes against our own ownership markers only.
+/// The caller holds the lock, has prepared the pool and read `existing`.
 fn provision<B: Backend>(
     store: &Store,
     host: &mut B,
     spec: Spec,
+    existing: Option<Record>,
     image: Option<&Image>,
-) -> Result<Report> {
-    prepare_pool(store, host)?;
-    let mut record = match store.read_disk(&spec.vm_uid, spec.disk.as_deref().unwrap_or(""))? {
+    conflict: &'static str,
+) -> Result<Record> {
+    let mut record = match existing {
         Some(record) => {
-            ensure!(record.spec.origin == spec.origin, Refusal("disk-conflict"));
+            ensure!(record.spec.origin == spec.origin, Refusal(conflict));
             if record.zvol_guid.is_some() {
                 // Retries are idempotent; capacity changes go through expand.
                 ensure!(
                     record.spec.capacity_bytes == spec.capacity_bytes,
-                    Refusal("disk-conflict")
+                    Refusal(conflict)
                 );
                 host.verify_volume(&record)?;
-                return Ok(record.report());
+                return Ok(record);
             }
-            ensure!(record.spec == spec, Refusal("disk-conflict"));
+            ensure!(record.spec == spec, Refusal(conflict));
             record
         }
         None => {
@@ -214,6 +231,7 @@ fn provision<B: Backend>(
                 zvol_guid: None,
                 origin_guid: None,
                 chap_password: String::new(),
+                seal: None,
             };
             store.write(&record)?;
             record
@@ -230,7 +248,7 @@ fn provision<B: Backend>(
     record.zvol_guid = Some(guid);
     store.write(&record)?;
     host.verify_volume(&record)?;
-    Ok(record.report())
+    Ok(record)
 }
 
 /// Blank, thick-reserved zvol. Never exported until [`export`].
@@ -243,7 +261,9 @@ pub fn create<B: Backend>(
 ) -> Result<Report> {
     let spec = Spec::disk(uid.into(), disk.into(), capacity_bytes, None)?;
     let _lock = store.lock()?;
-    provision(store, host, spec, None)
+    prepare_pool(store, host)?;
+    let existing = store.read_disk(uid, disk)?;
+    Ok(provision(store, host, spec, existing, None, "disk-conflict")?.report())
 }
 
 /// CoW clone of a sealed image generation. The clone holds the image snapshot
@@ -273,7 +293,9 @@ pub fn clone<B: Backend>(
         Refusal("clone-smaller-than-image")
     );
     host.verify_image(&image)?;
-    provision(store, host, spec, Some(&image))
+    prepare_pool(store, host)?;
+    let existing = store.read_disk(uid, disk)?;
+    Ok(provision(store, host, spec, existing, Some(&image), "disk-conflict")?.report())
 }
 
 /// Grow only. The guest sees the new size after its next QEMU start.
@@ -329,7 +351,18 @@ pub fn export<B: Backend>(
 ) -> Result<Report> {
     ensure!(valid_password(password), Refusal("invalid-credential"));
     let _lock = store.lock()?;
-    let mut record = existing(store, uid, disk)?;
+    let record = existing(store, uid, disk)?;
+    Ok(export_record(store, host, record, generation, password)?.report())
+}
+
+/// [`export`]'s credential-generation state machine, shared with stages.
+fn export_record<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    mut record: Record,
+    generation: u64,
+    password: &str,
+) -> Result<Record> {
     ensure!(
         record.zvol_guid.is_some(),
         Refusal("disk-provisioning-incomplete")
@@ -344,7 +377,7 @@ pub fn export<B: Backend>(
             );
             host.verify_volume(&record)?;
             host.verify_active(&record)?;
-            return Ok(record.report());
+            return Ok(record);
         }
         Phase::Preparing => ensure!(
             generation == record.generation && password == record.chap_password,
@@ -379,7 +412,7 @@ pub fn export<B: Backend>(
     host.verify_active(&record)?;
     record.phase = Phase::Active;
     store.write(&record)?;
-    Ok(record.report())
+    Ok(record)
 }
 
 /// Kernel ACL/LUN drain barrier; see [`crate::fence`].
@@ -467,6 +500,10 @@ pub fn publish<B: Backend>(
             }
         }
         None => {
+            ensure!(
+                store.read_stage(&origin)?.is_none(),
+                Refusal("image-generation-exists")
+            );
             budget(host, source.spec.capacity_bytes)?;
             let image = Image {
                 schema: 2,
@@ -477,6 +514,7 @@ pub fn publish<B: Backend>(
                 source_disk: source_disk.into(),
                 source_guid,
                 import: None,
+                staged: false,
                 phase: ImagePhase::Publishing,
                 dataset_guid: None,
                 snapshot_guid: None,
@@ -558,10 +596,16 @@ pub fn import<B: Backend>(
     let (file, source) = open_import_source(source, sha256)?;
     let _lock = store.lock()?;
     prepare_pool(store, host)?;
+    ensure!(
+        store.read_stage(&origin)?.is_none(),
+        Refusal("image-generation-exists")
+    );
     if let Some(existing) = store.read_image(&origin)? {
         // Only an interrupted import is ours to discard and redo.
         ensure!(
-            existing.import.is_some() && existing.phase == ImagePhase::Publishing,
+            existing.import.is_some()
+                && !existing.staged
+                && existing.phase == ImagePhase::Publishing,
             Refusal("image-generation-exists")
         );
         discard_import(store, host, &existing)?;
@@ -575,12 +619,13 @@ pub fn import<B: Backend>(
         source_disk: String::new(),
         source_guid: String::new(),
         import: Some(source),
+        staged: false,
         phase: ImagePhase::Publishing,
         dataset_guid: None,
         snapshot_guid: None,
     };
     image.validate()?;
-    host.preflight_new_image(&image)?;
+    host.preflight_new_image(&image.origin)?;
     budget(host, image.capacity_bytes)?;
     store.write_image(&image)?;
     if let Err(error) = write_and_seal(store, host, &mut image, file) {
@@ -622,6 +667,13 @@ fn write_and_seal<B: Backend>(
         format!("{:x}", reader.hasher.finalize()) == source.sha256,
         Refusal("sha256-mismatch")
     );
+    seal_written_image(store, host, image)
+}
+
+/// The sealing step shared by import and stage seal: a verified, written,
+/// still unsealed import zvol becomes readonly, `@sealed` and held, and only
+/// then is its journal recorded as sealed.
+fn seal_written_image<B: Backend>(store: &Store, host: &mut B, image: &mut Image) -> Result<()> {
     host.seal_new_image(image)?;
     ensure!(
         image.dataset_guid.is_some() && image.snapshot_guid.is_some(),
@@ -688,6 +740,310 @@ pub fn image_retire<B: Backend>(
     Ok(image.report())
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StagePhase {
+    Provisioned,
+    Preparing,
+    Active,
+    Fencing,
+    Fenced,
+    /// The device matched the caller's digest; rerun the seal to finish.
+    Sealing,
+    /// No stage journal (never created, aborted, or sealed into an image).
+    Absent,
+}
+
+/// Public view of an image generation's stage. Never carries the credential.
+#[derive(Serialize)]
+pub struct StageReport {
+    pub schema: u32,
+    pub image: String,
+    pub image_generation: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capacity_bytes: Option<u64>,
+    pub dataset: String,
+    pub target_iqn: String,
+    pub initiator_iqn: String,
+    pub portal: String,
+    pub lun: u32,
+    pub chap_username: String,
+    /// Credential generation, as for a disk export.
+    pub generation: u64,
+    pub phase: StagePhase,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sealing: Option<ImportSource>,
+}
+impl StageReport {
+    fn new(origin: &Origin, record: Option<&Record>) -> Self {
+        let phase = match record {
+            None => StagePhase::Absent,
+            Some(r) if r.seal.is_some() => StagePhase::Sealing,
+            Some(r) => match r.phase {
+                Phase::Provisioned => StagePhase::Provisioned,
+                Phase::Preparing => StagePhase::Preparing,
+                Phase::Active => StagePhase::Active,
+                Phase::Fencing => StagePhase::Fencing,
+                // Record validation refuses a retired stage.
+                Phase::Fenced | Phase::Retired => StagePhase::Fenced,
+            },
+        };
+        Self {
+            schema: 1,
+            image: origin.image.clone(),
+            image_generation: origin.generation,
+            capacity_bytes: record.map(|r| r.spec.capacity_bytes),
+            dataset: format!("{PARENT}/{}", origin.stage_key()),
+            target_iqn: origin.stage_target(),
+            initiator_iqn: origin.stage_initiator(),
+            portal: PORTAL.into(),
+            lun: 0,
+            chap_username: origin.stage_username(),
+            generation: record.map_or(0, |r| r.generation),
+            phase,
+            sealing: record.and_then(|r| r.seal.clone()),
+        }
+    }
+}
+
+fn existing_stage(store: &Store, origin: &Origin) -> Result<Record> {
+    store
+        .read_stage(origin)?
+        .ok_or_else(|| Refusal("stage-not-found").into())
+}
+
+/// Thick blank zvol `stage-<name>-g<gen>` that an in-cluster importer writes
+/// one new image generation to. Refused when the generation exists as an
+/// image (journal or dataset) or as a stage of another capacity; the same
+/// stage and capacity is idempotent. Never exported until [`stage_export`].
+pub fn stage_create<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    origin: Origin,
+    capacity_bytes: u64,
+) -> Result<StageReport> {
+    let spec = Spec::stage(origin.clone(), capacity_bytes)?;
+    let _lock = store.lock()?;
+    prepare_pool(store, host)?;
+    let existing = store.read_stage(&origin)?;
+    match &existing {
+        Some(record) => {
+            ensure!(
+                record.spec.capacity_bytes == capacity_bytes,
+                Refusal("image-generation-exists")
+            );
+            if record.seal.is_some() {
+                return Ok(StageReport::new(&origin, Some(record)));
+            }
+        }
+        None => {
+            ensure!(
+                store.read_image(&origin)?.is_none(),
+                Refusal("image-generation-exists")
+            );
+            host.preflight_new_image(&origin)?;
+        }
+    }
+    let record = provision(store, host, spec, existing, None, "image-generation-exists")?;
+    Ok(StageReport::new(&origin, Some(&record)))
+}
+
+/// Export a stage to its one importer initiator with the caller's CHAP
+/// secret, under exactly [`export`]'s generation and rotation rules.
+pub fn stage_export<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    origin: Origin,
+    generation: u64,
+    password: &str,
+) -> Result<StageReport> {
+    origin.validate()?;
+    ensure!(valid_password(password), Refusal("invalid-credential"));
+    let _lock = store.lock()?;
+    let record = existing_stage(store, &origin)?;
+    ensure!(record.seal.is_none(), Refusal("stage-sealing"));
+    let record = export_record(store, host, record, generation, password)?;
+    Ok(StageReport::new(&origin, Some(&record)))
+}
+
+/// SHA-256 of the first `size_bytes` of the fenced stage, read by root itself.
+fn hash_stage<B: Backend>(host: &mut B, stage: &Record, size_bytes: u64) -> Result<String> {
+    let mut reader = Hashing {
+        inner: host.open_stage(stage)?.take(size_bytes),
+        hasher: Sha256::new(),
+        count: 0,
+    };
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(anyhow::Error::new(error).context("read the stage zvol")),
+        }
+    }
+    ensure!(
+        reader.count == size_bytes,
+        "the stage zvol ended before the declared size"
+    );
+    Ok(format!("{:x}", reader.hasher.finalize()))
+}
+
+/// Fence the stage export, hash the device's first `size_bytes` and, on a
+/// match, seal the zvol in place as image generation `origin`: the result is
+/// an import's sealed journal and properties plus `"staged": true`. A
+/// mismatch leaves the stage fenced for a re-export. Rerunning an
+/// interrupted seal finishes it; rerunning a finished one reports the image.
+pub fn stage_seal<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    origin: Origin,
+    size_bytes: u64,
+    sha256: &str,
+) -> Result<ImageReport> {
+    origin.validate()?;
+    let sha256 = sha256.to_ascii_lowercase();
+    ensure!(valid_sha256(&sha256), Refusal("invalid-sha256"));
+    ensure!(
+        size_bytes > 0 && size_bytes.is_multiple_of(512),
+        Refusal("invalid-size")
+    );
+    let source = ImportSource { sha256, size_bytes };
+    let _lock = store.lock()?;
+    let Some(mut record) = store.read_stage(&origin)? else {
+        let image = store
+            .read_image(&origin)?
+            .filter(|i| {
+                i.staged && i.import.as_ref() == Some(&source) && i.phase != ImagePhase::Publishing
+            })
+            .ok_or(Refusal("stage-not-found"))?;
+        if image.phase == ImagePhase::Sealed {
+            host.verify_image(&image)?;
+        }
+        return Ok(image.report());
+    };
+    match &record.seal {
+        Some(recorded) => ensure!(*recorded == source, Refusal("stage-sealing")),
+        None => {
+            ensure!(
+                record.zvol_guid.is_some(),
+                Refusal("disk-provisioning-incomplete")
+            );
+            ensure!(
+                size_bytes <= record.spec.capacity_bytes,
+                Refusal("invalid-size")
+            );
+            fence_in_place(store, host, &mut record)?;
+            ensure!(
+                hash_stage(host, &record, size_bytes)? == source.sha256,
+                Refusal("sha256-mismatch")
+            );
+            ensure!(
+                store.read_image(&origin)?.is_none(),
+                Refusal("image-generation-exists")
+            );
+            host.preflight_new_image(&origin)?;
+            // From here the stage journal is the seal's resume authority.
+            record.seal = Some(source);
+            store.write(&record)?;
+        }
+    }
+    finish_stage_seal(store, host, &origin, &record)
+}
+
+/// The resumable half of a matched seal. Every step is idempotent; the stage
+/// journal goes only after the image journal is durably sealed.
+fn finish_stage_seal<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    origin: &Origin,
+    stage: &Record,
+) -> Result<ImageReport> {
+    let source = stage
+        .seal
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("the stage has no matched seal"))?;
+    let mut image = match store.read_image(origin)? {
+        Some(image) => {
+            ensure!(
+                image.staged
+                    && image.import.as_ref() == Some(&source)
+                    && image.dataset_guid == stage.zvol_guid,
+                Refusal("image-generation-exists")
+            );
+            image
+        }
+        None => Image {
+            schema: 2,
+            owner: OWNER.into(),
+            origin: origin.clone(),
+            capacity_bytes: stage.spec.capacity_bytes,
+            source_vm_uid: String::new(),
+            source_disk: String::new(),
+            source_guid: String::new(),
+            import: Some(source),
+            staged: true,
+            phase: ImagePhase::Publishing,
+            // A rename keeps the GUID: the image dataset is the stage zvol.
+            dataset_guid: stage.zvol_guid.clone(),
+            snapshot_guid: None,
+        },
+    };
+    match image.phase {
+        ImagePhase::Publishing => {
+            image.validate()?;
+            host.promote_stage(stage, &image)?;
+            seal_written_image(store, host, &mut image)?;
+        }
+        ImagePhase::Sealed => host.verify_image(&image)?,
+        ImagePhase::Retired => {}
+    }
+    store.remove_stage(origin)?;
+    Ok(image.report())
+}
+
+/// The API's only destroy: fence an unsealed stage, then destroy its own zvol
+/// (stage markers and recorded GUID checked) and journal. It reads only
+/// `stage-*` journals and destroys only `stage-*` datasets, so it cannot
+/// reach an image or a VM disk. Already absent is success.
+pub fn stage_abort<B: Backend>(store: &Store, host: &mut B, origin: Origin) -> Result<StageReport> {
+    origin.validate()?;
+    let _lock = store.lock()?;
+    let Some(mut record) = store.read_stage(&origin)? else {
+        return Ok(StageReport::new(&origin, None));
+    };
+    ensure!(record.seal.is_none(), Refusal("stage-sealing"));
+    // A journal without a GUID is an interrupted create, never exported.
+    if record.zvol_guid.is_some() {
+        fence_in_place(store, host, &mut record)?;
+    }
+    host.destroy_stage(&record)?;
+    store.remove_stage(&origin)?;
+    Ok(StageReport::new(&origin, None))
+}
+
+/// Verified live state. A missing stage journal is `stage-not-found`.
+pub fn stage_status<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    origin: &Origin,
+) -> Result<StageReport> {
+    let _lock = store.lock()?;
+    let record = existing_stage(store, origin)?;
+    // A sealing stage's zvol may already carry the image name.
+    if record.seal.is_none() {
+        if record.zvol_guid.is_some() {
+            host.verify_volume(&record)?;
+        }
+        match record.phase {
+            Phase::Active => host.verify_active(&record)?,
+            Phase::Fenced => host.verify_fenced(&record)?,
+            _ => {}
+        }
+    }
+    Ok(StageReport::new(origin, Some(&record)))
+}
+
 /// Wrapper commands exposed through the storage daemon's fixed argv.
 pub const COMMANDS: &[&str] = &[
     "vm-disk-create",
@@ -700,6 +1056,11 @@ pub const COMMANDS: &[&str] = &[
     "vm-image-publish",
     "vm-image-status",
     "vm-image-retire",
+    "vm-image-stage-create",
+    "vm-image-stage-export",
+    "vm-image-stage-seal",
+    "vm-image-stage-abort",
+    "vm-image-stage-status",
 ];
 
 /// Administrator-only commands, deliberately absent from [`COMMANDS`] and
@@ -759,7 +1120,8 @@ fn read_password(input: &mut dyn std::io::Read) -> Result<String> {
     Ok(password)
 }
 
-/// Run one wrapper command. Only `vm-disk-export` reads `input`.
+/// Run one wrapper command. Only `vm-disk-export` and `vm-image-stage-export`
+/// read `input`.
 pub fn dispatch<B: Backend>(
     args: &[String],
     input: &mut dyn std::io::Read,
@@ -769,6 +1131,8 @@ pub fn dispatch<B: Backend>(
     let (command, rest) = args.split_first().ok_or(Refusal("invalid-arguments"))?;
     let disk = |report: Report| serde_json::json!({"ok": true, "disk": report});
     let image = |report: ImageReport| serde_json::json!({"ok": true, "image": report});
+    let stage = |report: StageReport| serde_json::json!({"ok": true, "stage": report});
+    let generation = |v: &[&str]| -> Result<Origin> { Origin::new(v[0].into(), number(v[1])?) };
     Ok(match command.as_str() {
         "vm-disk-create" => {
             let v = flags(rest, &["--vm-uid", "--disk", "--capacity-bytes"])?;
@@ -826,6 +1190,38 @@ pub fn dispatch<B: Backend>(
                 image_status(store, host, &origin)?
             } else {
                 image_retire(store, host, &origin)?
+            })
+        }
+        "vm-image-stage-create" => {
+            let v = flags(rest, &["--image", "--image-generation", "--capacity-bytes"])?;
+            stage(stage_create(store, host, generation(&v)?, number(v[2])?)?)
+        }
+        "vm-image-stage-export" => {
+            let v = flags(rest, &["--image", "--image-generation", "--generation"])?;
+            let (origin, credential) = (generation(&v)?, number(v[2])?);
+            let password = read_password(input)?;
+            stage(stage_export(store, host, origin, credential, &password)?)
+        }
+        "vm-image-stage-seal" => {
+            let v = flags(
+                rest,
+                &["--image", "--image-generation", "--size-bytes", "--sha256"],
+            )?;
+            image(stage_seal(
+                store,
+                host,
+                generation(&v)?,
+                number(v[2])?,
+                v[3],
+            )?)
+        }
+        "vm-image-stage-abort" | "vm-image-stage-status" => {
+            let v = flags(rest, &["--image", "--image-generation"])?;
+            let origin = generation(&v)?;
+            stage(if command == "vm-image-stage-abort" {
+                stage_abort(store, host, origin)?
+            } else {
+                stage_status(store, host, &origin)?
             })
         }
         _ => bail!(Refusal("invalid-arguments")),
@@ -1615,6 +2011,7 @@ mod tests {
             source_disk: "golden".into(),
             source_guid: "34".into(),
             import: None,
+            staged: false,
             phase: ImagePhase::Publishing,
             dataset_guid: None,
             snapshot_guid: None,
@@ -1725,5 +2122,752 @@ mod tests {
             store.read_disk(UID, "fresh").unwrap().unwrap().phase,
             Phase::Provisioned
         );
+    }
+
+    /// Deterministic bytes (varied by `seed`) and their lowercase SHA-256.
+    fn pattern(len: u64, seed: u8) -> (Vec<u8>, String) {
+        let data: Vec<u8> = (0..len).map(|i| (i % 251) as u8 ^ seed).collect();
+        let sha = format!("{:x}", Sha256::digest(&data));
+        (data, sha)
+    }
+
+    /// Create and export a stage, then write `data` as the importer would.
+    fn staged(store: &Store, host: &mut Fake, origin: &Origin, capacity: u64, data: &[u8]) {
+        stage_create(store, host, origin.clone(), capacity).unwrap();
+        stage_export(store, host, origin.clone(), 1, PW1).unwrap();
+        host.stage_data.insert(origin.stage_key(), data.to_vec());
+    }
+
+    #[test]
+    fn stage_argv_is_exact_and_the_credential_comes_only_from_stdin() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let mut empty: &[u8] = b"";
+        for verb in [
+            "vm-image-stage-create",
+            "vm-image-stage-export",
+            "vm-image-stage-seal",
+            "vm-image-stage-abort",
+            "vm-image-stage-status",
+        ] {
+            assert!(COMMANDS.contains(&verb), "{verb}");
+        }
+        let create = argv(&[
+            "vm-image-stage-create",
+            "--image",
+            "cirros",
+            "--image-generation",
+            "1",
+            "--capacity-bytes",
+            "67108864",
+        ]);
+        let out = dispatch(&create, &mut empty, &store, &mut host).unwrap();
+        let report = &out["stage"];
+        assert_eq!(out["ok"], true);
+        assert_eq!(report["phase"], "provisioned");
+        assert_eq!(report["image"], "cirros");
+        assert_eq!(report["image_generation"], 1);
+        assert_eq!(report["capacity_bytes"], 64 * MIB);
+        assert_eq!(report["generation"], 0);
+        assert_eq!(report["dataset"], "tank/qrab-iscsi/stage-cirros-g1");
+        assert_eq!(
+            report["target_iqn"],
+            "iqn.2026-11.com.yapplesauce:qrab.stage.cirros.g1"
+        );
+        assert_eq!(
+            report["initiator_iqn"],
+            "iqn.2026-11.com.yapplesauce:qrab.importer.cirros.g1"
+        );
+        assert_eq!(report["chap_username"], "qrab-stage-cirros-g1");
+        assert_eq!(report["portal"], PORTAL);
+        assert_eq!(report["lun"], 0);
+        assert!(store
+            .manifest_path("stage-cirros-g1")
+            .symlink_metadata()
+            .is_ok());
+        let zeros = "0".repeat(64);
+        for bad in [
+            argv(&[
+                "vm-image-stage-create",
+                "--image-generation",
+                "1",
+                "--image",
+                "cirros",
+                "--capacity-bytes",
+                "67108864",
+            ]),
+            argv(&[
+                "vm-image-stage-create",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+            ]),
+            argv(&[
+                "vm-image-stage-create",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+                "--capacity-bytes",
+                "+67108864",
+            ]),
+            argv(&[
+                "vm-image-stage-export",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+                "--generation",
+                "1",
+                "--password",
+                PW1,
+            ]),
+            argv(&[
+                "vm-image-stage-export",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+            ]),
+            argv(&[
+                "vm-image-stage-seal",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+                "--size-bytes",
+                "512",
+            ]),
+            argv(&[
+                "vm-image-stage-seal",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+                "--size-bytes",
+                "512",
+                "--sha256",
+                &zeros,
+                "--force",
+                "1",
+            ]),
+            argv(&[
+                "vm-image-stage-seal",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+                "--sha256",
+                &zeros,
+                "--size-bytes",
+                "512",
+            ]),
+            argv(&[
+                "vm-image-stage-abort",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+                "--vm-uid",
+                UID,
+            ]),
+            argv(&["vm-image-stage-status", "--image", "cirros"]),
+            argv(&[
+                "vm-image-stage-destroy",
+                "--image",
+                "cirros",
+                "--image-generation",
+                "1",
+            ]),
+        ] {
+            let mut input: &[u8] = b"";
+            assert_eq!(
+                code(dispatch(&bad, &mut input, &store, &mut host)),
+                "invalid-arguments",
+                "{bad:?}"
+            );
+        }
+        let export = argv(&[
+            "vm-image-stage-export",
+            "--image",
+            "cirros",
+            "--image-generation",
+            "1",
+            "--generation",
+            "1",
+        ]);
+        for stdin in [&b""[..], b"abc\n", b"111111111111111111111111111111111\n"] {
+            let mut input = stdin;
+            assert_eq!(
+                code(dispatch(&export, &mut input, &store, &mut host)),
+                "invalid-credential"
+            );
+        }
+        assert!(host.exports.is_empty());
+        let secret = format!("{PW1}\n").into_bytes();
+        let out = dispatch(&export, &mut secret.as_slice(), &store, &mut host).unwrap();
+        assert_eq!(out["stage"]["phase"], "active");
+        assert_eq!(out["stage"]["generation"], 1);
+        assert!(!out.to_string().contains(PW1));
+        assert_eq!(
+            host.exports.get("stage-cirros-g1").map(String::as_str),
+            Some(PW1)
+        );
+        let status = argv(&[
+            "vm-image-stage-status",
+            "--image",
+            "cirros",
+            "--image-generation",
+            "1",
+        ]);
+        let out = dispatch(&status, &mut empty, &store, &mut host).unwrap();
+        assert_eq!(out["stage"]["phase"], "active");
+        assert!(!out.to_string().contains(PW1) && !out.to_string().contains("password"));
+        let abort = argv(&[
+            "vm-image-stage-abort",
+            "--image",
+            "cirros",
+            "--image-generation",
+            "1",
+        ]);
+        let out = dispatch(&abort, &mut empty, &store, &mut host).unwrap();
+        assert_eq!(out["stage"]["phase"], "absent");
+        assert!(host.exports.is_empty() && host.volumes.is_empty());
+        assert_eq!(
+            code(dispatch(&status, &mut empty, &store, &mut host)),
+            "stage-not-found"
+        );
+        let invalid = argv(&[
+            "vm-image-stage-abort",
+            "--image",
+            "../x",
+            "--image-generation",
+            "1",
+        ]);
+        assert_eq!(
+            code(dispatch(&invalid, &mut empty, &store, &mut host)),
+            "invalid-image"
+        );
+    }
+
+    #[test]
+    fn stage_create_refuses_existing_generations_and_the_budget() {
+        let (dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = cirros(1);
+        for capacity in [64 * MIB + 1, 8 * MIB, MAX_IMPORT + MIB] {
+            assert_eq!(
+                code(stage_create(&store, &mut host, origin.clone(), capacity)),
+                "invalid-capacity"
+            );
+        }
+        assert_eq!(host.pool_calls, 0);
+        let report = stage_create(&store, &mut host, origin.clone(), 64 * MIB).unwrap();
+        assert_eq!(report.phase, StagePhase::Provisioned);
+        stage_create(&store, &mut host, origin.clone(), 64 * MIB).unwrap();
+        assert_eq!(host.volumes.len(), 1);
+        assert_eq!(
+            code(stage_create(&store, &mut host, origin.clone(), 128 * MIB)),
+            "image-generation-exists"
+        );
+
+        // A stage reserves its generation against import and publication.
+        let (path, sha, _) = raw(dir.path(), "cirros.raw", 4096);
+        assert_eq!(
+            code(import(&store, &mut host, origin.clone(), &path, &sha)),
+            "image-generation-exists"
+        );
+        create(&store, &mut host, UID, "golden", 64 * MIB).unwrap();
+        export(&store, &mut host, UID, "golden", 1, PW1).unwrap();
+        fence(&store, &mut host, UID, "golden").unwrap();
+        assert_eq!(
+            code(publish(&store, &mut host, origin.clone(), UID, "golden")),
+            "image-generation-exists"
+        );
+        assert!(store.read_image(&origin).unwrap().is_none());
+
+        // Imported, published or interrupted generations, or a bare dataset.
+        import(&store, &mut host, cirros(2), &path, &sha).unwrap();
+        let debian = Origin::new("debian".into(), 1).unwrap();
+        publish(&store, &mut host, debian.clone(), UID, "golden").unwrap();
+        let publishing = Image {
+            schema: 2,
+            owner: OWNER.into(),
+            origin: cirros(3),
+            capacity_bytes: 64 * MIB,
+            source_vm_uid: UID.into(),
+            source_disk: "golden".into(),
+            source_guid: "34".into(),
+            import: None,
+            staged: false,
+            phase: ImagePhase::Publishing,
+            dataset_guid: None,
+            snapshot_guid: None,
+        };
+        store.write_image(&publishing).unwrap();
+        host.volumes.insert(cirros(4).dataset(), 16 * MIB);
+        for existing in [cirros(2), debian, cirros(3), cirros(4)] {
+            assert_eq!(
+                code(stage_create(&store, &mut host, existing.clone(), 64 * MIB)),
+                "image-generation-exists",
+                "{}",
+                existing.key()
+            );
+            assert!(store.read_stage(&existing).unwrap().is_none());
+        }
+
+        // The parent quota bounds a stage like any other zvol.
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        create(&store, &mut host, UID, "big", 8 * 1024 * MIB - 16 * MIB).unwrap();
+        assert_eq!(
+            code(stage_create(&store, &mut host, origin.clone(), 32 * MIB)),
+            "budget-exhausted"
+        );
+        assert!(store.read_stage(&origin).unwrap().is_none());
+        assert_eq!(host.volumes.len(), 1);
+        // Disk journals keep their format.
+        let text = std::fs::read_to_string(store.manifest_path(&format!("{UID}.big"))).unwrap();
+        assert!(!text.contains("stage") && !text.contains("seal"));
+    }
+
+    #[test]
+    fn stage_export_rotates_like_a_disk_and_boot_restore_leaves_it_off() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = cirros(1);
+        let key = origin.stage_key();
+        stage_create(&store, &mut host, origin.clone(), 64 * MIB).unwrap();
+        let export = |host: &mut Fake, generation, password| {
+            stage_export(&store, host, origin.clone(), generation, password)
+        };
+        assert_eq!(code(export(&mut host, 2, PW1)), "generation-mismatch");
+        assert_eq!(code(export(&mut host, 1, "short")), "invalid-credential");
+        let report = export(&mut host, 1, PW1).unwrap();
+        assert_eq!((report.phase, report.generation), (StagePhase::Active, 1));
+        export(&mut host, 1, PW1).unwrap();
+        assert_eq!(code(export(&mut host, 2, PW2)), "fence-required");
+        // A seal attempt fences first, even when the digest then mismatches.
+        let (_, other) = pattern(512, 1);
+        assert_eq!(
+            code(stage_seal(&store, &mut host, origin.clone(), 512, &other)),
+            "sha256-mismatch"
+        );
+        assert!(!host.exports.contains_key(&key));
+        assert_eq!(
+            stage_status(&store, &mut host, &origin).unwrap().phase,
+            StagePhase::Fenced
+        );
+        assert_eq!(code(export(&mut host, 2, PW1)), "credential-reused");
+        assert_eq!(code(export(&mut host, 3, PW2)), "generation-mismatch");
+        assert_eq!(export(&mut host, 2, PW2).unwrap().generation, 2);
+        assert_eq!(host.exports.get(&key).map(String::as_str), Some(PW2));
+
+        // Boot restore never re-enables a stage export.
+        host.exports.clear();
+        restore(&store, &mut host).unwrap();
+        assert!(host.exports.is_empty());
+
+        // An unfinished fence blocks export and abort, and resumes on the
+        // next seal.
+        host.fail_fence = true;
+        assert!(stage_seal(&store, &mut host, origin.clone(), 512, &other).is_err());
+        assert_eq!(
+            stage_status(&store, &mut host, &origin).unwrap().phase,
+            StagePhase::Fencing
+        );
+        assert_eq!(code(export(&mut host, 3, PW1)), "fence-incomplete");
+        assert!(stage_abort(&store, &mut host, origin.clone()).is_err());
+        assert!(store.read_stage(&origin).unwrap().is_some());
+        host.fail_fence = false;
+        assert_eq!(
+            code(stage_seal(&store, &mut host, origin.clone(), 512, &other)),
+            "sha256-mismatch"
+        );
+        assert_eq!(
+            stage_status(&store, &mut host, &origin).unwrap().phase,
+            StagePhase::Fenced
+        );
+    }
+
+    #[test]
+    fn sealed_stage_matches_an_imported_generation_plus_staged() {
+        let (dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let mut empty: &[u8] = b"";
+        let (path, sha, data) = raw(dir.path(), "cirros.raw", 17 * 1024 * 1024 + 512);
+        import(&store, &mut host, cirros(1), &path, &sha).unwrap();
+        let origin = cirros(2);
+        staged(&store, &mut host, &origin, 18 * MIB, &data);
+        let size = data.len().to_string();
+        let seal = argv(&[
+            "vm-image-stage-seal",
+            "--image",
+            "cirros",
+            "--image-generation",
+            "2",
+            "--size-bytes",
+            &size,
+            "--sha256",
+            &sha.to_uppercase(),
+        ]);
+        let out = dispatch(&seal, &mut empty, &store, &mut host).unwrap();
+        let report = &out["image"];
+        assert_eq!(report["phase"], "sealed");
+        assert_eq!(report["staged"], true);
+        assert_eq!(report["capacity_bytes"], 18 * MIB);
+        assert_eq!(report["snapshot"], "tank/qrab-iscsi/image-cirros-g2@sealed");
+        assert_eq!(report["import"]["sha256"], sha.as_str());
+        assert_eq!(report["import"]["size_bytes"], data.len());
+        assert!(!out.to_string().contains(PW1));
+
+        // Root fenced the export, hashed the device, then renamed it.
+        let at = |call: &str| host.calls.iter().rposition(|c| *c == call).unwrap();
+        assert!(at("fence") < at("stage-read") && at("stage-read") < at("stage-promote"));
+        assert!(host.exports.is_empty());
+        assert!(store.read_stage(&origin).unwrap().is_none());
+        assert!(!host
+            .volumes
+            .contains_key(&format!("{PARENT}/stage-cirros-g2")));
+        assert_eq!(host.volumes[&origin.dataset()], 18 * MIB);
+        assert_eq!(host.written[&origin.key()], data);
+        assert_eq!(host.holds[&origin.snapshot()], vec!["qrab-image"]);
+
+        // The journal is an import's sealed journal plus "staged": true.
+        let journal = |o: &Origin| -> serde_json::Value {
+            serde_json::from_slice(&std::fs::read(store.manifest_path(&o.key())).unwrap()).unwrap()
+        };
+        let (mut imported, mut sealed) = (journal(&cirros(1)), journal(&origin));
+        assert!(imported.get("staged").is_none());
+        assert_eq!(sealed["staged"], true);
+        // The renamed stage zvol is the image dataset.
+        assert_eq!(sealed["dataset_guid"], "34");
+        for value in [&mut imported, &mut sealed] {
+            let fields = value.as_object_mut().unwrap();
+            for key in ["origin", "dataset_guid", "staged"] {
+                fields.remove(key);
+            }
+        }
+        assert_eq!(imported, sealed);
+
+        // Status, clone and retire treat it like any sealed generation.
+        let status = argv(&[
+            "vm-image-status",
+            "--image",
+            "cirros",
+            "--image-generation",
+            "2",
+        ]);
+        let out = dispatch(&status, &mut empty, &store, &mut host).unwrap();
+        assert_eq!(out["image"]["phase"], "sealed");
+        assert_eq!(out["image"]["staged"], true);
+        assert_eq!(
+            code(clone(
+                &store,
+                &mut host,
+                OTHER,
+                "root",
+                origin.clone(),
+                16 * MIB
+            )),
+            "clone-smaller-than-image"
+        );
+        let disk = clone(&store, &mut host, OTHER, "root", origin.clone(), 64 * MIB).unwrap();
+        assert_eq!(disk.origin.as_ref(), Some(&origin));
+        let record = store.read_disk(OTHER, "root").unwrap().unwrap();
+        assert_eq!(record.origin_guid.as_deref(), Some("88"));
+        export(&store, &mut host, OTHER, "root", 1, PW2).unwrap();
+        assert_eq!(
+            code(image_retire(&store, &mut host, &origin)),
+            "image-in-use"
+        );
+
+        // Re-sealing reports the image; no stage verb or import reaches it.
+        let again = stage_seal(&store, &mut host, origin.clone(), data.len() as u64, &sha).unwrap();
+        assert_eq!(again.phase, ImagePhase::Sealed);
+        let (_, other) = pattern(512, 9);
+        assert_eq!(
+            code(stage_seal(&store, &mut host, origin.clone(), 512, &other)),
+            "stage-not-found"
+        );
+        assert_eq!(
+            code(stage_create(&store, &mut host, origin.clone(), 18 * MIB)),
+            "image-generation-exists"
+        );
+        let before = std::fs::read(store.manifest_path(&origin.key())).unwrap();
+        assert_eq!(
+            stage_abort(&store, &mut host, origin.clone())
+                .unwrap()
+                .phase,
+            StagePhase::Absent
+        );
+        assert_eq!(
+            std::fs::read(store.manifest_path(&origin.key())).unwrap(),
+            before
+        );
+        assert!(host.volumes.contains_key(&origin.dataset()));
+        assert!(host.destroyed.is_empty());
+        assert_eq!(
+            code(stage_status(&store, &mut host, &origin)),
+            "stage-not-found"
+        );
+        assert_eq!(
+            code(import(&store, &mut host, origin.clone(), &path, &sha)),
+            "image-generation-exists"
+        );
+    }
+
+    #[test]
+    fn seal_refuses_bad_digests_and_sizes_and_keeps_the_stage_for_a_retry() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = cirros(1);
+        let key = origin.stage_key();
+        let (data, sha) = pattern(MIB, 0);
+        staged(&store, &mut host, &origin, 64 * MIB, &data);
+        let bad_hex = "g".repeat(64);
+        for (size, digest, expected) in [
+            (0, sha.as_str(), "invalid-size"),
+            (513, sha.as_str(), "invalid-size"),
+            (65 * MIB, sha.as_str(), "invalid-size"),
+            (MIB, "abc", "invalid-sha256"),
+            (MIB, bad_hex.as_str(), "invalid-sha256"),
+        ] {
+            assert_eq!(
+                code(stage_seal(&store, &mut host, origin.clone(), size, digest)),
+                expected,
+                "{size} {digest}"
+            );
+        }
+        // Refused arguments change nothing, not even the export.
+        assert!(host.exports.contains_key(&key));
+        assert!(!host.calls.contains(&"fence"));
+
+        // Other bytes, or another length of the same bytes, mismatch.
+        let (_, other) = pattern(MIB, 7);
+        for (size, digest) in [(MIB, other.as_str()), (MIB - 512, sha.as_str())] {
+            assert_eq!(
+                code(stage_seal(&store, &mut host, origin.clone(), size, digest)),
+                "sha256-mismatch"
+            );
+        }
+        assert!(!host.exports.contains_key(&key));
+        assert_eq!(
+            stage_status(&store, &mut host, &origin).unwrap().phase,
+            StagePhase::Fenced
+        );
+        assert_eq!(host.volumes[&format!("{PARENT}/{key}")], 64 * MIB);
+        assert!(store.read_image(&origin).unwrap().is_none());
+        assert!(!host.calls.contains(&"stage-promote") && host.destroyed.is_empty());
+
+        // A retry rewrites through a rotated export, then seals. The sealed
+        // size may be smaller than the importer's whole-MiB capacity.
+        stage_export(&store, &mut host, origin.clone(), 2, PW2).unwrap();
+        let (fixed, fixed_sha) = pattern(2 * MIB + 512, 3);
+        host.stage_data.insert(key.clone(), fixed.clone());
+        let report = stage_seal(
+            &store,
+            &mut host,
+            origin.clone(),
+            fixed.len() as u64,
+            &fixed_sha,
+        )
+        .unwrap();
+        assert_eq!(report.capacity_bytes, 64 * MIB);
+        assert_eq!(
+            report.import,
+            Some(ImportSource {
+                sha256: fixed_sha.clone(),
+                size_bytes: fixed.len() as u64
+            })
+        );
+        clone(&store, &mut host, OTHER, "root", origin, 64 * MIB).unwrap();
+        assert_eq!(
+            code(stage_seal(&store, &mut host, cirros(9), MIB, &sha)),
+            "stage-not-found"
+        );
+    }
+
+    #[test]
+    fn abort_destroys_only_the_unsealed_stage() {
+        let (dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let (path, sha, _) = raw(dir.path(), "cirros.raw", 4096);
+        import(&store, &mut host, cirros(1), &path, &sha).unwrap();
+        create(&store, &mut host, UID, "root", 64 * MIB).unwrap();
+        export(&store, &mut host, UID, "root", 1, PW1).unwrap();
+        let origin = cirros(2);
+        staged(&store, &mut host, &origin, 32 * MIB, b"partial");
+        let image_journal = store.manifest_path(&cirros(1).key());
+        let disk_journal = store.manifest_path(&format!("{UID}.root"));
+        let before = (
+            std::fs::read(&image_journal).unwrap(),
+            std::fs::read(&disk_journal).unwrap(),
+        );
+
+        // The imported generation has no stage: nothing is touched.
+        let report = stage_abort(&store, &mut host, cirros(1)).unwrap();
+        assert_eq!(report.phase, StagePhase::Absent);
+        assert!(!host.calls.contains(&"stage-destroy"));
+
+        // The stage is fenced, then only its own zvol and journal go.
+        let report = stage_abort(&store, &mut host, origin.clone()).unwrap();
+        assert_eq!(report.phase, StagePhase::Absent);
+        let at = |call: &str| host.calls.iter().rposition(|c| *c == call).unwrap();
+        assert!(at("fence") < at("stage-destroy"));
+        assert_eq!(host.destroyed, vec![format!("{PARENT}/stage-cirros-g2")]);
+        assert!(store.read_stage(&origin).unwrap().is_none());
+        assert!(!host.exports.contains_key(&origin.stage_key()));
+        assert_eq!(
+            host.exports.get(&format!("{UID}.root")).map(String::as_str),
+            Some(PW1)
+        );
+        assert!(host.volumes.contains_key(&cirros(1).dataset()));
+        assert!(host
+            .volumes
+            .contains_key(&format!("{PARENT}/disk-{UID}-root")));
+        assert_eq!(
+            (
+                std::fs::read(&image_journal).unwrap(),
+                std::fs::read(&disk_journal).unwrap()
+            ),
+            before
+        );
+        image_status(&store, &mut host, &cirros(1)).unwrap();
+        assert_eq!(
+            status(&store, &mut host, UID, "root").unwrap().phase,
+            Some(Phase::Active)
+        );
+
+        // Idempotent, and the generation can be staged again.
+        stage_abort(&store, &mut host, origin.clone()).unwrap();
+        assert_eq!(host.destroyed.len(), 1);
+        stage_create(&store, &mut host, origin.clone(), 64 * MIB).unwrap();
+        stage_abort(&store, &mut host, origin.clone()).unwrap();
+        assert_eq!(host.destroyed.len(), 2);
+
+        // An interrupted create (no recorded GUID) was never exported: it is
+        // destroyed against its stage markers without a fence.
+        let interrupted = Record {
+            schema: 2,
+            owner: OWNER.into(),
+            spec: Spec::stage(cirros(3), 16 * MIB).unwrap(),
+            generation: 0,
+            phase: Phase::Provisioned,
+            zvol_guid: None,
+            origin_guid: None,
+            chap_password: String::new(),
+            seal: None,
+        };
+        store.write(&interrupted).unwrap();
+        host.volumes.insert(interrupted.spec.dataset(), 16 * MIB);
+        stage_abort(&store, &mut host, cirros(3)).unwrap();
+        assert!(!host.volumes.contains_key(&interrupted.spec.dataset()));
+        assert!(store.read_stage(&cirros(3)).unwrap().is_none());
+
+        // A matched seal in progress is never destroyed.
+        let (data, digest) = pattern(MIB, 1);
+        staged(&store, &mut host, &cirros(4), 16 * MIB, &data);
+        host.fail_seal = true;
+        assert!(stage_seal(&store, &mut host, cirros(4), MIB, &digest).is_err());
+        assert_eq!(
+            code(stage_abort(&store, &mut host, cirros(4))),
+            "stage-sealing"
+        );
+        assert!(host.volumes.contains_key(&cirros(4).dataset()));
+        assert!(store.read_stage(&cirros(4)).unwrap().is_some());
+    }
+
+    #[test]
+    fn interrupted_seal_resumes_to_the_same_sealed_image() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = cirros(1);
+        let (data, sha) = pattern(3 * MIB, 5);
+        let size = data.len() as u64;
+        staged(&store, &mut host, &origin, 16 * MIB, &data);
+
+        // Interrupted after the digest matched, before the rename.
+        host.fail_promote = true;
+        let Err(error) = stage_seal(&store, &mut host, origin.clone(), size, &sha) else {
+            panic!("an interrupted seal must not succeed");
+        };
+        assert_eq!(refusal(&error), None);
+        let record = store.read_stage(&origin).unwrap().unwrap();
+        let source = ImportSource {
+            sha256: sha.clone(),
+            size_bytes: size,
+        };
+        assert_eq!(record.seal.as_ref(), Some(&source));
+        let report = stage_status(&store, &mut host, &origin).unwrap();
+        assert_eq!(report.phase, StagePhase::Sealing);
+        assert_eq!(report.sealing.as_ref(), Some(&source));
+        let (_, other) = pattern(MIB, 6);
+        assert_eq!(
+            code(stage_export(&store, &mut host, origin.clone(), 2, PW2)),
+            "stage-sealing"
+        );
+        assert_eq!(
+            code(stage_seal(&store, &mut host, origin.clone(), MIB, &other)),
+            "stage-sealing"
+        );
+        assert_eq!(
+            code(stage_abort(&store, &mut host, origin.clone())),
+            "stage-sealing"
+        );
+        assert_eq!(
+            code(image_status(&store, &mut host, &origin)),
+            "image-not-found"
+        );
+        assert_eq!(
+            code(clone(
+                &store,
+                &mut host,
+                OTHER,
+                "root",
+                origin.clone(),
+                64 * MIB
+            )),
+            "image-not-published"
+        );
+
+        // Interrupted again after the rename, while sealing the snapshot.
+        host.fail_promote = false;
+        host.fail_seal = true;
+        assert!(stage_seal(&store, &mut host, origin.clone(), size, &sha).is_err());
+        assert!(host.volumes.contains_key(&origin.dataset()));
+        assert!(!host
+            .volumes
+            .contains_key(&format!("{PARENT}/{}", origin.stage_key())));
+        assert!(store.read_image(&origin).unwrap().is_none());
+        assert_eq!(
+            stage_create(&store, &mut host, origin.clone(), 16 * MIB)
+                .unwrap()
+                .phase,
+            StagePhase::Sealing
+        );
+
+        // The rerun finishes the same seal without rehashing or copying.
+        host.fail_seal = false;
+        let reads = host.calls.iter().filter(|c| **c == "stage-read").count();
+        let report = stage_seal(&store, &mut host, origin.clone(), size, &sha).unwrap();
+        assert_eq!(report.phase, ImagePhase::Sealed);
+        assert!(report.staged);
+        assert_eq!(
+            host.calls.iter().filter(|c| **c == "stage-read").count(),
+            reads
+        );
+        assert_eq!(host.holds[&origin.snapshot()], vec!["qrab-image"]);
+        assert_eq!(host.written[&origin.key()], data);
+        assert!(store.read_stage(&origin).unwrap().is_none());
+
+        // A crash between the sealed image journal and the stage journal's
+        // removal: the rerun verifies the image and removes the stage journal.
+        store.write(&record).unwrap();
+        let report = stage_seal(&store, &mut host, origin.clone(), size, &sha).unwrap();
+        assert_eq!(report.phase, ImagePhase::Sealed);
+        assert!(store.read_stage(&origin).unwrap().is_none());
+        clone(&store, &mut host, OTHER, "root", origin, 16 * MIB).unwrap();
     }
 }
