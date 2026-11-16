@@ -563,5 +563,172 @@ socket filters to isolate test/client-node traffic.
 
 All test entrypoints and workload data were synthetic. No SPIFFE private key,
 bearer token or ordinary application payload was exported. The remaining
-native iSCSI, BGP, host/uplink and world-origin forwarding links remain open
-work under the transport hardening effort.
+native iSCSI, BGP, host/uplink and world-origin forwarding links were outside
+that WireGuard rollout. Their later MACsec deployment follows below.
+
+## Native MACsec rollout: 2026-11-16
+
+The operator supplied a successful root deployment receipt for
+`/var/lib/qrab-native-link/68ffad993b6652e9b42cc8a1`, using offline kit
+`/home/bob/operations/qrab-native-link-d338124`. Its checksum manifest hash is
+`3e923c49360d50cd0b3de3c164663086cecb018467f06ab2fc3ded2eda383df9`.
+The [root runbook](../../contrib/network-encryption/DEPLOYMENT.md) and
+[native architecture](../node-link-encryption.md) describe the coordinator,
+key delivery, ordering and recovery. [Machine-readable production evidence](evidence/2026-11-16-native-macsec.json)
+keeps this receipt separate from independent live checks and from the earlier
+isolated [preparation evidence](../../contrib/network-encryption/deployment-evidence.json).
+
+| Host | Receipt phase | Preserved BGP routes | Existing iSCSI TCP connections | Clear IPv4 / IPv6 | Capture drops |
+| --- | --- | --- | --- | --- | --- |
+| gateway | verified | 5 | 1 | 0 / 0 | 0 |
+| kube01 | verified | 3 | 0 | 0 / 0 | 0 |
+| kube02 | verified | 3 | 0 | 0 / 0 | 0 |
+| kube03 | verified | 2 | 0 | 0 / 0 | 0 |
+
+The enclosing result is `deployment: committed`. Host receipt entries retain
+their pre-commit verification result; subsequent independent node inspection
+found actual `phase` files set to `committed`, no `uncommitted` token, and
+inactive rollback timers. The node captures lasted approximately five seconds,
+used filtered-interface activation and an 8 MiB effective socket buffer, and
+reported zero clear frames, wrong-interface packets, metadata truncation or
+capture loss. This filter excludes encrypted frames; a zero received count
+does not mean the link was idle. The physical gateway's private files were not
+read by the agent; its capture verdict comes from the operator's receipt.
+
+Independent runtime checks found:
+
+- Gateway `br-kube` has no IP and MTU1532; `macsec0` has the unchanged
+  `10.203.0.1/24`, auxiliary `192.0.2.1/24` and MTU1500. MKA and guard services
+  are active. Node lowers `enp0s2` likewise have no IP and MTU1532; their uppers
+  retain `.11`, `.12`, `.13` and auxiliary addresses. The API VIP `.10` was on
+  kube01's upper at the initial inspection.
+- Each node's MACsec configuration enables GCM-AES-128, encryption, strict
+  validation and replay protection with window zero. The owned nftables raw
+  lower ingress/egress chains have default drop and admit only EtherTypes
+  `0x88e5`/`0x888e`.
+- Cilium runs the prepared release digest
+  `9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e`.
+  Host firewall devices include both upper and lower; actual `cil_from_netdev`
+  and `cil_to_netdev` TCX hooks exist on every upper. `cilium_wg0` remains
+  MTU1405. The node kubelet, keepalived and SPIRE services are active.
+- All three nodes and both Cilium DaemonSets were ready. The API `/readyz`
+  responded, and explicit public TLS/SNI to dashboard ingress returned HTTP200.
+  This does not establish ordinary workstation DNS resolution for that host.
+  Flux's identity/storage/qrab dependencies reconverged after a concurrent
+  GitOps revision; transient dependency-not-ready observations were retained
+  separately from the settled result.
+
+The real iSCSI-backed guest test `native-ct-20261116`, VM UID
+`38ceb949-548d-4f17-adcf-5ebd103ab993`, booted on kube03 and retained stable NIC
+`10.244.128.2` across kube03 → kube02 → kube03. Its single server-push TCP5000
+connection used 4096 bytes of padding per counter line. The client ran on the
+physical gateway, exercising native/world-origin forwarding. The guest's
+security group admitted the connection and denied new egress; managers reported
+imported conntrack entries on both moves. Maximum reported stream gaps were
+0.71 and 0.72 seconds. The oracle passed, and its VM, anchors, migrations,
+policy and state PVC were removed through normal cleanup; retained disk data
+keeps its normal storage semantics.
+
+A separate 120-second filtered capture on each node lower reported zero clear
+IPv4/IPv6/VLAN, zero metadata/interface errors and zero drops. Approximate UTC
+coverage was 20:11:47–20:13:47, inferred from local result-file completion and
+measured duration. It includes guest boot and part of the first move, rather
+than both complete migrations. It records counters only, with no packet payload
+or private keys. The kit's five-second captures and this later check are scoped
+samples, not a recording of every packet since cutover.
+
+Two real kube02 reboots exercised native key/bootstrap persistence, with no
+active guest VM on that node and all three etcd members ready before each
+reboot. The node was cordoned for each check and uncordoned afterward. The first
+returned with committed MACsec, guards and production/auxiliary IPs intact, but
+exposed Netplan's generated `wait-online` commands still selecting unaddressed
+`enp0s2`. `RequiredForOnline=no` does not override that explicit selection.
+Its 120-second timeout held kubelet, keepalived and identity services; protected
+SSH recovered independently of those services.
+
+Fix `d284d2887c260c927ea6ac8a370ecb4118abfddd` adds a node-only owned drop-in
+that resets the generated commands and waits for `macsec0:routable`, preserving
+IPv4/DNS checks and the 120-second budget. It orders after MKA/resolved without
+depending on Kubernetes or SPIRE. The exact override was applied to all three
+nodes through each existing deployment's file journal; explicit systemd
+selection and IPv4/DNS checks passed on each. Forty-five deployment contracts
+passed, including generated Netplan reset semantics and file rollback.
+
+The second reboot ran 20:29:36–20:32:12 UTC and observed a further new boot ID.
+The corrected wait service started and finished successfully at 20:31:28
+within the same logged second. MACsec remained committed, node readiness
+reported the new boot ID, and the node was uncordoned. This verifies the actual
+node boot path; it does not verify a physical gateway reboot. API/datastore
+recovery and host I/O load were observed after the reboots, so a node's Ready
+condition alone is not a claim that every platform application has recovered.
+
+Future offline kit `/home/bob/operations/qrab-native-link-d284d28` includes the
+fix and retains the same pinned tools. Its checksum manifest hash is
+`69b71eee0aae763455f1974b45b003fc21b4b925eaab47b2e9206ac1ddb2ab5c`;
+all four entries and the launcher were checked. The successful original kit and
+deployment state remain preserved; the agent did not overwrite their scripts
+or export their private profiles.
+
+The expanded member-churn checks found a separate MKA failure. Kube03 retained
+active receive channels for kube01/kube02 with empty association lists, while
+its gateway association still worked. Peer ARP and etcd traffic failed; the
+kernel's `InPktsNotUsingSA` counters increased. A private ARP sample saw requests
+decoded at kube01 but no corresponding traffic decoded by kube03. A running
+supplicant and a briefly Ready node had not established continued peer health.
+One kube03 MKA service restart restored the links. The resulting control-plane
+outage caused workload rescheduling and an identity/storage recovery, which the
+operator explicitly assigned to another session.
+
+The independent four-peer fixture reproduced empty receive associations on
+both clients and the key server. Restart-only recovery could repeat the fault.
+Source `6535a2963348280c2492776f3ed75dd53feeddf1` therefore adds a local root-only
+MKA rekey request while retaining peer channels, plus a bounded association
+watcher. It uses the existing MKA SAK generation/new-client-MI mechanisms;
+authentication, key derivation, encryption, strict validation and replay
+window zero remain enforced. No key material is returned by control requests.
+
+All 53 deployment contracts passed. The private kernel fixture passed all
+twelve directed paths through server/client association loss, key-server and
+member rejoins and old-association retirement. Transmit key identifiers changed
+after restarts/recovery; wrong CAKs were refused and raw guard semantics stayed
+unchanged. Installer integration used actual archive checks, extraction,
+journaling, Unix control and MKA processes, replacing only systemd operations
+with private process control. An old-bundle upgrade and idempotent repeat kept
+the original profile, MKA configuration, deployed script and committed state.
+The separate protocol oracle passed IPv4/IPv6, 8 KiB TCP179/3260, address
+preservation, plaintext/replay refusal, automatic rekey and fresh-key restart.
+Its scoped lower capture counted 36 MACsec and five MKA frames, with zero clear
+IP; it is distinct from production captures.
+
+The published artifact is
+`qrab/link-tools@sha256:944693ec20daa65ea86b661d8a2bb7f005ed8eaa93c56ab5c44466e326bc1802`,
+source `6535a29`. The published and kernel-tested WPA binaries share SHA-256
+`1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13`.
+The canonical archive hash is
+`7b52fd4f47977191f809d4cce167df04ec8249d11a2addd4794e83faa6bc1930`.
+The verified offline kit `/home/bob/operations/qrab-native-link-dc7b94f` has
+checksum-manifest hash
+`8075539bce41bb49ff02a0378890f83a08f320e66160b645d2d9d10cf6242e36`.
+The [separate root health upgrade](../../contrib/network-encryption/DEPLOYMENT.md#upgrade-association-recovery)
+stages public inputs on all peers, then rolls out the binary/watcher and gathers
+new peer/capture proof. Publication and private tests are complete; the
+operator's execution receipt supplies the production deployment status.
+
+The first post-reboot VPN attempt, `native-vpn-20261116`, timed out waiting for
+the VM to become Running during the outage. It supplies no successful tunnel
+or kill-switch proof. Its VM, policy, credential, state PVC and provider Pod
+were subsequently confirmed absent, and the listener was closed. The final VPN
+proof must use a later attempt after service recovery. Existing retained disk
+semantics were preserved.
+
+MKA authenticates the four-member link group; it does not give a guest or every
+frame a SPIFFE identity. Native MACsec ends at the peer, leaving local
+TAP/QMP/QGA/Unix/file paths and traffic beyond the gateway under their respective
+boundaries. Wrong-key/plaintext/replay attacks and packet-number exhaustion
+were exercised in isolated fixtures. Production boots and planned service/key
+updates have separate dated observations; no hostile traffic or artificial
+packet-number change was injected in production. Shared-CAK rotation and a physical
+gateway reboot remain distinct operational checks. The root kit's temporary
+probe service is stopped at commit, but its SIGTERM handler currently exits
+with code1 and leaves a misleading failed unit result; this is separate from
+the healthy MKA/guard services.

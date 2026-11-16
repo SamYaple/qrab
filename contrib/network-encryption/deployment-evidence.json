@@ -384,5 +384,7 @@
       "tests/check-topology.py": "de865c44928a82d1e2b02e2ee33ba6e324e974647cae45c0bbb00c9f415e9e0e",
       "tests/test_deploy_root.py": "1dadd4f93eebff894c2177d85959c24230865c891d0999d402fae735976993ee"
     }
-  }
+  },
+  "recordScope": "Historical isolated fixtures, preparation and deployment-script fixes; physicalCutoverExecuted refers to that preparation snapshot.",
+  "productionEvidence": "../../docs/connections/evidence/2026-11-16-native-macsec.json"
 }

@@ -5,11 +5,28 @@ as a virtio disk. There is no kernel initiator, block PVC, host filesystem or di
 image file in this guest-disk path. The storage host exports an owned ZFS zvol
 through Linux LIO. The small filesystem PVC for TPM/UEFI state stays separate.
 Only QEMU in the VM Pod connects to the storage endpoint; optional guest NICs
-use separate anchor Pods. The data path is plain iSCSI with CHAP authentication,
-which does not encrypt block traffic. The storage provisioning API's TLS and
-SPIFFE exchange are separate connections. See the
+use separate anchor Pods. The protocol is iSCSI with CHAP authentication;
+the deployed native MACsec link encrypts its node-to-storage segment. The
+storage provisioning API's TLS and SPIFFE exchange are separate connections. See the
 [storage diagram](connections/data-paths.md#storage-identity-exchange-and-data-io-are-different-paths)
 and [connection inventory](connections.md#storage-firmware-and-local-device-connections).
+
+## Transport security
+
+The [native MACsec deployment](node-link-encryption.md) protects traffic between
+the three nodes and physical LIO host `10.203.0.1`, preserving the portal,
+initiator IQNs, CHAP credentials and IP-based fencing. This covers QEMU's
+userspace libiscsi as well as kernel iSCSI used by filesystem CSI volumes.
+Pod WireGuard alone does not cover that native storage endpoint.
+
+CHAP authenticates the initiator but adds no confidentiality. TCP3260 remains
+unencrypted inside the VM Pod, node and target's local network stacks; MACsec
+encrypts it across the private Ethernet boundary. MKA authenticates membership
+in the four-host link group, separately from SPIFFE application identity.
+This does not add target-side per-VM SPIFFE admission or disk encryption at rest.
+Other portals outside this segment need their own transport protection.
+The [dated rollout record](connections/platform-evidence.md#native-macsec-rollout-2026-11-16)
+distinguishes real guest/storage checks from the earlier synthetic port tests.
 
 ## VM configuration
 

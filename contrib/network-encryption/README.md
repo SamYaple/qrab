@@ -1,13 +1,20 @@
-# Native link encryption prototype
+# Native link encryption tools and deployment
 
 The [root deployment kit](DEPLOYMENT.md) provides a guarded coordinator,
 offline packaging, persistent native configuration and rollback. Its pinned
 tools include nftables; the original prototype bundle below remains historical.
+The operator's four-host deployment committed on 2026-11-16; see the
+[current architecture and dated evidence](../../docs/node-link-encryption.md).
+The current [release descriptor](deployment-release.json) pins the published
+MKA rekey bundle, canonical archive, binary and source revision. Its local
+root-only control extension supports recovery without discarding peer channels;
+the [upgrade runbook](DEPLOYMENT.md#upgrade-association-recovery) applies it to
+an existing committed deployment.
 
 This directory packages the standard Linux MACsec/MKA supplicant for isolated
 network-namespace experiments. It changes no production interface or service.
-The kernel supports MACsec on the three nodes and storage gateway; native MKA
-and Cilium integration still require verification before a production plan.
+The kernel supports MACsec on the three nodes and storage gateway. The isolated
+commands below are separate from the production deployment.
 
 The published [immutable bundle](tools.ref) was built from qrab `48d26c9` and
 pulled back by digest. Its binary hash matches the tested patched bundle.
@@ -48,6 +55,21 @@ The current isolated oracle runs without manager, QEMU, KVM or guest downloads:
 sudo python3 contrib/network-encryption/check-macsec.py --tools /var/tmp/qrab-link-tools-20261116
 ```
 
+The separate multiparty recovery/installer test uses four peers and a wrong-key
+peer, with the gateway on the bridge master:
+
+```sh
+sudo python3 contrib/network-encryption/tests/check-association-health.py \
+  contrib/network-encryption/deploy_root.py /path/to/current/exported-tools \
+  --previous-tools /path/to/previous/exported-tools
+```
+
+It uses private namespaces and a process adapter for systemd. Production units,
+addresses and profiles are untouched. The fixture suppresses the startup
+allowance because it simulates no OS boot; real failure debounce, priority
+staggering and cooldown remain. The raw protocol oracle alone does not establish
+reliable multiparty membership recovery.
+
 It creates its switch and all three endpoints in private network namespaces,
 keeps CAKs in a root-only `/run` directory and removes the namespaces afterward.
 IPv4/IPv6 UDP, 8 KiB TCP on ports 179/3260, preserved source addresses, a wrong
@@ -60,12 +82,11 @@ are synthetic TCP echo, not real iSCSI/BGP protocol or fencing tests.
 The restart check requires nonempty, disjoint old/new session-key identifier
 sets; merely retiring an old SA cannot satisfy it after automatic rekey.
 
-The current deployed Cilium host firewall rejects MACsec/MKA traffic. A
-separate fork change passes those frames only on explicitly named external
+The original Cilium host firewall rejected MACsec/MKA traffic. The deployed
+fork change passes those frames only on explicitly named external
 lower devices; the 24 compiled-kernel cases retain IP policy and the disabled
-default. Native integration still needs upper-device attachment and live
-verification. No production interface has been modified. See the
-[deployment requirements and diagram](../../docs/node-link-encryption.md).
+default. Production inspection confirmed both TCX hooks on each actual upper.
+See the [deployment record and diagram](../../docs/node-link-encryption.md).
 
 The deployable tool recipe pins Debian `2:2.11-7`, which contains the fixes for
 [CVE-2026-78807](https://security-tracker.debian.org/tracker/CVE-2026-78807) and

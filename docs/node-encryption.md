@@ -61,14 +61,16 @@ in and no new egress, so the one server-push connection requires imported
 conntrack state after every move. The script cleans up its disposable VM;
 retained disk data keeps its normal storage semantics.
 
-## Remaining node boundaries
+## Native node boundary
 
 Pure host traffic, native iSCSI, BGP and ordinary external traffic are outside
 this Pod-to-Pod mode. Cilium also excludes world-origin traffic forwarded by an
-intermediate node, including that origin's temporary handoff path. Those links
-remain tracked separately. See the
-[native link prototype and deployment requirements](node-link-encryption.md)
-for the remaining Ethernet/storage boundary. All three nodes are control-plane nodes;
+intermediate node, including that origin's temporary handoff path. The deployed
+[native MACsec segment](node-link-encryption.md) now encrypts those packets
+between nodes and the physical gateway/storage host. Its local key bootstrap
+also protects the native links beneath the Pod WireGuard traffic shown above.
+Both tunnels terminate before traffic continues beyond their respective peers.
+All three nodes are control-plane nodes;
 `nodeEncryption` stays false and its control-plane bootstrap exclusion remains
 intact. Forcing encryption there can lock nodes out of the API needed to update
 their keys. The [Cilium guide](https://docs.cilium.io/en/stable/security/network/encryption-wireguard/)

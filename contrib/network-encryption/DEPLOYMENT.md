@@ -6,6 +6,12 @@ It uses `bob`'s existing, host-key-verified SSH configuration to reach
 The gateway command itself needs root. No registry/Kubernetes credential or
 Internet download is required during deployment.
 
+The operator committed the four-host production deployment on 2026-11-16 using
+kit `d338124`, state `68ffad993b6652e9b42cc8a1`. The
+[dated rollout record](../../docs/connections/platform-evidence.md#native-macsec-rollout-2026-11-16)
+contains its receipt, runtime checks and precise acceptance limits. The
+isolated preparation results below remain historical evidence.
+
 ```sh
 cd /path/to/assembled-kit
 sha256sum -c SHA256SUMS
@@ -41,6 +47,43 @@ The cutover briefly interrupts network/API traffic. Avoid concurrent VM
 creation, deletion and migration: changing routes or storage sessions makes
 the preservation checks inconclusive.
 
+## Upgrade association recovery
+
+For the committed native deployment, use the tested recovery kit on the
+physical gateway:
+
+```sh
+cd /home/bob/operations/qrab-native-link-dc7b94f
+sha256sum -c SHA256SUMS
+sudo ./deploy-root.sh health-upgrade --operator-user bob
+```
+
+This operation stages the public helper, release descriptor and verified tools
+on all four peers before activation. It copies no CAK/profile, SSH key or SVID.
+It retains the original deployed agent and journals supplemental files in the
+existing deployment state. The native deployment remains `committed`.
+
+The installer extracts the verified bundle into a separate directory and
+records a systemd executable override. It checks the running process arguments
+and the local rekey capability. Each MKA service restarts once to use the new
+binary; an idempotent rerun restarts only the watcher. The installer requests
+fresh MKA keys while waiting for complete receive associations. The gateway
+can request a rekey before retrying an interrupted node SSH acknowledgement.
+No Kubernetes, registry or SPIRE availability is required by the upgrade.
+
+Final proof checks all twelve directed SSH transport paths, protected kernel
+state, raw guard semantics, absence of lower IPs, the running watcher and a
+five-second zero-loss clear-IP/VLAN capture on each host. Supplemental counters
+go in `health-capture/capture.json`; the original deployment capture is kept.
+`health-upgrade.json` records staging, installation and proof results. A partial
+upgrade or failed proof is reported without invoking native network rollback.
+
+The binary is built from signed-repository Debian `wpa 2:2.11-7` source with the
+[local control patch](wpa-mka-rekey.patch) and a wired/MACsec build configuration.
+The patch exposes no key material and uses existing MKA keying operations.
+See [association recovery](../../docs/node-link-encryption.md#association-recovery)
+for the failure, timer behavior and test boundaries.
+
 ## Native configuration
 
 [deployment-release.json](deployment-release.json) pins the tool image,
@@ -67,6 +110,13 @@ its VMs to satisfy networkd's online requirement.
 Kubelet and keepalived pause during the address move. The VIP device changes,
 and kubelet's original command gains an explicit production `--node-ip` so the
 auxiliary address cannot become a NodeInternalIP.
+
+Node cutover also installs an owned `systemd-networkd-wait-online` drop-in.
+Netplan's generated commands explicitly name the original lower and ignore its
+`RequiredForOnline=no` setting. Reset those commands and require routable IPv4
+and DNS on `macsec0`, after MKA/resolved, with the existing 120-second budget.
+This file participates in rollback. The actual corrected node reboot is
+recorded in the dated production evidence above.
 
 Cilium support is prepared separately. Every node must run the pinned image,
 select `enp0s2` and `macsec0`, and set `macsec-underlay-devices=enp0s2`.

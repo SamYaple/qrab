@@ -23,12 +23,11 @@ Ingress backend mTLS (M2/M4/M5), local exec health probes (P11), native SDS
 delivery (I10) and HTTPS package builds (A3) also have
 [deployed acceptance evidence](connections/platform-evidence.md#ingress-backend-mtls-and-https-build-rollout-2026-11-16).
 Cilium-managed Pod links now use [strict WireGuard](node-encryption.md)
-(N14/I11), with [live migration and capture evidence](connections/platform-evidence.md#strict-pod-wireguard-rollout-2026-11-16). Host and world-origin
-forwarding remain separate work.
-
-The [native link prototype](node-link-encryption.md) records isolated MACsec/MKA
-results and the remaining gateway, boot and Cilium deployment requirements.
-It does not change the live host/iSCSI security status in this inventory.
+(N14/I11), with [live migration and capture evidence](connections/platform-evidence.md#strict-pod-wireguard-rollout-2026-11-16).
+The [native MACsec deployment](node-link-encryption.md) now also protects the
+four-peer node/gateway segment (N15/I12/A6), including iSCSI, BGP and world-origin
+handoff forwarding. Its [dated evidence](connections/platform-evidence.md#native-macsec-rollout-2026-11-16)
+records the root commit receipt and subsequent operational checks.
 
 Start here for endpoints, payloads and transport protection. Continue with:
 
@@ -66,7 +65,9 @@ The application-level encrypted paths implemented in source are manager-to-manag
 (TLS 1.3 mTLS), operator-to-exchange-shim (SPIFFE mTLS), operator-to-storage-ingress
 (TLS 1.3 plus bearer), OIDC/Kanidm/Proton HTTPS, HTTPS event delivery, public
 ingress TLS, netd conntrack peer TLS 1.3 mTLS, dashboard-to-VM and BMC-to-Redfish
-workload mTLS, observability workload mTLS, and a VPN NIC's WireGuard outer tunnel. The operator enables the
+workload mTLS, observability workload mTLS, and a VPN NIC's WireGuard outer tunnel.
+Pod WireGuard and native MACsec provide additional, separately authenticated
+transport layers. The operator enables the
 management workload listeners; standalone mode must configure them explicitly. The other paths below
 are either plain, local, or externally controlled.
 
@@ -86,7 +87,7 @@ dependencies, not processes inside the guest.
 flowchart TB
     browser["Browser / native Redfish client"]
     edge["Cilium ingress<br/>public TLS termination"]
-    dash["Dashboard :8080"]
+    dash["Dashboard mTLS :8445"]
     other["Other manager of same VM<br/>TCP 7800"]
     netd["Node qrab-netd"]
     anchor["Separate NIC anchor netns<br/>TAP / optional WireGuard / Cilium"]
@@ -98,8 +99,8 @@ flowchart TB
         qemu["QEMU and virtual guest"]
     end
     browser -->|"HTTPS / WSS"| edge
-    edge -->|"HTTP / WS"| dash
-    edge -->|"HTTP / WS"| mgmt
+    edge -->|"SPIRE mTLS / WSS"| dash
+    edge -->|"SPIRE mTLS / WSS"| mgmt
     dash -->|"SPIFFE mTLS + user ID token"| mgmt
     mgmt -->|"local JSON / RFB"| manager
     manager -->|"private QMP / VNC / QGA"| qemu
@@ -107,8 +108,8 @@ flowchart TB
     manager <-->|"local JSON / SCM_RIGHTS"| netd
     netd -.->|"plumbs TAP, grants FDs"| anchor
     qemu <-->|"local virtqueues / vhost-net"| anchor
-    qemu <-->|"plain iSCSI + CHAP"| disks
-    anchor <-->|"plain routed packets or WG tunnel"| world
+    qemu <-->|"iSCSI + CHAP; native MACsec on node/storage link"| disks
+    anchor <-->|"Guest protocol or VPN; Pod WG and native MACsec by segment"| world
 ```
 
 Shared Kubernetes, SPIRE, OIDC, provisioning and monitoring dependencies are
@@ -178,7 +179,7 @@ management access. Mock servers and test socketpairs are not deployed listeners.
 | --- | --- | --- | --- |
 | N1 | Manager → `/run/qrab-netd/netd.sock` | Bounded JSON request/reply: queues, anchor probe, handoff state, forwarding, conntrack pull result; TAP/vhost queue FDs with SCM_RIGHTS | **Local** Unix. Socket mode 0666; authorization is `SO_PEERCRED` PID → cgroup → Pod UID → watched VM ownership/NIC on this node. CDI mounts directory read-only; read-only does not prevent connecting. |
 | N2 | Guest virtio-net ↔ kernel vhost-net ↔ TAP `qt<12 hex>` in NIC anchor | Ethernet frames via guest virtqueues and kernel descriptors handed to QEMU | **Local**, no added encryption. qrab-netd opens `/dev/net/tun` and `/dev/vhost-net`; manager/anchor do not. No userspace TCP NIC relay and no per-packet forwarding through netd's control socket. |
-| N3 | Plain NIC TAP ↔ anchor routing/`eth0` ↔ Cilium ↔ other Pods/nodes/LAN/internet | Guest IPv4, TCP/UDP/ICMP and application protocols; stable /32 and security-group Cilium identity | Guest protocols are preserved. TAP/anchor routing is **local plaintext**; cross-node traffic between Cilium-managed Pods inherits **N14 WireGuard**. Ordinary LAN/internet traffic retains guest app protection; VPN NICs use N5. Policy and anti-spoof checks remain separate authorization. |
+| N3 | Plain NIC TAP ↔ anchor routing/`eth0` ↔ Cilium ↔ other Pods/nodes/LAN/internet | Guest IPv4, TCP/UDP/ICMP and application protocols; stable /32 and security-group Cilium identity | Guest protocols are preserved. TAP/anchor routing is **local plaintext**; cross-node managed Pod traffic inherits **N14 WireGuard**. **N15 MACsec** covers the native node/gateway segment, including ordinary routed guest traffic. Beyond that segment, LAN/internet traffic retains guest app protection; VPN NICs use N5. Policy and anti-spoof checks remain separate authorization. |
 | N4 | Guest ↔ `169.254.1.1` in anchor | Gateway ARP/ICMP; DHCP UDP client 68/server 67; plain NIC DNS UDP/TCP 53 redirected to anchor resolver | **Plain**, DHCP responder binds TAP and serves the configured guest MAC/address. VPN NIC DHCP supplies tunnel address/DNS/MTU instead. |
 | N5 | VPN NIC TAP ↔ anchor `wg0` ↔ configured IPv4 VPN peer | Inner guest packets; outer WireGuard UDP from anchor `:51820`, provider port from config (Proton 51820) | **Encrypted only from anchor WireGuard to VPN peer**. Static WireGuard peer keys, optional PSK; no SPIFFE/OIDC on data channel. TAP and `wg0` show inner traffic; anchor `eth0` shows encrypted outer UDP. |
 | N6 | Target manager → source manager Pod `:7800` | Hello/offer/ready JSON, then bidirectional QEMU migration byte stream, bulk state source → target | **SPIFFE TLS 1.3 mTLS** between managers; exact same per-VM SVID. Local QEMU ends are unencrypted Unix sockets. Standing deny guard plus temporary source/target policy restrict network reachability. |
@@ -186,10 +187,12 @@ management access. Mock servers and test socketpairs are not deployed listeners.
 | N8 | Source QEMU → source manager `migrate-out.sock`; target manager → target QEMU `migrate-in.sock` | QEMU migration stream including RAM, device, swtpm state blobs and pflash RAM | **Local**, private session directories. Managers wrap/unwrap TLS for N6. Shared iSCSI disk blocks are not sent in this stream. |
 | N9 | Target node netd → source node netd host `:7911` | One JSON line each way: NIC address request, hex-encoded Cilium conntrack map records and clock/truncation metadata | **SPIFFE TLS 1.3 mTLS**, exact per-node URI `/kubernetes/qrab-node/qrab-netd/<node>` resolved from current anchor host-IP/node metadata. Source retains on-link and same-VM/same-NIC authorization. Missing/mismatched SVID or ambiguous node mapping refuses exchange; no plaintext fallback. Enrollment/release required. |
 | N10 | netd → `/var/run/cilium/cilium.sock` | HTTP/1.1 `PATCH /v1/endpoint/cep-name:.../handoff` with prepare/active/standby | **Local**, root/hostPath access; no TLS or user bearer. netd also uses local bpftool/BPF map access to export/import conntrack. |
-| N11 | Node FRR ↔ BGP neighbors | TCP 179 route advertisements/withdrawals for guest /32s | **External configuration**. Operator writes `FRRConfiguration` via Kubernetes; it does not speak BGP. No BGP TLS or message-authentication guarantee is established here. BGP carries routes, not guest payloads. |
-| N12 | Old node → new node during handoff | Temporarily routed guest packets over a host /32 forward route | **Partial coverage**: Pod-origin traffic inherits N14; Cilium excludes world-origin forwarding, which remains separate protection work. N6 migration TLS does not cover these packets. Route installation is restricted to the caller's NIC /32 and on-link peer, then withdrawn after the grace period. |
+| N11 | Node FRR ↔ BGP neighbors | TCP 179 route advertisements/withdrawals for guest /32s | **N15 MACsec** encrypts peers on the native node/gateway segment. BGP message authentication remains an external, separate setting; peers beyond this segment need separate protection. Operator writes `FRRConfiguration` via Kubernetes; it does not speak BGP. BGP carries routes, not guest payloads. |
+| N12 | Old node → new node during handoff | Temporarily routed guest packets over a host /32 forward route | **N15 MACsec** protects the native old/new-node link for Pod and world origins. Pod-origin managed traffic additionally inherits N14; Cilium's world-origin WireGuard exclusion remains. N6 migration TLS covers a different stream. Route installation is restricted to the caller's NIC /32 and on-link peer, then withdrawn after the grace period. |
 | N13 | netd renewal thread inside VPN anchor netns → tunnel gateway UDP `:5351` | NAT-PMP UDP/TCP mapping requests/replies, 60s leases, renewed every 40s (10s after failure); enabled by `# qrab: port-forwarding` | **Plain NAT-PMP inside the encrypted WireGuard tunnel**, no separate OIDC/SPIFFE/application credential. Local source `169.254.1.1:<ephemeral>` is SNATed to the guest's inner tunnel address only for gateway:5351 out `wg0`; replies return to netd via conntrack, not guest TAP. |
 | N14 | Node `cilium_wg0` ↔ peer node UDP `:51871` | Cilium-managed IPv4 Pod traffic, including guest NIC anchors | **Deployed WireGuard**, per-node keys distributed through I11. Strict ingress/egress protects Pod-to-Pod traffic in `10.244.0.0/16`, including the guest /17; unknown encryption metadata drops. Same-node data remains local. Host traffic, ordinary external traffic and world-origin forwarding are outside this mode. |
+| N15 | Node `macsec0` ↔ node/gateway `macsec0` over `enp0s2` / `br-kube` and VM taps | Native Ethernet payloads: node/cluster IP, iSCSI, BGP, guest forwarding and outer Pod/VPN WireGuard packets | **Deployed MACsec**, GCM-AES-128, strict validation, encryption and replay protection; raw lower ingress/egress guards allow only MACsec/MKA. Production IPs remain on MTU1500 uppers, no IP on MTU1532 lowers. I12 authenticates link-group membership, separately from workload SPIFFE. Encryption ends at the peer, with local stacks and traffic beyond the gateway outside this layer. |
+| N16 | Guest `qrab-spire-relay` ↔ `org.yapplesauce.spire.0` virtio-serial ↔ private manager `spire.sock` | Multiplexed open/data/close/credit frames for I14; at most eight connections and 64 KiB in flight per direction by default | **Local** virtual device/Unix channel. Multiplexer headers have no separate encryption; SPIRE TLS records remain opaque inside their data frames. Enabled only with guest identity. This is separate from QGA and its allowlist; no guest NIC is required. |
 
 Source: [TAP launch](../projects/manager/src/pod/tap.rs),
 [hot-attach](../projects/manager/src/pod/nics.rs),
@@ -205,6 +208,10 @@ Source: [TAP launch](../projects/manager/src/pod/tap.rs),
 [conntrack mTLS](../projects/qrab-netd/src/peer_tls.rs),
 [conntrack records](../projects/qrab-netd/src/ct.rs) and
 [address/route controller](../projects/operator/src/address.rs).
+Native transport, MKA and administrative key delivery:
+[root coordinator and agent](../contrib/network-encryption/deploy_root.py),
+[runbook](../contrib/network-encryption/DEPLOYMENT.md) and
+[architecture](node-link-encryption.md).
 
 NIC policies are per anchor, while the BMC/Redfish policies select
 `component: vm`. An anchor with no enforcing policy is default-allow; the
@@ -216,22 +223,26 @@ NICs can still use a plain NIC: a VPN NIC does not encrypt every VM connection.
 
 | ID | Initiator → endpoint | Payload / protocol | Encryption and authentication |
 | --- | --- | --- | --- |
-| S1 | Operator → exchange shim `https://10.203.0.10:8444/exchange` | Policy `qrab-vm-disk-operator`; fresh short-lived bearer returned per storage RPC | **SPIFFE mTLS** with exact server ID `spiffe://yapplesauce.com/kanidm/exchange-shim`; HTTP/1.1. Operator identity is the authenticated workload, not a user login. |
-| S2 | Operator → storage ingress `https://10.203.0.1:9477/v1/execute` | JSON request ID, fixed `vm-disk-*` verb; export also carries CHAP secret in request body | **TLS 1.3 server authentication**, pinned public host CA, **no client certificate**. Delegated Kanidm bearer supplies subject/actor/scope authority. |
+| S1 | Operator / image-import controller → exchange shim `https://10.203.0.10:8444/exchange` | Per-service policy and fresh short-lived storage bearer | **SPIFFE mTLS**, exact server `spiffe://yapplesauce.com/kanidm/exchange-shim`; HTTP/1.1. Operator uses `qrab-vm-disk-operator`; importer has its own `/kubernetes/qrab/qrab-image-importer` identity and policy. Job containers receive neither identity nor API token. |
+| S2 | Operator / image-import controller → storage ingress `https://10.203.0.1:9477/v1/execute` | Request ID, fixed disk/image-stage verbs; export may carry CHAP in JSON body | **TLS 1.3 server authentication**, pinned public host CA, **no client certificate** in the audited client. Delegated Kanidm bearer supplies subject/actor/scope authority. Source and live server mTLS enrollment remain separate checks. |
 | S3 | Storage ingress → root towl storage daemon → `qrab-iscsi-target` | External ingress/backend channel, then fixed executable argv, JSON/credential stdin, bounded output; configfs LIO/ZFS administration | External shim source fixes backend to **plain loopback HTTP `127.0.0.1:9476`**. Daemon forwards credentials on **local** wrapper stdin; local kernel/filesystem operations add no encryption. Host deployment/binary equivalence was not verified; see [external evidence](connections/platform-evidence.md#storage-ingress-and-exchange-shim-s1s3-a1). |
-| S4 | QEMU libiscsi → LIO portal, normally `10.203.0.1:3260` | SCSI block reads/writes, login, capacity and flushes over TCP | **Plain iSCSI**, exact initiator IQN ACL and CHAP login. CHAP does not encrypt disk data or authenticate a SPIFFE workload; no iSCSI TLS/IPsec is configured by qrab. Target and source may both log in during migration. |
-| S5 | Operator → Kubernetes Secret → kubelet → manager mount → QEMU secret object | CHAP password; nonsecret endpoint binding travels separately in config | API leg uses Kubernetes TLS/RBAC. Mounted password file is **local plaintext** at `/run/qrab-auth/<id>/password` (0440); QEMU loads it by file, not URL/argv value. No at-rest encryption guarantee follows from Secret base64. |
+| S4 | QEMU libiscsi or image-write Job `qemu-img` → LIO portal, normally `10.203.0.1:3260` | VM block I/O or staged image writes, login, capacity and flushes over TCP | **N15 MACsec** encrypts the deployed node-to-storage segment. iSCSI remains plain in local Pod/node/target stacks, with exact initiator IQN ACL and CHAP login. CHAP adds no confidentiality or SPIFFE identity. Other portals need their own transport protection. Target/source may both log in during migration; image-stage exports have their own credentials. |
+| S5 | Controller → Kubernetes Secret → kubelet → manager or image-write Job mount → QEMU secret object | CHAP password; nonsecret endpoint binding separately in config | API TLS/RBAC, then **local plaintext** credential file: `/run/qrab-auth/<id>/password` for manager or `/run/qrab-stage/password` for image Job (0440). Password is loaded from file, not supplied as a URL/argv value. Secret base64 adds no at-rest encryption guarantee. |
 | S6 | QEMU ↔ retained `/var/lib/qrab/identity/OVMF_VARS.fd`; swtpm ↔ its state directory | EFI variable writes, TPM persistent state, VM UID/disk bindings and locks | **Local file I/O**, retained filesystem PVC, exclusive manager state lease. CSI backend transport and volume encryption are **external**; file permissions/retention are not encryption. |
 | S7 | Guest TPM device ↔ QEMU ↔ swtpm `swtpm.sock` | TPM 2 commands; emulator control and state transfer | **Local virtual device/Unix socket**, socket and state files 0600 in private directories. No TPM TCP listener or SPIFFE identity on this hop. Software TPM trust includes node/QEMU/state-volume administrators. |
 | S8 | QEMU ← bundled boot ESP/kernel/initramfs, local disk, NoCloud seed | Local block/file reads; cloud-init user/meta/network data in read-only seed medium | **Local**, no metadata HTTP service. Seed contents and VM config can contain user data; Secure Boot signatures provide boot integrity, not transport or storage confidentiality. |
 | S9 | QEMU ← media/catalog mount; manager ↔ staged firmware/policy files; guest agent ↔ EFI variables | Approved local ISO reads, firmware CODE selection, signed AUTH2 updates via M12 | **Local** read-only catalog/media mounts and retained identity-bound records. No user-provided image URL fetch. Signed firmware/EFI updates authenticate content; they do not encrypt these streams. |
 | S10 | `qrab-iscsi-target` → local raw file/ZFS zvol; `zfs send` → `zfs receive` | Administrative image import, hash check, sealing, clone/publication and retained disk data | **Local** file/pipe/kernel I/O. The publication pipe is not a remote replication channel. Encryption at rest requires checking the actual ZFS/CSI/guest disk settings outside this connection audit. |
+| S11 | Manager → retained `identity/guest/` → read-only `qrab-identity` FAT disk → guest | TPM public/private blobs, EK/DevID certificates, bundle, agent config, startup script and bundled guest identity binaries | **Local** file/virtual-block I/O. The private TPM blob is bound to this vTPM; certificates and bundle are public metadata. The software TPM/manager/node remain trusted. Transport through N6 during migration is mTLS; local disk/file access and encryption at rest are separate boundaries. |
 
 Source: [operator storage client](../projects/operator/src/storage.rs),
 [storage-client deployment](../contrib/kubernetes/operator/storage-api/deployment.patch.yaml),
 [QEMU iSCSI arguments](../projects/manager/src/pod/iscsi.rs),
 [target host operations](../projects/iscsi-target/src/host.rs),
 [target CLI](../projects/iscsi-target/src/main.rs),
+[image-import controller](../projects/operator/src/image_import.rs),
+[token-free image Job](../projects/operator/src/image_job.rs),
+[guest identity disk](../projects/manager/src/pod/identity.rs),
 [TPM launcher](../projects/manager/src/pod/tpm.rs),
 [persistent identity](../projects/manager/src/pod/persistent.rs),
 [seed medium](../projects/manager/src/pod/seed.rs),
@@ -248,14 +259,18 @@ sequence for each of these connections, including what is not enrolled.
 | I1 | Browser ↔ Kanidm `https://idm.yaple.net` | Interactive login, authorization redirect, state, nonce, S256 PKCE challenge and callback code | **HTTPS**, Kanidm user authentication; callback code returns through M1 or M3, not a direct browser-to-Pod connection. |
 | I2 | BMC/dashboard → issuer discovery, JWKS and token endpoint | Provider metadata, public keys, code + PKCE verifier, signed ID token and access-token response | **HTTPS**, CA server verification, redirects disabled. BMC is a public PKCE client; dashboard additionally uses `client_secret_basic` from a Secret file. |
 | I3 | BMC/Redfish → configured bearer issuer discovery/JWKS | Public signing keys for per-request user ID-token verification | **HTTPS**, CA server verification. No per-request token introspection: signature/issuer/audience/expiry are checked locally, with bounded key refresh. |
-| I4 | Dashboard → Kanidm `/v1/group/...` | Per-VM group creation, UUID lookup, membership/nesting and rollback | **HTTPS**, separate group-administration service-account bearer from file. This is not the user's ID token and not a SPIFFE token exchange. |
-| I5 | Manager/operator; optionally Redfish → `unix:/run/spire/agent.sock` | SPIFFE Workload API gRPC stream: X509-SVID certificate/private key and trust-bundle updates | **Local**, CSI-mounted Unix socket and SPIRE workload attestation. Socket access alone does not grant every SVID. `qrab-spiffe` continuously uses the rotating source. |
-| I6 | Platform SPIRE agents/controller ↔ SPIRE server / Kubernetes | Node/workload registration, attestation, SVID issuance/renewal, trust bundles | External deployment: controller uses Kubernetes HTTPS/ServiceAccount plus local server admin socket; CSI exposes local Unix sockets. Native agent→server attestation/renewal remains separately configured. Existing node TPM identity is different from guest identity; see [platform evidence](connections/platform-evidence.md#spire-controller-and-csi-local-socket-paths-i5i6). |
+| I4 | Dashboard → Kanidm `/v1/group/...` | Per-VM group creation, UUID lookup, membership/nesting, rollback and owned-group deletion during VM finalization | **HTTPS**, separate group-administration service-account bearer from file. The dashboard verifies group ownership before cleanup. This is not the user's ID token and not a SPIFFE token exchange. |
+| I5 | qrab service → CSI-mounted `unix:/run/spire/agent.sock`; optional guest workload → its guest agent's local Workload API | gRPC stream of X509-SVID certificate/private key and trust-bundle updates | **Local** Unix and workload attestation. Node/container and guest agents are separate issuers/attestation contexts; socket access grants only matching registered identities. `qrab-spiffe` follows rotation. Guest Workload API access does not expose the host's socket or manager SVID. |
+| I6 | Operator / platform SPIRE agents/controller ↔ SPIRE server / Kubernetes | Node/workload registrations, optional guest `ClusterStaticEntry` alias/workload objects, attestation, issuance/renewal and trust bundles | Kubernetes HTTPS/RBAC/admission, local server admin socket and separately configured native agent-server transport. Guest registrations are VM-UID-bound and forbid admin/downstream authority. Existing node TPM identity differs from guest identity; see [platform evidence](connections/platform-evidence.md#spire-controller-and-csi-local-socket-paths-i5i6) and [guest identity](spire-vm.md). |
 | I7 | Workstation `qrab-proton login/logout` → `https://vpn-api.proton.me:443` | Proton SRP proofs, optional TOTP, session tokens; human challenge may open `https://verify.proton.me` | **HTTPS**, Proton server trust plus verified SRP server proof and Proton-signed modulus. No Kanidm OIDC or SPIFFE here. Password/TOTP stay on workstation/API path. |
 | I8 | Proton broker → same Proton API | Refresh rotation, VPN plan/catalog/loads, Ed25519 public-key certificate requests | **HTTPS**, Proton bearer and `x-pm-uid`. Session UID/refresh token and profile keys live in separately confined Kubernetes Secrets. Broker accepts no inbound service connections. |
 | I9 | Broker → Kubernetes → VPN Secret → anchor mount → netd → `wg syncconf` | `vpn-<profile>/wg.conf` with X25519 key and selected peer; public catalog in `proton-catalog` | API legs use Kubernetes TLS/RBAC/admission. Anchor's root-only 0400 mount and netd's stdin pipe are **local plaintext**. Private key is not delivered to manager/guest or on `wg` argv. |
 | I10 | Cilium Envoy → node SPIRE agent SDS Unix socket | Streaming Secret discovery: ingress SVID/private key and local bundle | **Local**, container-attested CSI socket. Private key delivered directly to Envoy memory. Exact image/Pod/UID registration; fixed bootstrap cluster, standard X509 local-bundle verification plus URI pinning. Live SDS delivery and rotation verified on all three nodes. |
 | I11 | Cilium agent ↔ Kubernetes API `CiliumNode` and endpoint inventory | Public WireGuard key publication/watch and IP-to-node ownership used by N14 | **HTTPS**, cluster CA and Cilium ServiceAccount authorization. Public keys use `network.cilium.io/wg-pub-key`; private keys stay on the node. This is Kubernetes-authenticated key distribution, separate from SPIFFE SVIDs and browser OIDC. |
+| I12 | Four native peers' `wpa_supplicant` processes ↔ peers over EAPOL `0x888e` | Standard MKA membership, live-peer and session-key negotiation for N15 | **CAK-authenticated MKA**, root-generated 128-bit shared CAK/CKN delivered through A6, root-only persistent files. Fresh session keys and automatic session rekey; no static transmit key/packet-number reset. Group membership is separate from SPIFFE or individual guest identity. MKA metadata remains observable; CAK rotation is a coordinated operation. |
+| I13 | Manager → `qrab-tpm-issuer.qrab-tpm-issuer.svc:8443` | EK/DevID certification before a guest's first identity-enabled boot | **SPIFFE TLS 1.3 mTLS**, exact configured issuer ID, default `/kubernetes/qrab-tpm-issuer/qrab-tpm-issuer`. Issuer admits exact `/kubernetes/qrab/vm/<uuid>` manager IDs and derives the signing subject from that authenticated UUID. Issuer CA keys stay outside the manager/guest. Optional guest identity feature. |
+| I14 | In-guest SPIRE agent → guest loopback relay `127.0.0.1:8081` → N16 → manager TCP → SPIRE VIP `10.203.0.10:8081` | SPIRE TPM DevID attestation, node SVID renewal and workload issuance | **SPIRE's end-to-end TLS**, bootstrap bundle from S11 and TPM DevID attestation, followed by agent SVID/mTLS. Relay processes move opaque bytes and do not terminate TLS. The configured upstream is a fixed IP/port, not a guest-selected destination. Native outer link inherits N15. Relay/session reconnects after migration; no guest NIC is needed. |
+| I15 | Operator → native nodes `10.203.0.11`, `.12`, `.13`, HTTPS `:8447/v1/guest-agents/evict` | VM UID requesting deletion of its guest SPIRE agent | **SPIFFE TLS 1.3 mTLS**, exact `/native/<node>/spire-guest-evictor` URI selected by configured node name. HTTPS-only, redirects/proxies disabled. Operator removes guest entries and stops VM Pods before eviction; unavailable evictors follow the documented finalizer warning/deadline policy. Native server/admin implementation is separately owned. |
 
 Source: [BMC OIDC](../projects/bmc/src/auth.rs),
 [dashboard OIDC](../projects/dashboard/src/auth.rs),
@@ -267,6 +282,14 @@ Source: [BMC OIDC](../projects/bmc/src/auth.rs),
 [workstation login](../projects/proton/src/login.rs),
 [broker Kubernetes runner](../projects/proton/src/broker/runner.rs) and
 [VPN anchor rendering](../projects/operator/src/nic.rs).
+
+Optional guest identity source: [TPM issuer](../projects/tpm-issuer/src/lib.rs),
+[manager provisioning](../projects/manager/src/pod/identity.rs),
+[manager relay](../projects/manager/src/pod/spire_relay.rs),
+[guest relay framing](../projects/qrab-spire-relay/src/wire.rs) and
+[registration/eviction client](../projects/operator/src/guest_identity.rs).
+See the [guest transport diagram](connections/data-paths.md#optional-guest-spire-identity)
+and [guest lifecycle evidence](spire-vm.md).
 
 ## Platform control and observability connections
 
@@ -285,9 +308,10 @@ Source: [BMC OIDC](../projects/bmc/src/auth.rs),
 | P11 | Kubelet → local exec → operator/dashboard/BMC/Redfish loopback health | Fixed GET `/healthz` or `/readyz` inside the container network namespace | **Deployed local exec + literal loopback**, no network plaintext probe. Two-second total budget; workload mode hides all app routes on the ordinary listener. Manager retains its existing exec/file probes. Live ordinary Pod ports refused connections. |
 | P12 | KVM plugin → kubelet `kubelet.sock`; kubelet → `qrab-kvm.sock` | Device-plugin gRPC registration, ListAndWatch, Allocate; writes CDI JSON | **Local Unix gRPC**, root-owned host directories, no TLS/OIDC/SPIFFE. CDI gives requested container `/dev/kvm` and netd mount. QEMU then uses local KVM ioctl/mmap for VM/vCPU execution (TCG stays in process); no encrypted CPU/RAM boundary is promised. VM Pod has no API token. |
 | P13 | Guest → QEMU serial → manager → container stdout; service logs → stderr | Serial text, bounded tail, structured lifecycle/identity/admission/error logs; later admin serial/diagnostic API reads | **Local** virtual serial/pipes/log files; cluster log collector transport/storage is **external**. Serial is separate from the graphical VNC console and may contain guest secrets. |
-| P14 | Pod / guest resolver → cluster or VPN DNS | UDP/TCP 53 queries/replies used by OIDC/provider/event/Prometheus clients and guests | **Cross-node Pod DNS inherits N14 WireGuard**, verified against a remote CoreDNS Pod. Local guest gateway/anchor DNS remains local plaintext; host/external resolver legs need their own protection. VPN DNS travels inside N5. Final application HTTPS is a separate connection. |
+| P14 | Pod / guest resolver → cluster or VPN DNS | UDP/TCP 53 queries/replies used by OIDC/provider/event/Prometheus clients and guests | **Cross-node Pod DNS inherits N14 WireGuard**, verified against a remote CoreDNS Pod; native node/gateway segments inherit N15. Local guest gateway/anchor DNS remains local plaintext. Resolver traffic beyond those peers needs its own protection; VPN DNS travels inside N5. Final application HTTPS is a separate connection. |
 
 | P15 | qrab observability adapter → Kubernetes API | Read-only current VM UIDs and owned Pod/IP inventory | **HTTPS** using a rotating projected Pod-bound token of the existing monitoring Prometheus ServiceAccount. Namespaced RBAC grants only VM/Pod reads; discovery authority expires after 15s without a successful refresh. |
+| P16 | Root native association watcher → kernel Netlink and private wpa Unix control socket | Protection/association metadata and fixed `MKA_REKEY` requests; bounded public status journal | **Local**, root-only directories and an isolated Python process permitting only Unix/Netlink socket families. Control returns no keys; standard I12 negotiates fresh keys. No Kubernetes/SPIRE dependency or public health listener. See [association recovery](node-link-encryption.md#association-recovery) for staging, runtime status and test scope. |
 
 Source: [operator controller startup](../projects/operator/src/main.rs),
 [dashboard Kubernetes client](../projects/dashboard/src/cluster.rs),
@@ -325,12 +349,13 @@ They still move executable content or credentials and belong in a full inventory
 | A1 | Kubelet/container runtime → delegated image-pull identity services → Zot registry | Pod/ServiceAccount-bound pull authorization and OCI manifests/layers for digest-pinned images. Workload Pods need no registry password mount. Provider→shim SPIFFE mTLS, shim→Kubernetes TokenReview HTTPS and shim→Kanidm HTTPS are defined by [external source](connections/platform-evidence.md#storage-ingress-and-exchange-shim-s1s3-a1). Exact deployed policies/backend TLS still require platform evidence; `imagePullPolicy: Always` alone proves none of this. |
 | A2 | Release workstation → `towl tokens mint --audience zot` → Podman registry login/push/pull | Fresh scoped credential on stdin; registry HTTPS carries OCI images/manifests. `publish.sh` checks source revision and immutable digest; `images.lock.json` records runtime pins. The initial audit performed no publication; later dated rollout records verify published and deployed artifacts separately. |
 | A3 | Image build stages → Debian APT HTTPS mirrors (signed package indices and build/runtime dependencies) | **Verified HTTPS builds** with certificate/hostname verification and redirects disabled. Bootstrap CA store copied from immutable Rust image before the first fetch; APT signatures remain enabled. QEMU and Rust images were built/published and booted in the deployed release. |
-| A4 | Admin staging tool → HTTPS OS image URL (HTTPS redirects), then local raw conversion/import and Kubernetes catalog | Upstream checksum then raw SHA-256 rechecked by root import. `qrab-base-images` holds metadata; dashboard does not download its `source_url`. Media/firmware are pre-provisioned catalog mounts, not remote Redfish upload/download streams. |
+| A4 | Admin staging tool or token-free image-inspect/write Job → HTTPS OS image URL, then local conversion and storage stage | **HTTPS**, CA verification, at most ten HTTPS-only redirects for Jobs; upstream SHA-256 checked before parsing. Write Jobs use `qemu-img` libiscsi/CHAP to fill the staging volume (S4/S5); storage rehashes it when sealing. The controller uses API and storage authorization separately. Dashboard submits catalog/import metadata rather than downloading image bytes. |
 | A5 | Administrator `kubectl` → API → kubelet/CRI exec/log/port-forward | Kubernetes control/debug connection can reach processes, logs and private files when authorized. Client transport uses kubeconfig TLS/auth; API-to-node/CRI legs are **external**. Port-forward can expose an otherwise private listener and changes the observer's access boundary; it does not change that listener's application authentication. |
+| A6 | Root gateway coordinator → local `runuser -u bob` → node `automation` SSH → noninteractive root agent | **Host-key-verified SSH**, strict batch mode, no agent forwarding. Initial deployment delivers the profile/CAK/CKN on stdin into root-only state; health upgrade stages only public code/tools/release metadata. Host keys stay pinned to original node IPs during auxiliary addressing. SSH keys are not copied. Local pipes/files are local plaintext; administrative distribution is independent of SPIFFE/OIDC. |
 
-Build recipes invoke `apt-get`, Cargo and (for the guest agent) `rustup`; their
-registry/mirror endpoints follow the base image and tool configuration. The
-recipes do not force every package fetch onto HTTPS. An APT repository signature
+Build recipes enforce verified APT HTTPS before the first fetch. Cargo and
+`rustup` registry/mirror endpoints additionally follow their effective tool
+configuration. An APT repository signature
 or Cargo checksum verifies content and does not prove confidentiality; inspect
 effective APT/Cargo/rustup configuration when capturing a build. noVNC assets
 are copied from the repository at build time and served locally at runtime.
@@ -346,15 +371,19 @@ Source: [deployment ownership](../contrib/kubernetes/README.md),
 ## Coverage limits and maintenance
 
 This inventory accounts for every runtime crate in the workspace: operator,
-manager, BMC, Redfish, dashboard, netd, Proton, guest agent, KVM plugin,
-iscsi-target, qrab-spiffe, oidc-bearer and the QAPI/protocol/generation crates.
+manager, BMC, Redfish, dashboard, netd, Proton, guest agent, guest SPIRE relay,
+TPM issuer, observability adapter, KVM plugin, iscsi-target, qrab-spiffe,
+oidc-bearer and the QAPI/protocol/generation crates. The operator's image-import
+controller and token-free Job mode share its binary; A4/S4/S5 cover their data.
 The guest's arbitrary applications add their own destinations/protocols; they
 cannot be enumerated from the operator source. QGA update hooks are fixed local
 executables; a custom image's hook can add network streams whose policy and
 transport must be documented with that image. The bundled hook only reports.
 
-Not implemented as additional active services here: guest SPIRE enrollment,
-IPMI, a general HTTP QAPI proxy, browser USB device redirection, guest microphone,
+Guest SPIRE enrollment is an optional implemented path (I13–I15/N16/S11), with
+its own [dated evidence](spire-vm.md). It is separate from manager identity and
+was not exercised by the native link's CirrOS TCP/VPN checks.
+Not implemented as additional active services here: IPMI, a general HTTP QAPI proxy, browser USB device redirection, guest microphone,
 SPICE, or a cloud metadata HTTP listener. NAT-PMP lease control is implemented
 as N13, separately from the Proton HTTPS certificate feature request. See
 [BMC feature limits](bmc.md#admin-bucket) and [guest identity foundation](spire-vm.md).
@@ -363,7 +392,7 @@ The [platform appendix](connections/platform-evidence.md) checks the external
 storage loopback, shim exchange/pull validation and CSI/controller contracts,
 and records live Cilium/SPIRE/Pod observations. Remaining unknowns include
 IdP/registry internal backends, native SPIRE agent-server and host-listener
-configuration, API-server-to-node traffic, BGP authentication, log shipping and
+configuration, API-server-to-node protocol authentication, BGP message authentication, log shipping and
 encryption at rest. These are explicit boundaries, not implicit “encrypted”
 entries. Their owning configurations must be inspected before making an
 end-to-end assurance claim.

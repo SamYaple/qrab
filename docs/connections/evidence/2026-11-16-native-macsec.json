@@ -1,0 +1,962 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-16",
+  "scope": "Private native Ethernet segment: physical gateway/storage host and kube01/kube02/kube03. Separate from application SPIFFE, Pod WireGuard and VPN encryption.",
+  "rootDeployment": {
+    "evidenceSource": "Operator-supplied root command output; gateway private deployment state not read by agent.",
+    "kitSource": "d33812445a807c864f201a9275fb914a81e3f587",
+    "kitDirectory": "/home/bob/operations/qrab-native-link-d338124",
+    "checksumManifestSha256": "3e923c49360d50cd0b3de3c164663086cecb018467f06ab2fc3ded2eda383df9",
+    "receipt": {
+      "deployment": "committed",
+      "hosts": {
+        "gateway": {
+          "bgp_routes": 5,
+          "capture": {
+            "capture_drops": 0,
+            "clear": {
+              "ipv4": 0,
+              "ipv6": 0
+            }
+          },
+          "iscsi_connections": 1,
+          "phase": "verified"
+        },
+        "kube01": {
+          "bgp_routes": 3,
+          "capture": {
+            "capture_drops": 0,
+            "clear": {
+              "ipv4": 0,
+              "ipv6": 0
+            }
+          },
+          "iscsi_connections": 0,
+          "phase": "verified"
+        },
+        "kube02": {
+          "bgp_routes": 3,
+          "capture": {
+            "capture_drops": 0,
+            "clear": {
+              "ipv4": 0,
+              "ipv6": 0
+            }
+          },
+          "iscsi_connections": 0,
+          "phase": "verified"
+        },
+        "kube03": {
+          "bgp_routes": 2,
+          "capture": {
+            "capture_drops": 0,
+            "clear": {
+              "ipv4": 0,
+              "ipv6": 0
+            }
+          },
+          "iscsi_connections": 0,
+          "phase": "verified"
+        }
+      },
+      "state": "/var/lib/qrab-native-link/68ffad993b6652e9b42cc8a1"
+    },
+    "tools": {
+      "tools_reference": "zot.yapplesauce.com/qrab/link-tools@sha256:3c0ba57cac8106becc604941d0a96db98579d5e56854fca785c43c3dfdba233e",
+      "tools_archive_sha256": "e88b2429f1ab21ca0af35acab333b50d0a1900cfeb863369908975502d483d8a",
+      "wpa_sha256": "13b6a65f587fe57817d1aa4075c0459add5b93df384304547206e4a4bbd74ab8",
+      "cilium_digest": "sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
+      "cilium_source": "517c5fe834e26db4f3fb10465c77cf957a5bc526"
+    }
+  },
+  "postCommitNodeInspection": {
+    "observedUtcApproximate": "2026-11-16T20:10:51Z",
+    "nodes": {
+      "kube01": {
+        "phase": "committed",
+        "uncommitted": false,
+        "links": [
+          {
+            "device": "enp0s2",
+            "mtu": 1532,
+            "state": "UP",
+            "addresses": []
+          },
+          {
+            "device": "macsec0",
+            "mtu": 1500,
+            "state": "UP",
+            "addresses": [
+              {
+                "family": "inet",
+                "local": "10.203.0.11",
+                "prefixlen": 24
+              },
+              {
+                "family": "inet",
+                "local": "192.0.2.11",
+                "prefixlen": 24
+              },
+              {
+                "family": "inet",
+                "local": "10.203.0.10",
+                "prefixlen": 24
+              }
+            ]
+          },
+          {
+            "device": "cilium_wg0",
+            "mtu": 1405,
+            "state": "UNKNOWN",
+            "addresses": []
+          }
+        ],
+        "services": {
+          "qrab-macsec.service": "ActiveState=active\nSubState=running\nResult=success",
+          "qrab-macsec-guard.service": "ActiveState=active\nSubState=exited\nResult=success",
+          "qrab-macsec-rollback.timer": "ActiveState=inactive\nSubState=dead\nResult=success",
+          "qrab-macsec-probe.service": "ActiveState=failed\nSubState=failed\nResult=exit-code",
+          "kubelet.service": "ActiveState=active\nSubState=running\nResult=success",
+          "keepalived.service": "ActiveState=active\nSubState=running\nResult=success",
+          "spire-agent.service": "ActiveState=active\nSubState=running\nResult=success"
+        },
+        "capture": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 5.015129761770368,
+          "interface": "enp0s2",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        },
+        "ciliumImage": "zot-node.invalid/infrastructure/cilium:v1.20.2-towl.12-517c5fe834@sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
+        "hostFirewall": {
+          "devices": [
+            "enp0s2",
+            "macsec0"
+          ],
+          "mode": "Enabled"
+        },
+        "upperHooks": [
+          {
+            "devname": "macsec0",
+            "ifindex": 1961,
+            "kind": "tcx/ingress",
+            "name": "cil_from_netdev"
+          },
+          {
+            "devname": "macsec0",
+            "ifindex": 1961,
+            "kind": "tcx/egress",
+            "name": "cil_to_netdev"
+          }
+        ],
+        "rawGuard": {
+          "owner": "qrab 68ffad993b6652e9b42cc8a1",
+          "allowedEtherTypes": [
+            "0x888e",
+            "0x88e5"
+          ],
+          "chains": [
+            {
+              "name": "ingress",
+              "dev": "enp0s2",
+              "hook": "ingress",
+              "prio": -500,
+              "policy": "drop"
+            },
+            {
+              "name": "egress",
+              "dev": "enp0s2",
+              "hook": "egress",
+              "prio": -500,
+              "policy": "drop"
+            }
+          ],
+          "counters": [
+            {
+              "chain": "ingress",
+              "verdict": "accept",
+              "counter": {
+                "packets": 2390285,
+                "bytes": 2091720914
+              }
+            },
+            {
+              "chain": "ingress",
+              "verdict": "drop",
+              "counter": {
+                "packets": 173,
+                "bytes": 30815
+              }
+            },
+            {
+              "chain": "egress",
+              "verdict": "accept",
+              "counter": {
+                "packets": 3082653,
+                "bytes": 3378459160
+              }
+            },
+            {
+              "chain": "egress",
+              "verdict": "drop",
+              "counter": {
+                "packets": 0,
+                "bytes": 0
+              }
+            }
+          ]
+        }
+      },
+      "kube02": {
+        "phase": "committed",
+        "uncommitted": false,
+        "links": [
+          {
+            "device": "enp0s2",
+            "mtu": 1532,
+            "state": "UP",
+            "addresses": []
+          },
+          {
+            "device": "macsec0",
+            "mtu": 1500,
+            "state": "UP",
+            "addresses": [
+              {
+                "family": "inet",
+                "local": "10.203.0.12",
+                "prefixlen": 24
+              },
+              {
+                "family": "inet",
+                "local": "192.0.2.12",
+                "prefixlen": 24
+              }
+            ]
+          },
+          {
+            "device": "cilium_wg0",
+            "mtu": 1405,
+            "state": "UNKNOWN",
+            "addresses": []
+          }
+        ],
+        "services": {
+          "qrab-macsec.service": "ActiveState=active\nSubState=running\nResult=success",
+          "qrab-macsec-guard.service": "ActiveState=active\nSubState=exited\nResult=success",
+          "qrab-macsec-rollback.timer": "ActiveState=inactive\nSubState=dead\nResult=success",
+          "qrab-macsec-probe.service": "ActiveState=failed\nSubState=failed\nResult=exit-code",
+          "kubelet.service": "ActiveState=active\nSubState=running\nResult=success",
+          "keepalived.service": "ActiveState=active\nSubState=running\nResult=success",
+          "spire-agent.service": "ActiveState=active\nSubState=running\nResult=success"
+        },
+        "capture": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 5.021418456919491,
+          "interface": "enp0s2",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        },
+        "ciliumImage": "zot-node.invalid/infrastructure/cilium:v1.20.2-towl.12-517c5fe834@sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
+        "hostFirewall": {
+          "devices": [
+            "enp0s2",
+            "macsec0"
+          ],
+          "mode": "Enabled"
+        },
+        "upperHooks": [
+          {
+            "devname": "macsec0",
+            "ifindex": 870,
+            "kind": "tcx/ingress",
+            "name": "cil_from_netdev"
+          },
+          {
+            "devname": "macsec0",
+            "ifindex": 870,
+            "kind": "tcx/egress",
+            "name": "cil_to_netdev"
+          }
+        ],
+        "rawGuard": {
+          "owner": "qrab 68ffad993b6652e9b42cc8a1",
+          "allowedEtherTypes": [
+            "0x888e",
+            "0x88e5"
+          ],
+          "chains": [
+            {
+              "name": "ingress",
+              "dev": "enp0s2",
+              "hook": "ingress",
+              "prio": -500,
+              "policy": "drop"
+            },
+            {
+              "name": "egress",
+              "dev": "enp0s2",
+              "hook": "egress",
+              "prio": -500,
+              "policy": "drop"
+            }
+          ],
+          "counters": [
+            {
+              "chain": "ingress",
+              "verdict": "accept",
+              "counter": {
+                "packets": 3837619,
+                "bytes": 4489988990
+              }
+            },
+            {
+              "chain": "ingress",
+              "verdict": "drop",
+              "counter": {
+                "packets": 54,
+                "bytes": 8004
+              }
+            },
+            {
+              "chain": "egress",
+              "verdict": "accept",
+              "counter": {
+                "packets": 1991769,
+                "bytes": 1373375812
+              }
+            },
+            {
+              "chain": "egress",
+              "verdict": "drop",
+              "counter": {
+                "packets": 0,
+                "bytes": 0
+              }
+            }
+          ]
+        }
+      },
+      "kube03": {
+        "phase": "committed",
+        "uncommitted": false,
+        "links": [
+          {
+            "device": "enp0s2",
+            "mtu": 1532,
+            "state": "UP",
+            "addresses": []
+          },
+          {
+            "device": "macsec0",
+            "mtu": 1500,
+            "state": "UP",
+            "addresses": [
+              {
+                "family": "inet",
+                "local": "10.203.0.13",
+                "prefixlen": 24
+              },
+              {
+                "family": "inet",
+                "local": "192.0.2.13",
+                "prefixlen": 24
+              }
+            ]
+          },
+          {
+            "device": "cilium_wg0",
+            "mtu": 1405,
+            "state": "UNKNOWN",
+            "addresses": []
+          }
+        ],
+        "services": {
+          "qrab-macsec.service": "ActiveState=active\nSubState=running\nResult=success",
+          "qrab-macsec-guard.service": "ActiveState=active\nSubState=exited\nResult=success",
+          "qrab-macsec-rollback.timer": "ActiveState=inactive\nSubState=dead\nResult=success",
+          "qrab-macsec-probe.service": "ActiveState=failed\nSubState=failed\nResult=exit-code",
+          "kubelet.service": "ActiveState=active\nSubState=running\nResult=success",
+          "keepalived.service": "ActiveState=active\nSubState=running\nResult=success",
+          "spire-agent.service": "ActiveState=active\nSubState=running\nResult=success"
+        },
+        "capture": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 5.012946049217135,
+          "interface": "enp0s2",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        },
+        "ciliumImage": "zot-node.invalid/infrastructure/cilium:v1.20.2-towl.12-517c5fe834@sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
+        "hostFirewall": {
+          "devices": [
+            "enp0s2",
+            "macsec0"
+          ],
+          "mode": "Enabled"
+        },
+        "upperHooks": [
+          {
+            "devname": "macsec0",
+            "ifindex": 1708,
+            "kind": "tcx/ingress",
+            "name": "cil_from_netdev"
+          },
+          {
+            "devname": "macsec0",
+            "ifindex": 1708,
+            "kind": "tcx/egress",
+            "name": "cil_to_netdev"
+          }
+        ],
+        "rawGuard": {
+          "owner": "qrab 68ffad993b6652e9b42cc8a1",
+          "allowedEtherTypes": [
+            "0x888e",
+            "0x88e5"
+          ],
+          "chains": [
+            {
+              "name": "ingress",
+              "dev": "enp0s2",
+              "hook": "ingress",
+              "prio": -500,
+              "policy": "drop"
+            },
+            {
+              "name": "egress",
+              "dev": "enp0s2",
+              "hook": "egress",
+              "prio": -500,
+              "policy": "drop"
+            }
+          ],
+          "counters": [
+            {
+              "chain": "ingress",
+              "verdict": "accept",
+              "counter": {
+                "packets": 1452233,
+                "bytes": 771413497
+              }
+            },
+            {
+              "chain": "ingress",
+              "verdict": "drop",
+              "counter": {
+                "packets": 0,
+                "bytes": 0
+              }
+            },
+            {
+              "chain": "egress",
+              "verdict": "accept",
+              "counter": {
+                "packets": 2565955,
+                "bytes": 2660456846
+              }
+            },
+            {
+              "chain": "egress",
+              "verdict": "drop",
+              "counter": {
+                "packets": 0,
+                "bytes": 0
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "guestConntrack": {
+    "vm": "native-ct-20261116",
+    "vmUid": "38ceb949-548d-4f17-adcf-5ebd103ab993",
+    "stableAddress": "10.244.128.2",
+    "client": "Physical gateway 10.203.0.1",
+    "tcpPort": 5000,
+    "linePaddingBytes": 4096,
+    "securityGroup": "TCP5000 ingress; no new egress",
+    "moves": [
+      {
+        "source": "kube03",
+        "target": "kube02",
+        "maximumStreamGapSeconds": 0.71,
+        "importedConntrack": true
+      },
+      {
+        "source": "kube02",
+        "target": "kube03",
+        "maximumStreamGapSeconds": 0.72,
+        "importedConntrack": true
+      }
+    ],
+    "oracleExit": 0,
+    "cleanup": "VM/anchors/migrations/policy/state PVC removed by oracle; retained disk data preserved",
+    "managerImage": "zot.yapplesauce.com/qrab/manager@sha256:2f2ab6fad013a7c7635185668388603b50acbbcb657939c2295fe4dc0f6e79e9",
+    "imageEvidence": "Kubernetes Pulling/Pulled events for source/target Pods",
+    "runLogSha256": "1fa3c63e6234e027185e71f8e81c1b61f8f354da24efb2c6535ec08a3f1193ff"
+  },
+  "additionalNodeLowerCapture": {
+    "scope": "120-second clear-IP/VLAN filtered counters; excludes encrypted frames, no packet payload retained. Covers boot and part of first migration, not both entire moves.",
+    "approximateWindowUtc": [
+      "2026-11-16T20:11:47Z",
+      "2026-11-16T20:13:47Z"
+    ],
+    "timestampMethod": "Measured duration and local result-file completion; not precise packet timestamps.",
+    "nodes": {
+      "kube01": {
+        "verdict": {
+          "capture_drops": 0,
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          }
+        },
+        "capture": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 120.04391821986064,
+          "interface": "enp0s2",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      "kube02": {
+        "verdict": {
+          "capture_drops": 0,
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          }
+        },
+        "capture": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 120.04889823589474,
+          "interface": "enp0s2",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      },
+      "kube03": {
+        "verdict": {
+          "capture_drops": 0,
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          }
+        },
+        "capture": {
+          "activation": "filtered-interface-bind",
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          },
+          "directions": {
+            "incoming": 0,
+            "outgoing": 0
+          },
+          "dropped": 0,
+          "duration_seconds": 120.05116044497117,
+          "interface": "enp0s2",
+          "kernel_buffer_bytes": 8388608,
+          "received": 0,
+          "requested_buffer_bytes": 8388608,
+          "truncated_control": 0,
+          "wrong_interface": 0
+        }
+      }
+    }
+  },
+  "networkWaitOnlineFix": {
+    "source": "d284d2887c260c927ea6ac8a370ecb4118abfddd",
+    "unitContracts": 45,
+    "cause": "Netplan-generated ExecStart explicitly waits for degraded/routable enp0s2, now an unaddressed lower, and ignores RequiredForOnline=no.",
+    "observedBeforeFix": "120-second timeout delayed kubelet/keepalived/identity after actual MACsec boot. Native encrypted SSH recovered independently.",
+    "applied": {
+      "kube01": {
+        "override_sha256": "31fbdefbbb0283aef7dae4110f151d3ffb98c099a608b5379535712a13ce9f00",
+        "rollback_journal_has_override": true,
+        "network_check": "passed",
+        "effective_exec_start": "{ path=/usr/lib/systemd/systemd-networkd-wait-online ; argv[]=/usr/lib/systemd/systemd-networkd-wait-online --interface=macsec0:routable --ipv4 --dns --timeout=120 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+      },
+      "kube02": {
+        "override_sha256": "31fbdefbbb0283aef7dae4110f151d3ffb98c099a608b5379535712a13ce9f00",
+        "rollback_journal_has_override": true,
+        "network_check": "passed",
+        "effective_exec_start": "{ path=/usr/lib/systemd/systemd-networkd-wait-online ; argv[]=/usr/lib/systemd/systemd-networkd-wait-online --interface=macsec0:routable --ipv4 --dns --timeout=120 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+      },
+      "kube03": {
+        "override_sha256": "31fbdefbbb0283aef7dae4110f151d3ffb98c099a608b5379535712a13ce9f00",
+        "rollback_journal_has_override": true,
+        "network_check": "passed",
+        "effective_exec_start": "{ path=/usr/lib/systemd/systemd-networkd-wait-online ; argv[]=/usr/lib/systemd/systemd-networkd-wait-online --interface=macsec0:routable --ipv4 --dns --timeout=120 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+      }
+    },
+    "firstBoot": {
+      "node": "kube02",
+      "started_utc": "2026-11-16T20:16:42.804683+00:00",
+      "old_boot_id": "653ad2d4-c096-446d-bc6d-bed8e6465f7c",
+      "three_nodes_and_etcd_ready_before": true,
+      "active_vm_on_node_before": false,
+      "original_unschedulable": false,
+      "reboot_command_output": "",
+      "new_boot_id": "bdd039ab-9c8c-4952-8bcd-5dd18e7fe801",
+      "node_ready_with_new_boot_id": true,
+      "result": "passed",
+      "uncordon": "node/kube02 uncordoned",
+      "finished_utc": "2026-11-16T20:21:24.658548+00:00"
+    },
+    "fixedBoot": {
+      "node": "kube02",
+      "started_utc": "2026-11-16T20:29:34.738977+00:00",
+      "old_boot_id": "bdd039ab-9c8c-4952-8bcd-5dd18e7fe801",
+      "three_nodes_and_etcd_ready_before": true,
+      "datastore_ready_before": true,
+      "active_vm_on_node_before": false,
+      "source_fix": "d284d2887c260c927ea6ac8a370ecb4118abfddd",
+      "new_boot_id": "ef69f0db-9ff5-4244-a110-9f6f96f33ff6",
+      "ssh_returned_utc": "2026-11-16T20:31:37.568655+00:00",
+      "post_boot": {
+        "phase": "committed",
+        "uncommitted": false,
+        "links": [
+          {
+            "ifname": "enp0s2",
+            "mtu": 1532,
+            "addr_info": []
+          },
+          {
+            "ifname": "macsec0",
+            "mtu": 1500,
+            "addr_info": [
+              {
+                "family": "inet",
+                "local": "10.203.0.12",
+                "prefixlen": 24,
+                "broadcast": "10.203.0.255",
+                "scope": "global",
+                "label": "macsec0",
+                "valid_life_time": 4294967295,
+                "preferred_life_time": 4294967295
+              },
+              {
+                "family": "inet",
+                "local": "192.0.2.12",
+                "prefixlen": 24,
+                "scope": "global",
+                "label": "macsec0",
+                "valid_life_time": 4294967295,
+                "preferred_life_time": 4294967295
+              }
+            ],
+            "linkinfo": {
+              "info_kind": "macsec",
+              "info_data": {
+                "sci": "5254000000020001",
+                "protect": true,
+                "cipher_suite": "GCM-AES-128",
+                "icv_len": 16,
+                "encoding_sa": 2,
+                "validation": "strict",
+                "offload": "off",
+                "encrypt": true,
+                "inc_sci": true,
+                "es": false,
+                "scb": false,
+                "replay_protect": true,
+                "window": 0
+              }
+            }
+          }
+        ],
+        "services": {
+          "systemd-networkd-wait-online.service": "ActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\n",
+          "qrab-macsec.service": "ActiveState=active\nSubState=running\nResult=success\nExecMainStatus=0\n",
+          "qrab-macsec-guard.service": "ActiveState=active\nSubState=exited\nResult=success\nExecMainStatus=0\n",
+          "kubelet.service": "ActiveState=active\nSubState=running\nResult=success\nExecMainStatus=0\n",
+          "keepalived.service": "ActiveState=active\nSubState=running\nResult=success\nExecMainStatus=0\n",
+          "spire-agent.service": "ActiveState=active\nSubState=running\nResult=success\nExecMainStatus=0\n"
+        },
+        "wait_exec": "{ path=/usr/lib/systemd/systemd-networkd-wait-online ; argv[]=/usr/lib/systemd/systemd-networkd-wait-online --interface=macsec0:routable --ipv4 --dns --timeout=120 ; ignore_errors=no ; start_time=[Mon 2026-11-16 20:31:28 UTC] ; stop_time=[Mon 2026-11-16 20:31:28 UTC] ; pid=1084 ; code=exited ; status=0 }\n",
+        "wait_journal": "2026-11-16T20:31:28+00:00 kube02 systemd[1]: Starting systemd-networkd-wait-online.service - Wait for Network to be Online...\n2026-11-16T20:31:28+00:00 kube02 systemd[1]: Finished systemd-networkd-wait-online.service - Wait for Network to be Online.\n"
+      },
+      "node_ready_with_new_boot_id": true,
+      "wait_online_success": true,
+      "result": "passed",
+      "uncordon": "node/kube02 uncordoned",
+      "finished_utc": "2026-11-16T20:32:12.529614+00:00"
+    },
+    "bootFixKit": {
+      "source": "d284d2887c260c927ea6ac8a370ecb4118abfddd",
+      "directory": "/home/bob/operations/qrab-native-link-d284d28",
+      "checksumManifestSha256": "69b71eee0aae763455f1974b45b003fc21b4b925eaab47b2e9206ac1ddb2ab5c",
+      "allFourFilesVerified": true,
+      "scope": "Historical boot-fix kit; current recovery kit includes the same fix."
+    }
+  },
+  "limits": [
+    "MKA authenticates shared-CAK group membership, not per-frame or per-guest SPIFFE identity.",
+    "MACsec ends at each peer; local Unix/TAP/shared memory/files and external traffic beyond gateway/provider keep their own protection boundaries.",
+    "Five-second root verdicts and later 120-second node counters are bounded filtered windows, not continuous all-traffic recording.",
+    "Wrong-CAK/replay/rekey/key-server restart and rollback faults were exercised in isolated fixtures, not the committed production segment.",
+    "Shared CAK rotation and physical gateway reboot are not verified by these observations.",
+    "Node reboot caused transient API/datastore recovery and host I/O load; native encrypted peer SSH remained reachable after startup."
+  ],
+  "associationRecovery": {
+    "implementationSource": "6535a2963348280c2492776f3ed75dd53feeddf1",
+    "releaseCommit": "dc7b94f8145c2e5abc6e958d7f4bbb405d42cdec",
+    "runtimeStatus": "Pending operator root health-upgrade receipt; publication and private tests are complete.",
+    "observedFailure": "After member reboot, kube03 retained active receive channels for kube01/kube02 with empty SA lists. Gateway association/SSH still worked; peer ARP/etcd failed. A running process/early Node Ready was insufficient.",
+    "productionRemediationObserved": "One kube03 supplicant restart restored associations; isolated tests showed restarts can reproduce the defect.",
+    "kernelEvidenceFile": "arp-partition.json in restricted local evidence directory",
+    "kernelEvidenceSha256": "3d46b96684bbf68b5f5410d7811d63a77281e1de6264b94f749ee1119aa0d450",
+    "control": "Root-only MKA_REKEY: existing server SAK generation or fresh client MI while retaining receive channels; no key material returned.",
+    "watcher": {
+      "startupSeconds": 90,
+      "persistentFailureSecondsByPriority": [
+        10,
+        15,
+        20,
+        25
+      ],
+      "pollSeconds": 5,
+      "cooldownSeconds": 60,
+      "socketFamilies": [
+        "AF_UNIX",
+        "AF_NETLINK"
+      ],
+      "absentPeerAloneCausesRecovery": false,
+      "networkApiDependency": false
+    },
+    "artifact": {
+      "tools_reference": "zot.yapplesauce.com/qrab/link-tools@sha256:944693ec20daa65ea86b661d8a2bb7f005ed8eaa93c56ab5c44466e326bc1802",
+      "tools_archive_sha256": "7b52fd4f47977191f809d4cce167df04ec8249d11a2addd4794e83faa6bc1930",
+      "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13",
+      "cilium_digest": "sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
+      "cilium_source": "517c5fe834e26db4f3fb10465c77cf957a5bc526",
+      "tools_source": "6535a2963348280c2492776f3ed75dd53feeddf1",
+      "mka_rekey_control": 1
+    },
+    "kit": {
+      "directory": "/home/bob/operations/qrab-native-link-dc7b94f",
+      "checksumManifestSha256": "8075539bce41bb49ff02a0378890f83a08f320e66160b645d2d9d10cf6242e36",
+      "allFourEntriesVerified": true,
+      "action": "health-upgrade --operator-user bob"
+    },
+    "unitContracts": 53,
+    "privateKernelLifecycleAndInstaller": {
+      "passed": [
+        "initial group",
+        "initial group after old association retirement",
+        "empty receive association recovered",
+        "client receive association recovered",
+        "node2 rejoined",
+        "node2 after old association retirement",
+        "gateway rejoined",
+        "gateway after old association retirement",
+        "node1 rejoined",
+        "node1 after old association retirement",
+        "old bundle upgraded without replacing profile or original agent"
+      ],
+      "healthRecoveries": [
+        {
+          "peer": "gateway",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000020001"
+            ]
+          }
+        },
+        {
+          "peer": "node3",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000010001"
+            ]
+          }
+        },
+        {
+          "peer": "node1",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000040001"
+            ]
+          }
+        },
+        {
+          "peer": "gateway",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000020001"
+            ]
+          }
+        },
+        {
+          "peer": "node1",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000030001"
+            ]
+          }
+        },
+        {
+          "peer": "gateway",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000040001",
+              "0x200000000030001"
+            ]
+          }
+        },
+        {
+          "peer": "node2",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000040001"
+            ]
+          }
+        },
+        {
+          "peer": "gateway",
+          "status": {
+            "healthy": false,
+            "protected": true,
+            "transmitting": true,
+            "missing_receive_associations": [
+              "0x200000000030001"
+            ]
+          }
+        }
+      ],
+      "freshTransmitKeyIdentifiers": true,
+      "wrongCAKRefused": true,
+      "rawGuardsRetained": true,
+      "productionTouched": false
+    },
+    "privateProtocolOracle": {
+      "trustedIPv4": true,
+      "trustedIPv6": true,
+      "wrongCAKRefused": true,
+      "tcp": [
+        {
+          "port": 179,
+          "bytes": 8192,
+          "addressPreserved": true
+        },
+        {
+          "port": 3260,
+          "bytes": 8192,
+          "addressPreserved": true
+        }
+      ],
+      "interfaces": {
+        "a": "macsec0",
+        "b": "macsec0",
+        "c": "macsec0"
+      },
+      "lowerCapture": {
+        "macsec": 36,
+        "clearIP": 0,
+        "mka": 5
+      },
+      "replayRefused": true,
+      "plaintextRefused": true,
+      "automaticRekey": true,
+      "restartRecovered": true,
+      "freshSessionKey": true
+    },
+    "publishedWpaBinaryEqualsTestedBinary": true,
+    "productionFaultInjectionForThisFix": false
+  },
+  "vpnBeforeRecovery": {
+    "vm": "native-vpn-20261116",
+    "vmUid": "e9072008-f8d7-4d1e-8be4-7882fca97927",
+    "exit": 1,
+    "result": "VM Running wait failed during control-plane/identity outage. No successful tunnel/kill-switch proof claimed for this attempt.",
+    "startedUtc": "2026-11-16T20:33:08.629343+00:00",
+    "finishedUtc": "2026-11-16T20:42:31.266893+00:00",
+    "runLogSha256": "3100fdf624ec00f392d9c98d0552bce8d345768a3d4f78b4030ff08e748941e5"
+  },
+  "storageRecoveryOwnership": "User explicitly assigned storage recovery to another session. Matching recovery SPIRE registrations pre-existed; duplicate create returned AlreadyExists and created nothing. No storage attachment/finalizer change was made here. Admission-denied temporary pull-policy change was reverted to Always."
+}

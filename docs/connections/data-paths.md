@@ -45,7 +45,7 @@ flowchart TB
     tap <-->|"N3: guest IP packets"| routes
     routes <--> eth
     eth <--> cilium
-    cilium <--> peer
+    cilium <-->|"N14 Pod WG where applicable; N15 on native node/gateway segment"| peer
 ```
 
 The descriptor setup sequence is:
@@ -80,9 +80,11 @@ for guests that ignore NoCloud network configuration. The anchor routes the
 /32 to TAP and retains a placeholder link address on `eth0`; Cilium associates
 the guest's address and security groups with the anchor endpoint.
 
-No cryptographic wrapping is added between guest and anchor, or by ordinary
-routing from anchor to peer. HTTPS/SSH or another guest application protocol
-can still encrypt its own payload. Security groups decide reachability at the
+The guest-to-anchor path remains local and unencrypted. Cross-node managed
+Pod traffic uses N14 WireGuard, and the native node/gateway segment uses
+[N15 MACsec](../node-link-encryption.md). Beyond those peers, HTTPS/SSH or
+another guest application protocol supplies its own protection; VPN NICs use
+the tunnel below. Security groups decide reachability at the
 anchor; they do not authenticate the guest as a SPIFFE workload. Without an
 enforcing policy, anchors are default-allow. Route distribution goes operator
 → Kubernetes `FRRConfiguration` → frr-k8s/FRR → BGP neighbors (N11), never
@@ -277,6 +279,53 @@ Sources: [manager migration state machine](../../projects/manager/src/pod/migrat
 [Cilium/forwarding operations](../../projects/qrab-netd/src/sys.rs) and
 [migration limits](../migration.md).
 
+## Optional guest SPIRE identity
+
+`spec.guestIdentity` enables a separate guest identity path. QGA retains its
+fixed command allowlist and its own serial port. The guest SPIRE relay carries
+opaque TLS, with local multiplexing headers and bounded credits:
+
+```mermaid
+flowchart TB
+    operator["Operator: VM-UID-bound guest registrations"]
+    api["Kubernetes ClusterStaticEntry / admission"]
+    issuer["TPM issuer :8443"]
+    manager["Manager: per-VM SVID<br/>opaque relay and certificate provisioning"]
+    disk["S11: read-only qrab-identity disk"]
+    server["Native SPIRE server :8081"]
+    subgraph guest["Guest — NIC optional"]
+        app["Guest workload"]
+        agent["Guest SPIRE agent / TPM DevID"]
+        relay["qrab-spire-relay :127.0.0.1:8081"]
+        serial["org.yapplesauce.spire.0"]
+        app <-->|"I5: local Workload API"| agent
+        agent <-->|"I14: SPIRE TLS records"| relay
+        relay <-->|"N16: local mux / credits"| serial
+    end
+    operator -->|"I6: HTTPS / RBAC"| api
+    api -->|"SPIRE controller; local admin API"| server
+    manager <-->|"I13: exact VM / issuer SPIFFE mTLS"| issuer
+    manager -->|"TPM-bound blobs, certs, bundle and tools"| disk
+    disk -->|"Local virtual block reads"| agent
+    serial <-->|"N16: private spire.sock"| manager
+    manager <-->|"I14: same TLS stream over TCP; N15 outer link"| server
+```
+
+The manager opens one fixed-upstream TCP connection per relay channel. The
+default is at most eight connections, 64 KiB in flight per direction and a
+300-second idle deadline. New manager/serial sessions close old relay channels,
+so guest SPIRE reconnects after migration while its TPM identity persists.
+The issuing CA keys remain in the TPM issuer's Secret; the guest receives
+certificates and a vTPM-bound private blob. The native link tests did not repeat
+guest enrollment or evictor deployment tests.
+
+Source: [manager relay](../../projects/manager/src/pod/spire_relay.rs),
+[guest mux](../../projects/qrab-spire-relay/src/lib.rs),
+[identity provisioning](../../projects/manager/src/pod/identity.rs),
+[issuer authorization](../../projects/tpm-issuer/src/lib.rs),
+[guest registration/eviction](../../projects/operator/src/guest_identity.rs) and
+[guest identity guide](../spire-vm.md).
+
 ## Storage: identity exchange and data I/O are different paths
 
 ```mermaid
@@ -306,13 +355,16 @@ flowchart TB
     api -->|"kubelet projects credential"| secret
     secret -->|"S5: local QEMU secret object"| qemu
     guest <-->|"virtual block I/O"| qemu
-    qemu <-->|"S4: plain iSCSI TCP, IQN ACL and CHAP"| lio
+    qemu <-->|"S4: iSCSI / CHAP; N15 MACsec on node/storage segment"| lio
 ```
 
 The TLS storage API performs provisioning and fencing. It does not proxy disk
 reads/writes. iSCSI authentication proves knowledge of the CHAP secret for an
-initiator ACL; it does not encrypt block traffic. A packet capture in the VM
-Pod therefore sees disk blocks on TCP 3260 even if the VM has no guest NIC.
+initiator ACL; it does not encrypt block traffic. N15 MACsec now protects the
+deployed node-to-LIO Ethernet segment, without changing IPs or storage fencing.
+A packet capture in the VM Pod still sees disk blocks on TCP3260 even if the VM
+has no guest NIC; the raw node lower sees MACsec records. Local stacks and
+other portals outside that segment need separate protection.
 Disk encryption performed by the guest can make block contents ciphertext,
 but it is separate from iSCSI transport encryption and is not guaranteed here.
 
