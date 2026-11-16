@@ -1,0 +1,8 @@
+[package]
+name = "qrab-spire-relay"
+version = "0.1.0"
+edition = "2021"
+description = "Static guest relay from 127.0.0.1:8081 to the SPIRE server over a virtio-serial port"
+
+# The wire codec is shared with the manager. Keep the crate std-only.
+[dependencies]

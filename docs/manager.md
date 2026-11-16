@@ -461,6 +461,42 @@ the guest. As with QMP, a timeout never proves a command did not run: the guest
 watchdog thaws an abandoned freeze. See [guest-agent.md](guest-agent.md) for
 the guest daemon, its allowlist and the update-hook contract.
 
+## SPIRE relay
+
+`spire_relay` lets an in-guest SPIRE agent reach the SPIRE server without a
+guest network ([spire-vm.md](spire-vm.md#guest-workload-identity-design-2026-11-15)):
+
+```json
+{"spire_relay": {"enabled": true, "upstream": "10.203.0.10:8081", "max_connections": 8, "idle_timeout_secs": 300}}
+```
+
+Apart from `enabled`, which defaults to `false`, these are the defaults. The
+operator enables the relay only for a VM with `spec.guestIdentity`, because the
+port adds a PCI device to the guest. `upstream` is an IP and port, never a name. Enabled,
+QEMU gets a `virtserialport` named `org.yapplesauce.spire.0` on the same
+`virtio-serial-pci` bus as the guest agent (the bus is added for either) and
+`socket,id=spire0,path=<session>/spire.sock,server=on,wait=off`. After QMP
+connects, one task owns that socket for the QEMU lifetime and reconnects
+every second after EOF.
+
+In the guest, `qrab-spire-relay` listens on `127.0.0.1:8081` only and
+multiplexes each accepted connection over the port; the frame format and its
+credit rules are in `qrab_spire_relay::wire`. The manager opens one TCP
+connection to `upstream` per guest connection, at most `max_connections`
+including connections still draining, and closes one after
+`idle_timeout_secs` without traffic. Each direction of a connection has at
+most 64 KiB in flight, so a slow reader stalls its writer instead of growing
+a buffer. The manager only moves bytes: the agent's mTLS with the server is
+end to end.
+
+Every chardev connection starts a new session. The guest closes all of its
+connections when the session changes and the agent reconnects, so a manager
+restart or a live migration (whose target opens its own session) needs no
+guest action. The migration offer carries whether the source has the port,
+and the target follows it, so a VM started by an older manager migrates
+without it. An older target refuses an offer with the port. The VM Pod needs
+egress to `upstream`; nothing else changes on its network.
+
 ## Build and publish
 
 From clean committed source, with `vendor/qemu` initialized from local Gitea:

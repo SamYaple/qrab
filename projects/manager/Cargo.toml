@@ -34,6 +34,10 @@ path = "../qrab-spiffe"
 path = "../qrab-netd"
 default-features = false
 
+# Frame codec of the guest SPIRE relay port.
+[dependencies.qrab-spire-relay]
+path = "../qrab-spire-relay"
+
 # Wire types for the namespaced qrab guest-agent commands.
 [dependencies.qrab-guest-agent]
 path = "../qrab-guest-agent"

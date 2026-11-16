@@ -21,6 +21,7 @@ no guest NIC. `qrab-manager` also remains available as a standalone supervisor.
 | `qrab-dashboard` | Cluster VM list, launch and deletion; power through Redfish and a proxied BMC console |
 | `qrab-iscsi-target` | Root ZFS/LIO tool behind the storage service's VM-disk verbs |
 | `qrab-guest-agent` | Static in-guest QGA daemon with a fixed command allowlist |
+| `qrab-spire-relay` | Static in-guest relay from `127.0.0.1:8081` to the SPIRE server over a virtio-serial port |
 | `qrab-kvm-device-plugin` | `/dev/kvm` device plugin for KVM-accelerated VMs |
 | `qrab-spiffe` | SPIFFE X509-SVID mutual TLS (migration tunnel, Redfish workload admission) |
 | `qrab-netd` | Per-node TAP/vhost descriptor grants, VPN anchors and NIC handoff |

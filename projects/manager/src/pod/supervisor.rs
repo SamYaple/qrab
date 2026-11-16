@@ -151,6 +151,8 @@ pub async fn run_controlled(
             if let Some(nics) = &receiving.offer.nics {
                 config.nics = nics.clone();
             }
+            // The relay port is part of the device model the stream carries.
+            config.spire_relay.enabled = receiving.offer.spire_relay;
             Some(receiving)
         }
         None => None,
@@ -299,6 +301,7 @@ async fn power_on(
     if socket_too_long(true, "qmp.sock")
         || socket_too_long(config.tpm.is_some(), "swtpm.sock")
         || socket_too_long(config.guest_agent, "qga.sock")
+        || socket_too_long(config.spire_relay.enabled, "spire.sock")
     {
         return Err(Error::Config(
             "runtime directory is too long for a QMP Unix socket".into(),
@@ -602,6 +605,12 @@ async fn run_qemu(
             control.agent_status_publisher(),
         )
     });
+    let spire_relay = config.spire_relay.enabled.then(|| {
+        super::spire_relay::Relay::spawn(
+            socket.with_file_name("spire.sock"),
+            (&config.spire_relay).into(),
+        )
+    });
     let execution = async {
         if qmp.version() < (11,1,0) { return Err(Error::Config("pod manager requires QEMU 11.1 or newer".into())); }
         let received_tap = receiving.is_some() && !config.tap_fds().is_empty();
@@ -704,6 +713,7 @@ async fn run_qemu(
         }
     }.await;
     drop(agent);
+    drop(spire_relay);
     control.set_stopping();
     state.ready = false;
     let result = match execution {

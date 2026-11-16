@@ -49,12 +49,49 @@ fn arguments_separate_paths_from_qemu_option_syntax() {
             "-device",
             "virtserialport,bus=qga-serial.0,chardev=qga0,name=org.qemu.guest_agent.0"
         ]));
+    // The SPIRE relay port shares the bus, on its own private socket.
+    assert!(args.windows(2).any(|a| a
+        == [
+            "-chardev",
+            "socket,id=spire0,path=/tmp/a,,b/spire.sock,server=on,wait=off"
+        ]));
+    assert!(args.windows(2).any(|a| a
+        == [
+            "-device",
+            "virtserialport,bus=qga-serial.0,chardev=spire0,name=org.yapplesauce.spire.0"
+        ]));
+    assert_eq!(
+        args.iter()
+            .filter(|a| a.starts_with("virtio-serial-pci"))
+            .count(),
+        1
+    );
     config.guest_agent = false;
+    let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
+    assert!(!args.iter().any(|a| a.contains("qga0")));
+    assert!(args
+        .windows(2)
+        .any(|a| a == ["-device", "virtio-serial-pci,id=qga-serial"]));
+    assert!(args
+        .iter()
+        .any(|a| a.contains("name=org.yapplesauce.spire.0")));
+    config.spire_relay.enabled = false;
     let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
     assert!(!args
         .iter()
-        .any(|a| a.contains("qga") || a.contains("virtio-serial")));
+        .any(|a| a.contains("qga") || a.contains("virtio-serial") || a.contains("spire")));
     config.guest_agent = true;
+    let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
+    assert!(args.iter().any(|a| a.contains("qga0")));
+    assert!(!args.iter().any(|a| a.contains("spire")));
+    config.spire_relay.enabled = true;
+    config.spire_relay.max_connections = 0;
+    assert!(config.validate().is_err());
+    config.spire_relay.max_connections = 8;
+    config.spire_relay.idle_timeout_secs = 0;
+    assert!(config.validate().is_err());
+    config.spire_relay.idle_timeout_secs = 300;
+    config.validate().unwrap();
     config.console = true;
     let args = config.arguments(Path::new("/tmp/private/qmp.sock"));
     assert!(args

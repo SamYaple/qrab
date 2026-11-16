@@ -3,8 +3,8 @@
 The normal developer path is the default workspace (`default-members` in the
 root `Cargo.toml`): the QAPI and protocol libraries, the pod-native `manager`,
 `bmc`, `qrab-redfish`, `oidc-bearer`, `qrab-operator`, `qrab-dashboard`,
-`qrab-iscsi-target`, `qrab-guest-agent`, `qrab-kvm-device-plugin` and
-`qrab-spiffe`. No QEMU checkout, Python, firmware, privileged hardware or
+`qrab-iscsi-target`, `qrab-guest-agent`, `qrab-spire-relay`,
+`qrab-kvm-device-plugin` and `qrab-spiffe`. No QEMU checkout, Python, firmware, privileged hardware or
 cluster is required for these tests:
 
 ```sh

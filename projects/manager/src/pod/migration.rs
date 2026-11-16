@@ -172,6 +172,11 @@ pub(super) struct Offer {
     /// (absent from an older source: the target uses its own config's).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nics: Option<Vec<super::config::Nic>>,
+    /// The source's QEMU has the SPIRE relay port. Absent from an older
+    /// source, which never has it; only sent when true, so an older target
+    /// still parses an offer without the port.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub spire_relay: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -682,6 +687,7 @@ where
                 machine,
                 iscsi_disks: retained,
                 nics: (config.nic_slots > 0).then(|| config.slotted_nics()),
+                spire_relay: config.spire_relay.enabled,
             }),
         )
         .await?;
@@ -991,6 +997,20 @@ mod tests {
     }
 
     #[test]
+    fn the_spire_relay_port_follows_the_source_across_manager_versions() {
+        let old: Offer =
+            serde_json::from_value(json!({"machine":"pc-q35-11.1","iscsi_disks":{}})).unwrap();
+        assert!(!old.spire_relay, "an older source has no relay port");
+        let mut offer = old;
+        assert!(serde_json::to_value(&offer)
+            .unwrap()
+            .get("spire_relay")
+            .is_none());
+        offer.spire_relay = true;
+        assert_eq!(serde_json::to_value(&offer).unwrap()["spire_relay"], true);
+    }
+
+    #[test]
     fn only_the_same_vm_with_shared_disks_and_boot_size_is_offered() {
         let config = config();
         assert_eq!(refusal(&config, &hello("uid-1"), false), None);
@@ -1093,6 +1113,7 @@ mod tests {
             machine: "pc-q35-11.1".into(),
             iscsi_disks: BTreeMap::new(),
             nics: None,
+            spire_relay: false,
         };
         write_frame(&mut stream, &Reply::Offer(offer))
             .await

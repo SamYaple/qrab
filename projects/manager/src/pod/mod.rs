@@ -36,6 +36,7 @@ mod secure_boot_policy;
 mod secure_boot_store;
 mod seed;
 mod serial;
+mod spire_relay;
 pub use secure_boot_policy::SecureBootSettings;
 pub use serial::{SerialSnapshot, SERIAL_CAPACITY};
 pub mod socket;
@@ -47,8 +48,8 @@ mod view;
 
 pub use agent::{AgentStatus, FreezeState, UpdateState, UpdateStatus};
 pub use config::{
-    parse_guest_mac, Accelerator, AdminBucket, Config, Disk, DiskFormat, Hotplug, Nic, TapFds, Tpm,
-    Uefi, FIRST_TAP_FD, HOTPLUG_BLOCK_MIB, NIC_LIMIT,
+    parse_guest_mac, Accelerator, AdminBucket, Config, Disk, DiskFormat, Hotplug, Nic, SpireRelay,
+    TapFds, Tpm, Uefi, FIRST_TAP_FD, HOTPLUG_BLOCK_MIB, NIC_LIMIT,
 };
 pub use control::{control_channel, control_channel_for, Action, Control, ControlReceiver};
 pub use events::{

@@ -238,6 +238,59 @@ fn validate_nics(nics: &[Nic], slots: u8) -> Result<()> {
     Ok(())
 }
 
+/// Splices the guest's `org.yapplesauce.spire.0` virtio-serial port to the
+/// SPIRE server, so an in-guest SPIRE agent reaches it without a guest
+/// network (docs/manager.md#spire-relay). Off unless the VM asks for guest
+/// identity: the port adds a virtio-serial PCI device, which would move
+/// other VMs' PCI slots on their next cold boot.
+///
+/// ```
+/// use manager::pod::SpireRelay;
+/// let relay: SpireRelay = serde_json::from_str("{}").unwrap();
+/// assert!(!relay.enabled);
+/// assert_eq!(relay.upstream.to_string(), "10.203.0.10:8081");
+/// assert_eq!((relay.max_connections, relay.idle_timeout_secs), (8, 300));
+/// let on: SpireRelay = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+/// assert!(on.enabled);
+/// assert!(serde_json::from_str::<SpireRelay>(r#"{"upstream":"spire:8081"}"#).is_err());
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SpireRelay {
+    #[serde(default)]
+    pub enabled: bool,
+    /// The SPIRE server address; an IP, so no resolver is involved.
+    #[serde(default = "spire_upstream")]
+    pub upstream: std::net::SocketAddr,
+    /// Concurrent guest connections, each with its own upstream connection.
+    #[serde(default = "spire_connections")]
+    pub max_connections: usize,
+    /// A connection without traffic in either direction is closed.
+    #[serde(default = "spire_idle")]
+    pub idle_timeout_secs: u64,
+}
+
+fn spire_upstream() -> std::net::SocketAddr {
+    std::net::SocketAddr::from(([10, 203, 0, 10], 8081))
+}
+fn spire_connections() -> usize {
+    8
+}
+fn spire_idle() -> u64 {
+    300
+}
+
+impl Default for SpireRelay {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            upstream: spire_upstream(),
+            max_connections: spire_connections(),
+            idle_timeout_secs: spire_idle(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tpm {
@@ -307,6 +360,10 @@ pub struct Config {
     /// Unix socket in the session directory. Harmless if no agent runs.
     #[serde(default = "enabled")]
     pub guest_agent: bool,
+    /// The SPIRE server relay port; on by default and harmless without a
+    /// guest relay. A migration target follows the source's setting.
+    #[serde(default)]
+    pub spire_relay: SpireRelay,
     /// Directory for the control socket, created by the manager. Defaults to
     /// `{runtime_dir}/control`; a separate volume shares only the socket.
     #[serde(default)]
@@ -538,6 +595,14 @@ impl Config {
                 ));
             }
         }
+        if !(1..=64).contains(&self.spire_relay.max_connections)
+            || !(1..=86_400).contains(&self.spire_relay.idle_timeout_secs)
+        {
+            return Err(Error::Config(
+                "spire_relay needs 1..=64 connections and an idle timeout of 1..=86400 seconds"
+                    .into(),
+            ));
+        }
         super::iscsi::validate(&self.iscsi_disks)?;
         validate_nics(&self.nics, self.nic_slots)?;
         if let Some(seed) = &self.seed {
@@ -687,10 +752,12 @@ impl Config {
             serde_json::json!({"qom-type":"monitor-qmp", "id":"monitor", "chardev":"qmp"})
                 .to_string(),
         ]);
+        // One virtio-serial bus carries both ports; its id predates the relay.
+        if self.guest_agent || self.spire_relay.enabled {
+            args.extend(["-device".into(), "virtio-serial-pci,id=qga-serial".into()]);
+        }
         if self.guest_agent {
             args.extend([
-                "-device".into(),
-                "virtio-serial-pci,id=qga-serial".into(),
                 "-chardev".into(),
                 format!(
                     "socket,id=qga0,path={},server=on,wait=off",
@@ -701,6 +768,23 @@ impl Config {
                 ),
                 "-device".into(),
                 "virtserialport,bus=qga-serial.0,chardev=qga0,name=org.qemu.guest_agent.0".into(),
+            ]);
+        }
+        if self.spire_relay.enabled {
+            args.extend([
+                "-chardev".into(),
+                format!(
+                    "socket,id=spire0,path={},server=on,wait=off",
+                    socket
+                        .with_file_name("spire.sock")
+                        .to_string_lossy()
+                        .replace(',', ",,")
+                ),
+                "-device".into(),
+                format!(
+                    "virtserialport,bus=qga-serial.0,chardev=spire0,name={}",
+                    qrab_spire_relay::wire::PORT_NAME
+                ),
             ]);
         }
         if let Some(uefi) = &self.uefi {

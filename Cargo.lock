@@ -2830,6 +2830,7 @@ dependencies = [
  "qrab-guest-agent",
  "qrab-netd",
  "qrab-spiffe",
+ "qrab-spire-relay",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4039,6 +4040,10 @@ dependencies = [
  "tracing",
  "x509-parser",
 ]
+
+[[package]]
+name = "qrab-spire-relay"
+version = "0.1.0"
 
 [[package]]
 name = "qrab-tpm-issuer"

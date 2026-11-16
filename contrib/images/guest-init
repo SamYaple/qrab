@@ -22,6 +22,13 @@ if [ -x /usr/sbin/qrab-guest-agent ]; then
     (while :; do /usr/sbin/qrab-guest-agent </dev/null; sleep 1; done) &
     echo QRAB_GUEST_AGENT_STARTED
 fi
+# The SPIRE relay serves 127.0.0.1:8081 only, so loopback must be up. It
+# reaches the SPIRE server over org.yapplesauce.spire.0, not a guest NIC.
+if [ -x /usr/sbin/qrab-spire-relay ]; then
+    ip link set lo up
+    (while :; do /usr/sbin/qrab-spire-relay </dev/null; sleep 1; done) &
+    echo QRAB_SPIRE_RELAY_STARTED
+fi
 # There is no udev: online vCPUs and memory blocks the host hot-adds after a
 # Pod resize, and log each resulting guest size on the serial console. Only
 # devices that appear after boot are onlined, once each, so a CPU or memory
