@@ -1,0 +1,37 @@
+#!/bin/sh
+# Prove that a cargo build against a shared target cache mount compiled the
+# source tree in this build context.
+#
+# Cargo treats a workspace crate as fresh when its sources are older than the
+# recorded dep-info. The target cache is shared by builds from every worktree,
+# so a tree checked out before another tree's build would otherwise reuse that
+# build's artifacts. `prepare` moves every source mtime to now; `collect`
+# refuses any binary that was not relinked after that and records the revision
+# it was built from in <out>/build-revision.
+#
+#   cargo-fresh prepare
+#   cargo build ...
+#   cargo-fresh collect <revision> <out-dir> <binary>...
+set -eu
+marker=/tmp/qrab-cargo-fresh.marker
+case ${1:-} in
+  prepare)
+    find /src/Cargo.toml /src/Cargo.lock /src/projects -exec touch -c {} +
+    touch "$marker"
+    ;;
+  collect)
+    [ $# -ge 4 ] || { echo 'usage: cargo-fresh collect REVISION OUT BINARY...' >&2; exit 2; }
+    [ -e "$marker" ] || { echo 'cargo-fresh prepare did not run in this step' >&2; exit 1; }
+    revision=$2
+    out=$3
+    shift 3
+    mkdir -p "$out"
+    for binary; do
+      [ "$binary" -nt "$marker" ] || { echo "$binary was not rebuilt from this source tree" >&2; exit 1; }
+      cp "$binary" "$out/"
+    done
+    printf '%s\n' "$revision" > "$out/build-revision"
+    rm -f "$marker"
+    ;;
+  *) echo 'usage: cargo-fresh prepare | collect REVISION OUT BINARY...' >&2; exit 2;;
+esac

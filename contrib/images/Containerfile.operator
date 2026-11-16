@@ -5,9 +5,11 @@ ARG QEMU_IMAGE
 FROM ${QEMU_IMAGE} AS qemu
 FROM ${RUST_IMAGE} AS build
 WORKDIR /src
+COPY contrib/images/cargo-fresh /usr/local/bin/cargo-fresh
+ARG QRAB_REVISION=unknown
 COPY Cargo.toml Cargo.lock ./
 COPY projects ./projects
-RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-operator-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-operator --bin qrab-operator -p qrab-kvm-device-plugin --bin qrab-kvm-device-plugin -p qrab-netd --bin qrab-netd -p qrab-proton --bin qrab-proton -p qrab-observability --bin qrab-observability && mkdir -p /out && cp /src/target/release/qrab-operator /src/target/release/qrab-kvm-device-plugin /src/target/release/qrab-netd /src/target/release/qrab-proton /src/target/release/qrab-observability /out/
+RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-operator-target,target=/src/target,sharing=locked cargo-fresh prepare && cargo build --release --locked -p qrab-operator --bin qrab-operator -p qrab-kvm-device-plugin --bin qrab-kvm-device-plugin -p qrab-netd --bin qrab-netd -p qrab-proton --bin qrab-proton -p qrab-observability --bin qrab-observability && cargo-fresh collect "$QRAB_REVISION" /out /src/target/release/qrab-operator /src/target/release/qrab-kvm-device-plugin /src/target/release/qrab-netd /src/target/release/qrab-proton /src/target/release/qrab-observability
 
 FROM ${DEBIAN_IMAGE}
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
@@ -19,5 +21,6 @@ LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastruct
 RUN sh /usr/local/libexec/qrab-apt-https && apt-get update --error-on=any && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables wireguard-tools libglib2.0-0t64 zlib1g libiscsi7 && rm -rf /var/lib/apt/lists/*
 COPY --from=qemu /opt/qemu/bin/qemu-img /opt/qemu/bin/qemu-img
 COPY --from=build /out/qrab-operator /out/qrab-kvm-device-plugin /out/qrab-netd /out/qrab-proton /out/qrab-observability /usr/local/bin/
+COPY --from=build /out/build-revision /usr/share/qrab/build-revision
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/qrab-operator"]
