@@ -497,6 +497,47 @@ and the target follows it, so a VM started by an older manager migrates
 without it. An older target refuses an offer with the port. The VM Pod needs
 egress to `upstream`; nothing else changes on its network.
 
+## Guest identity
+
+`guest_identity` provisions the vTPM for the guest's SPIRE `tpm_devid` agent
+and attaches the read-only `qrab-identity` disk
+([spire-vm.md](spire-vm.md#guest-workload-identity-design-2026-11-15)). The
+operator renders it, with `spire_relay.enabled`, only for a VM with
+`spec.guestIdentity`, taking the issuer from `QRAB_TPM_ISSUER_URL` and
+`QRAB_TPM_ISSUER_ID`:
+
+```json
+{"guest_identity": {"enabled": true,
+  "issuer_url": "https://qrab-tpm-issuer.qrab-tpm-issuer.svc:8443",
+  "issuer_id": "spiffe://yapplesauce.com/kubernetes/qrab-tpm-issuer/qrab-tpm-issuer",
+  "guest_tools_dir": "/usr/libexec/qrab/guest-tools"}}
+```
+
+It needs `tpm`. Before swtpm starts, a manager whose
+`identity/guest/provisioned.json` is missing runs a private swtpm on the
+retained TPM state and, as `vm/<uid>` over SPIFFE mTLS, has qrab-tpm-issuer
+certify the TCG L-1 EK (written write-locked to NV `0x01c00002` with platform
+authorization) and an RSASSA-SHA256 LDevID created under SPIRE's
+`SRKTemplateHighRSA`. The raw `TPMT_PUBLIC`, the `TPM2B_PRIVATE` body and the
+certificates stay in `identity/guest/`; the marker is written last, and a
+start that finds it calls neither the TPM nor the issuer. The EK depends only
+on the endorsement seed, which is never changed: a VM that ran before asking
+for guest identity keeps its EK, and only a platform-created certificate at
+`0x01c00002` is replaced (the old one is kept as `previous-ek-cert.der`). An
+owner-defined index there, or a hierarchy password set by the guest, fails
+the start with a `guest_identity_refused` event.
+
+Every start rebuilds `identity/guest/identity.img`, a FAT volume labelled
+`QRAB-ID` with `agent.conf`, `bundle.pem` (the trust domain bundle from the
+manager's Workload API, or the last stored one if it is unavailable),
+`devid.pem`, `devid.pub`, `devid.priv`, `ek.pem`, `README`, `start.sh` and the
+files of `guest_tools_dir` under `tools/`. QEMU attaches it as read-only
+`virtio-blk-pci` with serial `qrab-identity`. The guest mounts it at
+`/run/qrab-identity` and runs `start.sh`, which starts `qrab-spire-relay` and
+`spire-agent run -config agent.conf` (see the disk's README). A migration
+target never provisions: the offer carries the source's files and bundle, so
+it rebuilds the same disk, and an older target refuses an offer with them.
+
 ## Build and publish
 
 From clean committed source, with `vendor/qemu` initialized from local Gitea:

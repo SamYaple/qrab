@@ -134,6 +134,10 @@ async fn main() -> Result<()> {
         bmc_bearer,
         nic_addresses,
         guest_devid_ca_cn,
+        tpm_issuer: qrab_operator::guest_identity::TpmIssuer::from_env(|name| {
+            std::env::var(name).ok()
+        })
+        .map_err(|e| anyhow::anyhow!(e))?,
     };
     qrab_spiffe::http::install_tls13_provider()?;
     let identity = qrab_spiffe::Identity::from_env()

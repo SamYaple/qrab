@@ -141,6 +141,9 @@ pub struct Settings {
     /// Issuer CN of the qrab DevID CA (`QRAB_GUEST_DEVID_CA_CN`): guest node
     /// alias entries admit agents whose DevID certificate it issued.
     pub guest_devid_ca_cn: String,
+    /// qrab-tpm-issuer for VMs with guest identity (`QRAB_TPM_ISSUER_URL`,
+    /// `QRAB_TPM_ISSUER_ID`).
+    pub tpm_issuer: crate::guest_identity::TpmIssuer,
 }
 
 /// The issuer and audience (OAuth2 client ID) of accepted bearer ID tokens.
@@ -1506,6 +1509,13 @@ pub fn render_incarnation(
     let bucket = admin_bucket(vm);
     if bucket != AdminBucket::default() {
         config["admin_bucket"] = json!({"audio":bucket.audio,"usb_redirect":bucket.usb_redirect});
+    }
+    // Absent without spec.guestIdentity, so existing template hashes are
+    // unchanged: the manager provisions the vTPM, attaches the qrab-identity
+    // disk and the SPIRE relay port.
+    if vm.spec.guest_identity.is_some() {
+        config["guest_identity"] = settings.tpm_issuer.manager_config();
+        config["spire_relay"] = json!({"enabled":true});
     }
     let config_data = serde_json::to_string_pretty(&config)?;
     let config_map: ConfigMap = serde_json::from_value(

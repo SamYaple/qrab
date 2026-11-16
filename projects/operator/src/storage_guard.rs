@@ -716,6 +716,7 @@ mod tests {
             bmc_bearer: None,
             nic_addresses: None,
             guest_devid_ca_cn: crate::guest_identity::DEFAULT_DEVID_CA_CN.into(),
+            tpm_issuer: Default::default(),
         }
     }
     async fn get_claim() -> Response {
@@ -860,6 +861,7 @@ mod tests {
                 bmc_bearer: None,
                 nic_addresses: None,
                 guest_devid_ca_cn: crate::guest_identity::DEFAULT_DEVID_CA_CN.into(),
+                tpm_issuer: Default::default(),
             },
             storage,
             metrics: None,
@@ -1333,6 +1335,7 @@ mod tests {
             bmc_bearer: None,
             nic_addresses: None,
             guest_devid_ca_cn: crate::guest_identity::DEFAULT_DEVID_CA_CN.into(),
+            tpm_issuer: Default::default(),
         };
         let desired = resources::render(&vm, &settings).unwrap();
         let mut old = desired.config.clone();

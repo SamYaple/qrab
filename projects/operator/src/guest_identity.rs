@@ -113,6 +113,58 @@ pub fn valid_selector(selector: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_graphic())
 }
 
+/// The default qrab-tpm-issuer origin (`QRAB_TPM_ISSUER_URL`).
+pub const DEFAULT_TPM_ISSUER_URL: &str = "https://qrab-tpm-issuer.qrab-tpm-issuer.svc:8443";
+/// The default SPIFFE ID VM managers require of it (`QRAB_TPM_ISSUER_ID`).
+pub const DEFAULT_TPM_ISSUER_ID: &str =
+    "spiffe://yapplesauce.com/kubernetes/qrab-tpm-issuer/qrab-tpm-issuer";
+
+/// Where VM managers get their vTPM's EK and DevID certificates: rendered
+/// into vm.json (`guest_identity`) for VMs with `spec.guestIdentity`.
+///
+/// ```
+/// use qrab_operator::guest_identity::{TpmIssuer, DEFAULT_TPM_ISSUER_URL};
+/// let env = |name: &str| (name == "QRAB_TPM_ISSUER_URL").then(|| "https://issuer:9443".to_string());
+/// let issuer = TpmIssuer::from_env(env).unwrap();
+/// assert_eq!(issuer.url, "https://issuer:9443");
+/// assert_eq!(TpmIssuer::from_env(|_| None).unwrap(), TpmIssuer::default());
+/// assert_eq!(TpmIssuer::default().url, DEFAULT_TPM_ISSUER_URL);
+/// assert!(TpmIssuer::from_env(|_| Some("http://issuer".into())).is_err());
+/// assert!(TpmIssuer::from_env(|n| (n == "QRAB_TPM_ISSUER_ID").then(|| "issuer".into())).is_err());
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmIssuer {
+    pub url: String,
+    pub id: String,
+}
+
+impl Default for TpmIssuer {
+    fn default() -> Self {
+        Self {
+            url: DEFAULT_TPM_ISSUER_URL.into(),
+            id: DEFAULT_TPM_ISSUER_ID.into(),
+        }
+    }
+}
+
+impl TpmIssuer {
+    pub fn from_env(env: impl Fn(&str) -> Option<String>) -> std::result::Result<Self, String> {
+        let url = env("QRAB_TPM_ISSUER_URL").unwrap_or_else(|| DEFAULT_TPM_ISSUER_URL.into());
+        let id = env("QRAB_TPM_ISSUER_ID").unwrap_or_else(|| DEFAULT_TPM_ISSUER_ID.into());
+        let authority = url.strip_prefix("https://").unwrap_or_default();
+        if authority.is_empty() || authority.contains(['/', '?', '#', '@']) {
+            return Err("QRAB_TPM_ISSUER_URL must be https://host[:port] without a path".into());
+        }
+        qrab_spiffe::id(&id).map_err(|_| "QRAB_TPM_ISSUER_ID must be a SPIFFE ID".to_string())?;
+        Ok(Self { url, id })
+    }
+
+    /// The manager's `guest_identity` config block.
+    pub fn manager_config(&self) -> serde_json::Value {
+        json!({"enabled":true,"issuer_url":self.url,"issuer_id":self.id})
+    }
+}
+
 /// An X.509 CN fit for a `tpm_devid:issuer:cn:` selector.
 ///
 /// ```

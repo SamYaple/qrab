@@ -700,6 +700,15 @@ the CRD or `contrib/kubernetes/operator/guest-identity.yaml` (cluster RBAC and t
 admission policy that confines the operator to these shapes), such a VM is
 Blocked.
 
+Such a VM's `vm.json` also carries `"spire_relay": {"enabled": true}` and
+`"guest_identity": {"enabled": true, "issuer_url": ..., "issuer_id": ...}`,
+from `QRAB_TPM_ISSUER_URL` (default
+`https://qrab-tpm-issuer.qrab-tpm-issuer.svc:8443`) and `QRAB_TPM_ISSUER_ID`
+(default `spiffe://yapplesauce.com/kubernetes/qrab-tpm-issuer/qrab-tpm-issuer`):
+its manager provisions the vTPM and attaches the `qrab-identity` disk
+([manager.md](manager.md#guest-identity)). Adding or removing
+`guestIdentity` therefore restarts the VM; changing its workloads does not.
+
 ## Build and verification
 
 The normal default tests and strict Clippy include the operator. The CRD is

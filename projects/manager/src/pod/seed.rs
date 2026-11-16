@@ -125,8 +125,8 @@ impl Seed {
 /// Files are stamped 1980-01-01 00:00, the FAT epoch: the image is a
 /// deterministic function of its input, without a clock dependency.
 #[derive(Debug)]
-struct FatEpoch;
-static FAT_EPOCH: FatEpoch = FatEpoch;
+pub(super) struct FatEpoch;
+pub(super) static FAT_EPOCH: FatEpoch = FatEpoch;
 
 impl fatfs::TimeProvider for FatEpoch {
     fn get_current_date(&self) -> fatfs::Date {

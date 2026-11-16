@@ -291,6 +291,138 @@ impl Default for SpireRelay {
     }
 }
 
+// --- Guest workload identity (work/manager-vtpm-identity-provisioning) ---
+
+/// Guest workload identity (docs/spire-vm.md, "Guest workload identity").
+/// When enabled the manager provisions the vTPM before the first boot (an
+/// issuer-signed EK certificate and a SPIRE LDevID key with its DevID
+/// certificate, from qrab-tpm-issuer) and attaches the read-only
+/// `qrab-identity` disk (see `pod::identity`). Off by default: the disk adds
+/// a PCI device. A migration target follows the source's offer instead.
+///
+/// ```
+/// use manager::pod::GuestIdentity;
+/// let off: GuestIdentity = serde_json::from_str("{}").unwrap();
+/// assert!(!off.enabled);
+/// assert_eq!(off.issuer_url, "https://qrab-tpm-issuer.qrab-tpm-issuer.svc:8443");
+/// assert_eq!(off.issuer_id, "spiffe://yapplesauce.com/kubernetes/qrab-tpm-issuer/qrab-tpm-issuer");
+/// assert_eq!(off.issuer_address().unwrap(), ("qrab-tpm-issuer.qrab-tpm-issuer.svc".to_string(), 8443));
+/// let mut bad = off.clone();
+/// bad.issuer_url = "http://issuer:80".into();
+/// assert!(bad.issuer_address().is_err());
+/// bad.issuer_url = "https://issuer/v1".into();
+/// assert!(bad.issuer_address().is_err());
+/// bad.issuer_url = "https://[::1]".into();
+/// assert_eq!(bad.issuer_address().unwrap(), ("::1".to_string(), 443));
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GuestIdentity {
+    #[serde(default)]
+    pub enabled: bool,
+    /// The issuer's origin, `https://host[:port]`, without a path.
+    #[serde(default = "issuer_url")]
+    pub issuer_url: String,
+    /// The only SPIFFE ID the issuer may hold.
+    #[serde(default = "issuer_id")]
+    pub issuer_id: String,
+    /// Workload API endpoint; defaults to `QRAB_SPIFFE_ENDPOINT_SOCKET`, then
+    /// the csi.spiffe.io socket.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workload_api: Option<String>,
+    /// Static guest binaries (spire-agent, qrab-spire-relay) copied into the
+    /// disk's `tools/` directory when this directory exists.
+    #[serde(default = "guest_tools_dir")]
+    pub guest_tools_dir: PathBuf,
+}
+
+fn issuer_url() -> String {
+    "https://qrab-tpm-issuer.qrab-tpm-issuer.svc:8443".into()
+}
+fn issuer_id() -> String {
+    "spiffe://yapplesauce.com/kubernetes/qrab-tpm-issuer/qrab-tpm-issuer".into()
+}
+fn guest_tools_dir() -> PathBuf {
+    "/usr/libexec/qrab/guest-tools".into()
+}
+
+impl Default for GuestIdentity {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            issuer_url: issuer_url(),
+            issuer_id: issuer_id(),
+            workload_api: None,
+            guest_tools_dir: guest_tools_dir(),
+        }
+    }
+}
+
+impl GuestIdentity {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Host and port of [`Self::issuer_url`].
+    pub fn issuer_address(&self) -> Result<(String, u16)> {
+        let invalid = || {
+            Error::Config(format!(
+                "guest_identity.issuer_url must be https://host[:port], not {:?}",
+                self.issuer_url
+            ))
+        };
+        let authority = self
+            .issuer_url
+            .strip_prefix("https://")
+            .ok_or_else(invalid)?;
+        let authority = authority.strip_suffix('/').unwrap_or(authority);
+        if authority.is_empty() || authority.contains(['/', '?', '#', '@']) {
+            return Err(invalid());
+        }
+        let (host, port) = match authority.strip_prefix('[') {
+            Some(v6) => {
+                let (host, rest) = v6.split_once(']').ok_or_else(invalid)?;
+                match rest {
+                    "" => (host, None),
+                    rest => (host, Some(rest.strip_prefix(':').ok_or_else(invalid)?)),
+                }
+            }
+            None => match authority.rsplit_once(':') {
+                Some((host, port)) => (host, Some(port)),
+                None => (authority, None),
+            },
+        };
+        let port = match port {
+            Some(port) => port.parse().map_err(|_| invalid())?,
+            None => 443,
+        };
+        if host.is_empty() || port == 0 {
+            return Err(invalid());
+        }
+        Ok((host.to_owned(), port))
+    }
+
+    fn validate(&self, tpm: bool) -> Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if !tpm {
+            return Err(Error::Config("guest_identity needs a tpm".into()));
+        }
+        self.issuer_address()?;
+        qrab_spiffe::id(&self.issuer_id)
+            .map_err(|e| Error::Config(format!("guest_identity.issuer_id: {e}")))?;
+        if !self.guest_tools_dir.is_absolute() {
+            return Err(Error::Config(
+                "guest_identity.guest_tools_dir must be absolute".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+// --- end guest workload identity ---
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tpm {
@@ -364,6 +496,10 @@ pub struct Config {
     /// guest relay. A migration target follows the source's setting.
     #[serde(default)]
     pub spire_relay: SpireRelay,
+    /// Guest workload identity: vTPM provisioning and the `qrab-identity`
+    /// disk. A migration target follows the source's offer.
+    #[serde(default, skip_serializing_if = "GuestIdentity::is_default")]
+    pub guest_identity: GuestIdentity,
     /// Directory for the control socket, created by the manager. Defaults to
     /// `{runtime_dir}/control`; a separate volume shares only the socket.
     #[serde(default)]
@@ -603,6 +739,7 @@ impl Config {
                     .into(),
             ));
         }
+        self.guest_identity.validate(self.tpm.is_some())?;
         super::iscsi::validate(&self.iscsi_disks)?;
         validate_nics(&self.nics, self.nic_slots)?;
         if let Some(seed) = &self.seed {
@@ -895,6 +1032,9 @@ impl Config {
         super::iscsi::arguments(&self.iscsi_disks, &mut args);
         if self.seed.is_some() {
             super::seed::arguments(socket, &mut args);
+        }
+        if self.guest_identity.enabled {
+            super::identity::arguments(&self.state_dir, &mut args);
         }
         if self.incoming.is_some() {
             args.extend(["-incoming".into(), "defer".into()]);

@@ -46,6 +46,7 @@ fn settings() -> Settings {
         bmc_bearer: None,
         nic_addresses: None,
         guest_devid_ca_cn: DEFAULT_DEVID_CA_CN.into(),
+        tpm_issuer: Default::default(),
     }
 }
 
@@ -128,6 +129,55 @@ fn a_vm_without_guest_identity_renders_no_entries_and_an_empty_one_only_its_alia
     assert_eq!(
         serde_json::to_value(&alias_only[0]).unwrap()["spec"]["selectors"][1],
         "tpm_devid:issuer:cn:qrab DevID CA 2"
+    );
+}
+
+fn manager_config(desired: &resources::Desired) -> Value {
+    serde_json::from_str(&desired.config.data.clone().unwrap()["vm.json"]).unwrap()
+}
+
+#[test]
+fn only_a_vm_with_guest_identity_asks_its_manager_for_the_vtpm_identity_and_relay() {
+    let plain = resources::render(&vm(None), &settings()).unwrap();
+    let config = manager_config(&plain);
+    assert!(config.get("guest_identity").is_none());
+    assert!(config.get("spire_relay").is_none());
+
+    let with = resources::render(&vm(Some(two_workloads())), &settings()).unwrap();
+    let config = manager_config(&with);
+    assert_eq!(
+        config["guest_identity"],
+        json!({"enabled":true,
+            "issuer_url":"https://qrab-tpm-issuer.qrab-tpm-issuer.svc:8443",
+            "issuer_id":"spiffe://yapplesauce.com/kubernetes/qrab-tpm-issuer/qrab-tpm-issuer"})
+    );
+    assert_eq!(config["spire_relay"], json!({"enabled":true}));
+    assert_ne!(with.hash, plain.hash, "the disk and port need a new QEMU");
+    // Apart from those two keys the manager config is the plain one.
+    let mut stripped = config.clone();
+    stripped.as_object_mut().unwrap().remove("guest_identity");
+    stripped.as_object_mut().unwrap().remove("spire_relay");
+    assert_eq!(stripped, manager_config(&plain));
+
+    // The issuer location follows the operator's settings; workloads do not
+    // change the manager config.
+    let mut moved = settings();
+    moved.tpm_issuer = guest_identity::TpmIssuer {
+        url: "https://issuer.example:9443".into(),
+        id: "spiffe://yapplesauce.com/kubernetes/elsewhere/issuer".into(),
+    };
+    let config = manager_config(&resources::render(&vm(Some(json!({}))), &moved).unwrap());
+    assert_eq!(
+        config["guest_identity"]["issuer_url"],
+        "https://issuer.example:9443"
+    );
+    assert_eq!(
+        config["guest_identity"]["issuer_id"],
+        "spiffe://yapplesauce.com/kubernetes/elsewhere/issuer"
+    );
+    assert_eq!(
+        manager_config(&resources::render(&vm(Some(json!({}))), &settings()).unwrap()),
+        manager_config(&with)
     );
 }
 

@@ -177,6 +177,10 @@ pub(super) struct Offer {
     /// still parses an offer without the port.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spire_relay: bool,
+    /// The source's QEMU has the qrab-identity disk; the target rebuilds it
+    /// from these files. Only sent when present, like `spire_relay`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guest_identity: Option<super::identity::Material>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -688,6 +692,7 @@ where
                 iscsi_disks: retained,
                 nics: (config.nic_slots > 0).then(|| config.slotted_nics()),
                 spire_relay: config.spire_relay.enabled,
+                guest_identity: super::identity::material(config)?,
             }),
         )
         .await?;
@@ -1114,6 +1119,7 @@ mod tests {
             iscsi_disks: BTreeMap::new(),
             nics: None,
             spire_relay: false,
+            guest_identity: None,
         };
         write_frame(&mut stream, &Reply::Offer(offer))
             .await

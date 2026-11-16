@@ -153,6 +153,8 @@ pub async fn run_controlled(
             }
             // The relay port is part of the device model the stream carries.
             config.spire_relay.enabled = receiving.offer.spire_relay;
+            // So is the qrab-identity disk; its files come with the offer.
+            config.guest_identity.enabled = receiving.offer.guest_identity.is_some();
             Some(receiving)
         }
         None => None,
@@ -320,6 +322,13 @@ async fn power_on(
     control.set_config(&config);
     state.resize = super::Resize::new(&config);
     publish(&config, state)?;
+    if config.guest_identity.enabled {
+        // Before swtpm: provisioning needs the TPM state to itself.
+        let offered = receiving
+            .as_ref()
+            .and_then(|r| r.offer.guest_identity.as_ref());
+        super::identity::prepare(&config, offered).await?;
+    }
     let mut tpm = None;
     let result = async {
         if let Some(tpm_config) = &config.tpm {

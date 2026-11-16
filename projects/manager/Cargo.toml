@@ -18,6 +18,8 @@ fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc
 
 # Places received tap and vhost-net fds at fixed numbers in QEMU.
 command-fds = { version = "0.3", features = ["tokio"] }
+# Issuer request/response fields and PEM bodies for guest identity.
+base64 = "0.22"
 
 [dependencies.qapi]
 path = "../qapi"
@@ -57,3 +59,10 @@ features = ["io-util"]
 [dev-dependencies.qrab-spiffe]
 path = "../qrab-spiffe"
 features = ["fixture"]
+
+# A real issuer behind SPIFFE mTLS for the guest-identity provisioning test.
+[dev-dependencies.qrab-tpm-issuer]
+path = "../tpm-issuer"
+
+[dev-dependencies.axum]
+version = "0.8"

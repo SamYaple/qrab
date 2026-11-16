@@ -2822,6 +2822,8 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 name = "manager"
 version = "0.2.0"
 dependencies = [
+ "axum",
+ "base64 0.22.1",
  "command-fds",
  "fatfs",
  "nix 0.29.0",
@@ -2831,6 +2833,7 @@ dependencies = [
  "qrab-netd",
  "qrab-spiffe",
  "qrab-spire-relay",
+ "qrab-tpm-issuer",
  "serde",
  "serde_json",
  "sha2 0.10.9",

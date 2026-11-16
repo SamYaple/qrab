@@ -7,6 +7,13 @@ COPY Cargo.toml Cargo.lock ./
 COPY projects ./projects
 RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-manager-target,target=/src/target,sharing=locked cargo build --release --locked -p manager --bin qrab-manager -p bmc --bin qrab-bmc -p qrab-redfish --bin qrab-redfish && rustup target add x86_64-unknown-linux-musl && cargo build --release --locked --target x86_64-unknown-linux-musl -p qrab-guest-agent --bin qrab-guest-agent -p qrab-spire-relay --bin qrab-spire-relay && mkdir -p /out && cp /src/target/release/qrab-manager /src/target/release/qrab-bmc /src/target/release/qrab-redfish /src/target/x86_64-unknown-linux-musl/release/qrab-guest-agent /src/target/x86_64-unknown-linux-musl/release/qrab-spire-relay /out/
 
+# The guest's SPIRE agent, carried on each guest-identity VM's qrab-identity
+# disk (tools/) so a minimal guest needs no network or package install.
+FROM ${DEBIAN_IMAGE} AS spire-agent
+ARG SPIRE_VERSION=1.15.3
+ARG SPIRE_SHA256=ca1a4d1155317bdd2afc7f36663828a10410c7c840e54725b90b4064b0a301c7
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/* && curl -fsSLo /spire.tar.gz "https://github.com/spiffe/spire/releases/download/v${SPIRE_VERSION}/spire-${SPIRE_VERSION}-linux-amd64-musl.tar.gz" && echo "${SPIRE_SHA256}  /spire.tar.gz" | sha256sum -c - && tar -xzf /spire.tar.gz -C / "spire-${SPIRE_VERSION}/bin/spire-agent" && install -D -m 0755 "/spire-${SPIRE_VERSION}/bin/spire-agent" /out/spire-agent
+
 FROM ${DEBIAN_IMAGE} AS demo-guest
 RUN apt-get update && apt-get install -y --no-install-recommends linux-image-amd64 busybox-static kmod zstd python3 gzip tpm2-tools systemd-ukify systemd-boot-efi dosfstools mtools fdisk e2fsprogs diffutils && rm -rf /var/lib/apt/lists/*
 COPY contrib/images/guest-init /guest/init
@@ -27,6 +34,9 @@ LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastruct
 COPY --from=manager-build /out/qrab-manager /usr/local/bin/qrab-manager
 COPY --from=manager-build /out/qrab-bmc /usr/local/bin/qrab-bmc
 COPY --from=manager-build /out/qrab-redfish /usr/local/bin/qrab-redfish
+# guest_identity.guest_tools_dir: copied into the qrab-identity disk's tools/.
+COPY --from=manager-build /out/qrab-spire-relay /usr/libexec/qrab/guest-tools/qrab-spire-relay
+COPY --from=spire-agent /out/spire-agent /usr/libexec/qrab/guest-tools/spire-agent
 COPY projects/bmc/assets /opt/qrab/bmc/assets
 ENV BMC_ASSETS_DIR=/opt/qrab/bmc/assets
 COPY --from=demo-guest /out /opt/qrab/demo
