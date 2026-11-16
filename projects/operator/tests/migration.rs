@@ -168,6 +168,7 @@ fn settings() -> Settings {
         redfish_oidc_audience: "qrab-redfish".into(),
         bmc_bearer: None,
         nic_addresses: None,
+        guest_devid_ca_cn: qrab_operator::guest_identity::DEFAULT_DEVID_CA_CN.into(),
     }
 }
 

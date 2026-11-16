@@ -89,9 +89,11 @@ pull authorization authenticates the host and pod; it does not attest the guest.
 
 ## Guest workload identity (design, 2026-11-15)
 
-Status: decided, not yet built. The towl container is
-`qrab/container/vm-guest-spiffe-identity`; its implementation tasks are blocked
-on `work/guest-identity-mechanism-design`.
+Status: decided. Registration (step 5) is built in the operator:
+`spec.guestIdentity` and `contrib/kubernetes/operator/guest-identity.yaml`
+([operator.md](operator.md#guest-identity)). The issuer, TPM provisioning,
+transport and SPIRE server trust are not built yet. The towl container is
+`qrab/container/vm-guest-spiffe-identity`.
 
 ### What a guest identity proves
 

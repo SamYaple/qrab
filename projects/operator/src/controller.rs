@@ -4,6 +4,7 @@ pub(crate) mod storage_guard;
 use crate::{
     address,
     api::{NicStatus, VirtualMachine, VirtualMachineStatus},
+    guest_identity,
     nic::{self, NicEndpoint},
     power,
     provision::{self, Attached, SecretStore, Step},
@@ -724,6 +725,11 @@ async fn synchronize(
     if matches!(nics_finalized, Finalized::Patched) {
         return Ok(Action::requeue(Duration::from_secs(1)));
     }
+    if vm.metadata.deletion_timestamp.is_some()
+        && guest_identity::finalize(vm, &ctx.client, vms).await?
+    {
+        return Ok(Action::requeue(Duration::from_secs(1)));
+    }
     if let Some(action) = storage_guard::reconcile(vm, pod.as_ref(), vms, &pods, ctx).await? {
         return Ok(action);
     }
@@ -737,6 +743,9 @@ async fn synchronize(
     reconcile_redfish_policy(vm, ctx).await?;
     reconcile_redfish_metrics_policy(vm, ctx).await?;
     reconcile_redfish_prometheus_policy(vm, ctx).await?;
+    if guest_identity::reconcile(vm, &ctx.client, &ctx.settings.guest_devid_ca_cn, vms).await? {
+        return Ok(Action::requeue(Duration::from_secs(1)));
+    }
     if let Some(pod) = &pod {
         if !resources::owned(pod, vm) {
             return Err(Error::Ownership(format!(
@@ -1154,10 +1163,12 @@ pub fn error_policy(vm: Arc<VirtualMachine>, error: &Error, _ctx: Arc<Context>) 
     Action::requeue(Duration::from_secs(5))
 }
 
-/// Periodically collect clean storage Pods after a forcibly removed parent.
+/// Periodically collect clean storage Pods, NIC addresses and guest identity
+/// entries after a forcibly removed parent.
 pub async fn sweep_orphans(ctx: Arc<Context>) -> Result<()> {
     storage_guard::sweep_orphans(ctx.clone()).await?;
-    sweep_addresses(&ctx).await
+    sweep_addresses(&ctx).await?;
+    guest_identity::sweep(&ctx.client, &ctx.settings.namespace).await
 }
 
 /// Event egress is reconciled independently of NIC presence and NIC GC labels.

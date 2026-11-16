@@ -10,5 +10,6 @@ resources:
 - dashboard-update-policy.json
 - dashboard-update-policy-binding.yaml
 - nic-addresses.yaml
+- guest-identity.yaml
 - nic-handoff.yaml
 - deployment.yaml

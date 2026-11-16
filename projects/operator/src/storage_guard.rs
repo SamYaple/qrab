@@ -715,6 +715,7 @@ mod tests {
             redfish_oidc_audience: "qrab-redfish".into(),
             bmc_bearer: None,
             nic_addresses: None,
+            guest_devid_ca_cn: crate::guest_identity::DEFAULT_DEVID_CA_CN.into(),
         }
     }
     async fn get_claim() -> Response {
@@ -858,6 +859,7 @@ mod tests {
                 redfish_oidc_audience: "qrab-redfish".into(),
                 bmc_bearer: None,
                 nic_addresses: None,
+                guest_devid_ca_cn: crate::guest_identity::DEFAULT_DEVID_CA_CN.into(),
             },
             storage,
             metrics: None,
@@ -1330,6 +1332,7 @@ mod tests {
             redfish_oidc_audience: "qrab-redfish".into(),
             bmc_bearer: None,
             nic_addresses: None,
+            guest_devid_ca_cn: crate::guest_identity::DEFAULT_DEVID_CA_CN.into(),
         };
         let desired = resources::render(&vm, &settings).unwrap();
         let mut old = desired.config.clone();

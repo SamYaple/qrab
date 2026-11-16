@@ -103,6 +103,12 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| qrab_operator::address::DEFAULT_FRR_NAMESPACE.into()),
         }),
     };
+    let guest_devid_ca_cn = std::env::var("QRAB_GUEST_DEVID_CA_CN")
+        .unwrap_or_else(|_| qrab_operator::guest_identity::DEFAULT_DEVID_CA_CN.into());
+    ensure!(
+        qrab_operator::guest_identity::valid_devid_ca_cn(&guest_devid_ca_cn),
+        "QRAB_GUEST_DEVID_CA_CN must be a CN of 1..64 letters, digits, spaces, '.', '_' or '-'"
+    );
     let settings = Settings {
         namespace: std::env::var("QRAB_NAMESPACE").unwrap_or_else(|_| "qrab".into()),
         vm_image,
@@ -114,6 +120,7 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|_| "qrab-redfish".into()),
         bmc_bearer,
         nic_addresses,
+        guest_devid_ca_cn,
     };
     qrab_spiffe::http::install_tls13_provider()?;
     let identity = qrab_spiffe::Identity::from_env()

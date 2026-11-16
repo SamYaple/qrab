@@ -1,0 +1,117 @@
+# Guest workload identity (docs/spire-vm.md, "Guest workload identity").
+# For a VM with spec.guestIdentity the operator writes cluster-scoped SPIRE
+# ClusterStaticEntries: the guest's node alias qrab-guest-node-<vm-uid> and
+# one qrab-guest-<vm-uid>-<workload> entry per workload. That needs
+# cluster-wide RBAC on entries that can name any SPIFFE ID; the policy below
+# confines the operator to guest IDs under spiffe://yapplesauce.com/qrab/, the
+# alias to agents with that VM's DevID certificate, workloads to the guest
+# agent's unix/systemd attestors under that alias, and no admin, downstream
+# or federated entries. Needs spire-controller-manager's ClusterStaticEntry
+# CRD (reconcile.clusterStaticEntries, class kubernetes-tpm).
+# Checked live by contrib/kubernetes/operator/check-guest-identity-policy.sh.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: qrab-operator-guest-identity
+rules:
+- apiGroups: [spire.spiffe.io]
+  resources: [clusterstaticentries]
+  verbs: [get, list, watch, create, patch, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: qrab-operator-guest-identity
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: qrab-operator-guest-identity
+subjects:
+- kind: ServiceAccount
+  name: qrab-operator
+  namespace: qrab
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: qrab-operator-guest-identity
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [spire.spiffe.io]
+      apiVersions: ['*']
+      operations: [CREATE, UPDATE, DELETE]
+      resources: [clusterstaticentries]
+  matchConditions:
+  - name: qrab-operator
+    expression: "request.userInfo.username == 'system:serviceaccount:qrab:qrab-operator'"
+  variables:
+  - name: uuid
+    expression: "'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'"
+  - name: subject
+    expression: "request.operation == 'DELETE' ? oldObject : object"
+  - name: name
+    expression: "variables.subject.metadata.name"
+  - name: id
+    expression: "variables.subject.?spec.?spiffeID.orValue('')"
+  - name: parent
+    expression: "variables.subject.?spec.?parentID.orValue('')"
+  - name: selectors
+    expression: "variables.subject.?spec.?selectors.orValue([])"
+  - name: isNode
+    expression: "variables.id.matches('^spiffe://yapplesauce[.]com/qrab/guest-node/' + variables.uuid + '$')"
+  - name: isWorkload
+    expression: "variables.id.matches('^spiffe://yapplesauce[.]com/qrab/guest/' + variables.uuid + '/[a-z0-9-]{1,40}$')"
+  # spiffe://yapplesauce.com/qrab/guest-node/<uuid> and .../guest/<uuid>/<name>
+  # both split to ['spiffe:', '', 'yapplesauce.com', 'qrab', <kind>, <uuid>, ...].
+  - name: vm
+    expression: "(variables.isNode || variables.isWorkload) ? variables.id.split('/')[5] : ''"
+  - name: workload
+    expression: "variables.isWorkload ? variables.id.split('/')[6] : ''"
+  validations:
+  - expression: "variables.name.startsWith('qrab-guest-')"
+    message: the qrab operator may only write ClusterStaticEntries named qrab-guest-*
+  - expression: "request.operation == 'DELETE' || variables.isNode || variables.isWorkload"
+    message: spiffeID must be spiffe://yapplesauce.com/qrab/guest-node/<vm-uid> or spiffe://yapplesauce.com/qrab/guest/<vm-uid>/<workload>
+  - expression: >-
+      request.operation == 'DELETE' ||
+      variables.name == (variables.isNode ? 'qrab-guest-node-' + variables.vm :
+        'qrab-guest-' + variables.vm + '-' + variables.workload)
+    message: an entry is named qrab-guest-node-<vm-uid> or qrab-guest-<vm-uid>-<workload> after its spiffeID
+  - expression: >-
+      request.operation == 'DELETE' ||
+      object.metadata.?labels['qrab.yapplesauce.com/owner-uid'].orValue('') == variables.vm
+    message: an entry carries the qrab.yapplesauce.com/owner-uid label of the VM its spiffeID names
+  - expression: >-
+      request.operation == 'DELETE' || !variables.isNode ||
+      (variables.parent == 'spiffe://yapplesauce.com/spire/server' &&
+       size(variables.selectors) == 2 &&
+       ('tpm_devid:subject:cn:qrab-vm-' + variables.vm) in variables.selectors &&
+       variables.selectors.exists_one(s, s.startsWith('tpm_devid:issuer:cn:') && size(s) > 20))
+    message: a guest node alias is parented by the SPIRE server and selects exactly tpm_devid:subject:cn:qrab-vm-<vm-uid> and one tpm_devid:issuer:cn:<CA CN>
+  - expression: >-
+      request.operation == 'DELETE' || !variables.isWorkload ||
+      (variables.parent == 'spiffe://yapplesauce.com/qrab/guest-node/' + variables.vm &&
+       size(variables.selectors) >= 1 && size(variables.selectors) <= 8 &&
+       variables.selectors.all(s, s.startsWith('unix:') || s.startsWith('systemd:')))
+    message: a guest workload is parented by its VM's node alias and selects 1..8 unix:* or systemd:* selectors
+  - expression: >-
+      request.operation == 'DELETE' ||
+      (!object.?spec.?admin.orValue(false) && !object.?spec.?downstream.orValue(false) &&
+       !object.?spec.?storeSVID.orValue(false))
+    message: guest entries are never admin, downstream or storeSVID
+  - expression: "request.operation == 'DELETE' || object.?spec.?className.orValue('') == 'kubernetes-tpm'"
+    message: guest entries carry className kubernetes-tpm
+  - expression: >-
+      request.operation == 'DELETE' ||
+      (size(object.?spec.?dnsNames.orValue([])) == 0 && size(object.?spec.?federatesWith.orValue([])) == 0)
+    message: guest entries have no dnsNames and no federatesWith
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: qrab-operator-guest-identity
+spec:
+  policyName: qrab-operator-guest-identity
+  validationActions: [Deny]

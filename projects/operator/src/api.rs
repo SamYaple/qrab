@@ -125,7 +125,42 @@ pub struct VirtualMachineSpec {
     /// Opt-in; adding, changing or removing it restarts the VM.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_init: Option<CloudInit>,
+    /// SPIFFE identities for code in the guest (docs/spire-vm.md, "Guest
+    /// workload identity"). The operator registers the guest's node alias
+    /// and one SPIRE entry per workload as ClusterStaticEntries, and deletes
+    /// them when a workload or this field is removed, or the VM is deleted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guest_identity: Option<GuestIdentity>,
 }
+
+/// The guest's workload entries, all under its node alias
+/// `spiffe://yapplesauce.com/qrab/guest-node/<vm-uid>`.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GuestIdentity {
+    #[serde(default)]
+    #[schemars(length(max = 16))]
+    pub workloads: Vec<GuestWorkload>,
+}
+
+/// One guest workload: `spiffe://yapplesauce.com/qrab/guest/<vm-uid>/<name>`
+/// for guest processes matching all of its selectors.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GuestWorkload {
+    #[schemars(regex(pattern = r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$"))]
+    pub name: String,
+    #[schemars(length(min = 1, max = 8))]
+    pub selectors: Vec<GuestSelector>,
+}
+
+/// A SPIRE workload selector of the guest agent's `unix` or `systemd`
+/// attestor, such as `unix:uid:1000` or `systemd:id:app.service`.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(transparent)]
+pub struct GuestSelector(
+    #[schemars(regex(pattern = r"^(unix|systemd):[a-z_]{1,32}:[!-~]{1,200}$"))] pub String,
+);
 
 /// The guest configures itself from this seed without any DHCP or metadata
 /// service. meta-data carries `instance-id` (the VM UID) and `local-hostname`.
@@ -700,6 +735,17 @@ pub fn crd() -> serde_json::Value {
     nics["x-kubernetes-list-type"] = serde_json::json!("map");
     nics["x-kubernetes-list-map-keys"] = serde_json::json!(["name"]);
     nics["items"]["properties"]["securityGroups"]["x-kubernetes-list-type"] =
+        serde_json::json!("set");
+    let guest = &mut value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]
+        ["spec"]["properties"]["guestIdentity"];
+    guest
+        .as_object_mut()
+        .expect("guestIdentity schema")
+        .remove("nullable");
+    let workloads = &mut guest["properties"]["workloads"];
+    workloads["x-kubernetes-list-type"] = serde_json::json!("map");
+    workloads["x-kubernetes-list-map-keys"] = serde_json::json!(["name"]);
+    workloads["items"]["properties"]["selectors"]["x-kubernetes-list-type"] =
         serde_json::json!("set");
     value["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
         ["stateVolumeClaim"]["x-kubernetes-validations"] = serde_json::json!([

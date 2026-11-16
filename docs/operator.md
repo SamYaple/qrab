@@ -667,6 +667,39 @@ for the exact future DevID enrollment/trust/transport contract. Actual SPIRE
 node authentication is not claimed while the guest has no server transport or
 trusted DevID credentials.
 
+### Guest identity
+
+`spec.guestIdentity` registers SPIFFE identities for code in the guest
+([spire-vm.md](spire-vm.md#guest-workload-identity-design-2026-11-15)):
+
+```yaml
+guestIdentity:
+  workloads:
+  - name: web                 # DNS label, at most 40 characters, unique
+    selectors: [unix:uid:1000, systemd:id:web.service]   # 1..8, unix: or systemd: only
+```
+
+At most 16 workloads are allowed. The operator writes cluster-scoped
+`spire.spiffe.io/v1alpha1` ClusterStaticEntries with `className:
+kubernetes-tpm`:
+- `qrab-guest-node-<vm-uid>`: the node alias
+  `spiffe://yapplesauce.com/qrab/guest-node/<vm-uid>`, parented by the SPIRE
+  server. It selects `tpm_devid:subject:cn:qrab-vm-<vm-uid>` and
+  `tpm_devid:issuer:cn:<CA CN>`. The CA CN is `QRAB_GUEST_DEVID_CA_CN`
+  (default `qrab-devid-ca-1`).
+- `qrab-guest-<vm-uid>-<name>` for each workload:
+  `spiffe://yapplesauce.com/qrab/guest/<vm-uid>/<name>` under that alias,
+  with the workload's selectors and a 10-minute X.509 SVID TTL.
+
+`<vm-uid>` is the VM's UID, the same one in its manager Pod's
+`kubernetes/qrab/vm/<vm-uid>` SVID. The entries are labelled with the VM's
+owner UID, name and namespace. The finalizer `qrab.yapplesauce.com/guest-identity`
+deletes them with the VM. Removing a workload or `guestIdentity` deletes their
+entries, and the orphan sweep deletes the entries of VMs that are gone. Without
+the CRD or `contrib/kubernetes/operator/guest-identity.yaml` (cluster RBAC and the
+admission policy that confines the operator to these shapes), such a VM is
+Blocked.
+
 ## Build and verification
 
 The normal default tests and strict Clippy include the operator. The CRD is

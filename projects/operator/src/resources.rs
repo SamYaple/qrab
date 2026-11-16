@@ -138,6 +138,9 @@ pub struct Settings {
     /// Stable per-NIC addresses. Guest NICs need them: each NIC's anchor
     /// Pod takes its address from its one-address pool on any node.
     pub nic_addresses: Option<crate::address::Addressing>,
+    /// Issuer CN of the qrab DevID CA (`QRAB_GUEST_DEVID_CA_CN`): guest node
+    /// alias entries admit agents whose DevID certificate it issued.
+    pub guest_devid_ca_cn: String,
 }
 
 /// The issuer and audience (OAuth2 client ID) of accepted bearer ID tokens.
@@ -883,6 +886,9 @@ pub fn validate(vm: &VirtualMachine, settings: &Settings) -> Result<()> {
     }
     if let Some(cloud_init) = &vm.spec.cloud_init {
         validate_cloud_init(cloud_init)?;
+    }
+    if vm.spec.guest_identity.is_some() {
+        crate::guest_identity::render(vm, &settings.guest_devid_ca_cn)?;
     }
     Ok(())
 }

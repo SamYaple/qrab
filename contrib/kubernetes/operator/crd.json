@@ -344,6 +344,46 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "guestIdentity": {
+                    "description": "SPIFFE identities for code in the guest (docs/spire-vm.md, \"Guest\nworkload identity\"). The operator registers the guest's node alias\nand one SPIRE entry per workload as ClusterStaticEntries, and deletes\nthem when a workload or this field is removed, or the VM is deleted.",
+                    "properties": {
+                      "workloads": {
+                        "default": [],
+                        "items": {
+                          "description": "One guest workload: `spiffe://yapplesauce.com/qrab/guest/<vm-uid>/<name>`\nfor guest processes matching all of its selectors.",
+                          "properties": {
+                            "name": {
+                              "pattern": "^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$",
+                              "type": "string"
+                            },
+                            "selectors": {
+                              "items": {
+                                "description": "A SPIRE workload selector of the guest agent's `unix` or `systemd`\nattestor, such as `unix:uid:1000` or `systemd:id:app.service`.",
+                                "pattern": "^(unix|systemd):[a-z_]{1,32}:[!-~]{1,200}$",
+                                "type": "string"
+                              },
+                              "maxItems": 8,
+                              "minItems": 1,
+                              "type": "array",
+                              "x-kubernetes-list-type": "set"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "selectors"
+                          ],
+                          "type": "object"
+                        },
+                        "maxItems": 16,
+                        "type": "array",
+                        "x-kubernetes-list-map-keys": [
+                          "name"
+                        ],
+                        "x-kubernetes-list-type": "map"
+                      }
+                    },
+                    "type": "object"
+                  },
                   "image": {
                     "description": "Optional immutable manager image; defaults to the operator's release pin.",
                     "nullable": true,

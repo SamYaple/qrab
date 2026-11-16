@@ -3,7 +3,9 @@
 The namespaced Rust operator owns only VM Pods, their ConfigMaps, NIC anchor
 Pods (it also deletes the relay CiliumNetworkPolicies of the removed stream
 datapath), the VM's Redfish and migration CiliumNetworkPolicies, the CHAP Secrets of
-storage-service provisioned disks, and a live migration's target state PVC.
+storage-service provisioned disks, a live migration's target state PVC, and
+the `qrab-guest-*` ClusterStaticEntries of `spec.guestIdentity`
+(`src/guest_identity.rs`, bounded by `guest-identity.yaml`).
 Other PVCs and console entrypoints stay explicit Kubernetes resources; never
 garbage collect TPM/firmware identity storage (after a successful migration
 only an operator-created previous state PVC is removed; docs/migration.md). Keep one replica with Recreate rollout strategy.

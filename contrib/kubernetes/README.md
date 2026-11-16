@@ -64,9 +64,11 @@ All are read-only or server-side dry runs unless stated otherwise:
 - `operator/check-creator-policy.sh EXISTING_VM` and
   `operator/check-dashboard-update-policy.sh EXISTING_VM` dry-run the
   admission policies against an existing VM.
-- `operator/check-secret-policy.sh`, `operator/check-nic-address-policy.sh` and
-  `operator/check-nic-handoff-policy.sh` bind uniquely named copies of their
-  policies and remove them on exit.
+- `operator/check-secret-policy.sh`, `operator/check-nic-address-policy.sh`,
+  `operator/check-nic-handoff-policy.sh` and
+  `operator/check-guest-identity-policy.sh` bind uniquely named copies of their
+  policies and remove them on exit. The last needs spire-controller-manager's
+  ClusterStaticEntry CRD.
 - `redfish-live.py [ORIGIN] [--expect admin|viewer]` checks a VM's Redfish API
   with a real Kanidm ID token; as admin it pauses and resumes the VM.
 - `operator-storage-api/check.sh`, `operator-storage-api/clone-check.sh IMAGE GEN`,
