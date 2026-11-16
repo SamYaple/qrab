@@ -95,13 +95,17 @@ Prepare and verify these changes together before native activation:
 1. Stage the immutable tools, root-only MKA configuration, restartable systemd
    service and networkd upper configuration before kubelet/API-dependent
    services. Require encryption, strict validation and replay protection.
-2. Forward EAPOL on the private bridge (group-forwarding bit 3). Test MKA on
-   auxiliary addresses while production addresses/routes remain in place.
-3. Publish/enroll Cilium separately; select the upper/lower, verify decrypted
-   IP policy, and adjust direct routing, masquerade selection and tunnel MTUs.
+2. Publish/enroll Cilium separately. Select the upper/lower and allow MACsec/MKA
+   on the named lower before testing peer discovery. Keep production addressing
+   and routing selection in place; verify the new upper's IP-policy attachment.
+3. Forward EAPOL on the private bridge (group-forwarding bit 3). Test MKA on
+   auxiliary addresses, including IP policy and overhead/MTU behavior, while
+   production addresses/routes remain in place.
 4. Prepare coordinated networkd changes moving node/gateway addresses, DHCP,
    routes and VIP/VRRP to the upper, leaving no clear-IP lower fallback.
-   Stage a native timed rollback on every host before the coordinated cutover.
+   Coordinate direct routing, masquerade selection and tunnel MTUs as well.
+   Stage a native timed rollback covering network and Cilium settings on every
+   host before the cutover; recovery cannot depend on a working Kubernetes API.
 5. Verify actual API/identity bootstrap, DHCP, BGP, iSCSI sessions/fencing,
    boot, repeated migration and VPN kill switches. Capture lower links with
    recorded losses. Exercise rekey, restart, reboot and rollback.
