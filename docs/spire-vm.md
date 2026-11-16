@@ -100,8 +100,8 @@ guest; its init starts `spire-agent` from the identity disk.
 - Deleting the VM removed its ClusterStaticEntries.
 
 Two parts are still open:
-- agent eviction on deletion (step 7), tracked as
-  `qrab/work/guest-agent-eviction-on-vm-delete`;
+- live proof of agent eviction on deletion (step 7), tracked as
+  `qrab/work/spire-guest-evictor-live-rollout`;
 - the IDM dashboard's guest boundary view.
 
 The towl container is `qrab/container/vm-guest-spiffe-identity`.
@@ -191,10 +191,26 @@ guest boundary (what code in the VM may do) stay separate.
    ride the migration. The agent ID and alias are unchanged. The relay's TCP
    connection is re-opened by the target manager, and the agent reconnects as
    on any server failover. No re-enrollment and no entry change.
-7. **Deletion.** The operator removes the VM's ClusterStaticEntries. The guest
-   agent's SVIDs lapse at their TTL. Nothing evicts the agent yet: it stays
-   listed until its own SVID expires, about 1 h, and gets no workload SVIDs
-   (`qrab/work/guest-agent-eviction-on-vm-delete`).
+7. **Deletion.** The operator's guest-identity finalizer:
+   1. Removes the VM's ClusterStaticEntries.
+   2. Stops the VM's Pods, because a running guest would re-attest right
+      after an eviction. Pods the storage guard drains are left to it.
+   3. Once no Pod remains, asks spire-guest-evictor to evict the guest agent.
+      The evictor is a native service on each SPIRE server node, in the
+      spiffe-kanidm-shim repository. It accepts only the operator's SVID,
+      evicts only `tpm_devid` agents whose selectors carry both
+      `subject:cn:qrab-vm-<uid>` and `issuer:cn:qrab-devid-ca-1`, and answers
+      409 while any `qrab/guest-node/<uid>` or `qrab/guest/<uid>/…` entry
+      remains. The operator retries every 5 s.
+   4. Drops the finalizer.
+
+   The evictors are listed in `QRAB_GUEST_EVICTOR_URLS` as
+   `node=https://<node address>:8447`, tried in order; each must present
+   `spiffe://yapplesauce.com/native/<node>/spire-guest-evictor`. If no evictor
+   has succeeded 10 minutes after deletion began, the operator releases the VM
+   anyway and records a `GuestAgentNotEvicted` Warning event. The agent then
+   stays listed until its SVID expires, about 1 h, but gets no workload SVIDs.
+   Without `QRAB_GUEST_EVICTOR_URLS` the operator only removes the entries.
 
 ### The qrab CAs (created 2026-11-16)
 

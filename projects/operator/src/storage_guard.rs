@@ -64,7 +64,7 @@ fn has_finalizer<K: Resource>(resource: &K, name: &str) -> bool {
         .is_some_and(|v| v.iter().any(|s| s == name))
 }
 
-pub(super) fn active(vm: &VirtualMachine, pod: Option<&Pod>) -> bool {
+pub(crate) fn active(vm: &VirtualMachine, pod: Option<&Pod>) -> bool {
     !vm.spec.iscsi_disks.is_empty()
         || !vm.spec.disks.is_empty()
         || has_finalizer(vm, VM_FINALIZER)
@@ -865,6 +865,7 @@ mod tests {
             },
             storage,
             metrics: None,
+            evictor: None,
         });
         (
             store,

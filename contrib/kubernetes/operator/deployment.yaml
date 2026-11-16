@@ -55,6 +55,12 @@ spec:
           value: 192.168.0.251
         - name: QRAB_NIC_ADDRESS_RANGE
           value: 10.244.128.0/17
+        # spire-guest-evictor on each SPIRE server node (spiffe-kanidm-shim);
+        # the node name selects the exact evictor SPIFFE ID. Deploy the
+        # evictors first: without one, deleting a guest-identity VM waits
+        # up to 10 minutes before releasing it with a Warning event.
+        - name: QRAB_GUEST_EVICTOR_URLS
+          value: kube01=https://10.203.0.11:8447,kube02=https://10.203.0.12:8447,kube03=https://10.203.0.13:8447
         ports:
         - name: health
           containerPort: 8081

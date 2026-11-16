@@ -196,6 +196,7 @@ async fn server_with(store: &Store, settings: Settings) -> Arc<Context> {
         client,
         settings,
         metrics: None,
+        evictor: None,
         storage: None,
     })
 }
