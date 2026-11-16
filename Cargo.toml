@@ -19,6 +19,7 @@ default-members = [
     "projects/qrab-spiffe",
     "projects/proton",
     "projects/qrab-observability",
+    "projects/tpm-issuer",
 ]
 members = [
     "projects/qapi-codegen",
@@ -38,6 +39,7 @@ members = [
     "projects/qrab-spiffe",
     "projects/proton",
     "projects/qrab-observability",
+    "projects/tpm-issuer",
 ]
 
 [workspace.dependencies]

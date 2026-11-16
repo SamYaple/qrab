@@ -1,0 +1,17 @@
+ARG RUST_IMAGE=docker.io/library/rust@sha256:4277ce860337f6cfa1b679891bbf689a447f4b3f4f55701742614ad31321cee7
+ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:7378260c0a098d27ac206225db5e7d92b8c7c84ea7afccc86eeb513756bbd392
+FROM ${RUST_IMAGE} AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY projects ./projects
+RUN --mount=type=cache,id=qrab-cargo-registry,target=/usr/local/cargo/registry --mount=type=cache,id=qrab-tpm-issuer-target,target=/src/target,sharing=locked cargo build --release --locked -p qrab-tpm-issuer --bin qrab-tpm-issuer && mkdir -p /out && cp /src/target/release/qrab-tpm-issuer /out/
+
+FROM ${DEBIAN_IMAGE}
+ARG QRAB_REVISION=unknown
+LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
+      org.opencontainers.image.revision="${QRAB_REVISION}" \
+      org.opencontainers.image.description="qrab vTPM EK and DevID certificate issuer for vm/<uid> SVIDs"
+COPY --from=build /out/qrab-tpm-issuer /usr/local/bin/qrab-tpm-issuer
+USER 10001:10001
+EXPOSE 8443
+ENTRYPOINT ["/usr/local/bin/qrab-tpm-issuer"]
