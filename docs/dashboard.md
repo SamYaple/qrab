@@ -401,21 +401,28 @@ the same name reuses it while it is unbound.
 
 ### Network and cloud-init on the launch form
 
-Existing VPN-backed interfaces are marked **VPN tunnel only** on the VM detail
-page. This is a routing-mode summary, not a handshake/connection-health claim.
-The Secret reference and tunnel keys are not part of the dashboard view model.
-Default-allow guidance applies only to direct interfaces; the launch form still
-offers the same direct-interface configuration as before.
-
-- **Network.** "Attach a network interface (eth0)" is checked by default and
-  renders `spec.nics: [{name: eth0, securityGroups}]`. Security groups are
+- **Network.** The form offers two interfaces, `eth0` (attached by default)
+  and `eth1` (`launch::FORM_NICS`), with fields `nic<i>_enabled`,
+  `nic<i>_network` and `nic<i>_security_groups`. Security groups are
   comma-separated DNS labels, at most 8, distinct. Each becomes the NIC Pod
   label `sg.qrab.yapplesauce.com/<group>: ""`, which CiliumNetworkPolicies
-  select. A NIC that no policy selects is default-allow, as the form says
-  ([networking.md](networking.md#security-groups)). Unchecked, the VM has no
-  NIC; security groups without the NIC are a 400. The form offers one NIC
-  (`launch::FORM_NICS`); raising it adds `eth1`... rows with fields
-  `nic<i>_enabled` and `nic<i>_security_groups`.
+  select. A direct NIC that no policy selects is default-allow, as the form
+  says ([networking.md](networking.md#security-groups)). An unchecked
+  interface with security groups or a VPN profile is a 400.
+- **VPN.** "Network" is *Direct* or one of the VpnProfiles ([VPN](#vpn)),
+  listed with their server and location. A VPN choice renders
+  `vpn: {secretName: vpn-<profile>}` (the Secret the ProtonVPN broker keeps for
+  that profile) and adds security group `vpn-egress`
+  (`contrib/kubernetes/proton/sg-vpn-egress.yaml`: the anchor may send only
+  WireGuard UDP 51820, to any address). A profile is one Proton connection
+  for one NIC: one that a VM's spec already uses is shown as in use and
+  refused, as is choosing the same profile twice. With both a VPN and a direct
+  interface the guest has a default route on each; put the VPN on `eth0` for
+  all traffic to use it. The detail page marks VPN interfaces **VPN tunnel
+  only** and, for a profile's Secret, shows the profile (linked to `/vpn`),
+  its server and location, and its forwarded port or why there is none. It
+  never shows the Secret reference or keys; a VPN NIC whose Secret is not a
+  profile's shows only the routing mode.
 - **Cloud-init.** "Hostname" (DNS label, default: the VM name, so it is left
   out of the CR) and "User-data" (monospace, at most 32 KiB after the
   browser's CRLF line breaks become LF). `spec.cloudInit` is rendered when
@@ -554,8 +561,9 @@ members of the launcher group; everyone else gets a 404.
   within the plan's tier, Secure Core and Tor only when that feature is
   chosen), filters by country, feature, maximum load and name, and shows up
   to 100, best score first; each row can be used for any profile.
-- A NIC uses a profile through `vpn: {secretName: vpn-<profile>}`. Changing a
-  profile's server moves its tunnel within a minute and changes the exit
+- A NIC uses a profile through `vpn: {secretName: vpn-<profile>}`; the launch
+  form's "Network" choice writes it ([above](#network-and-cloud-init-on-the-launch-form)).
+  Changing a profile's server moves its tunnel within a minute and changes the exit
   address, so open connections drop.
 
 The dashboard writes only `VpnProfile` specs (patches carry the profile's

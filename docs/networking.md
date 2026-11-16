@@ -633,7 +633,10 @@ nics:
   for that NIC.
 - **Security groups** select the anchor as for any NIC, so they now govern
   the tunnel's UDP (admit the endpoint's port). Inbound traffic is whatever
-  the provider forwards into the tunnel.
+  the provider forwards into the tunnel. Group `vpn-egress`
+  (`contrib/kubernetes/proton/sg-vpn-egress.yaml`, applied with the broker)
+  admits only UDP 51820 to any address; the dashboard adds it to every VPN
+  NIC it launches.
 - **Live migration** works as for plain NICs: the standby target anchor
   builds the same `wg0` (its UDP dropped while standby), and once active it
   handshakes from the same address and port, so the server sees no roam.

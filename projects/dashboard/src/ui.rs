@@ -40,6 +40,8 @@ pub struct LaunchPage {
     pub storage_node: Option<String>,
     /// The base-image catalog at render time.
     pub images: Vec<BaseImage>,
+    /// VpnProfiles a NIC can use.
+    pub vpn: Vec<launch::VpnChoice>,
     /// The rejected form had user-data, which is never sent back.
     pub user_data_cleared: bool,
 }
@@ -892,6 +894,23 @@ fn network_card(d: &Detail) -> Element {
                     tbody { for nic in &d.nics { tr {
                         td { "data-label": "NIC", div { code { "{nic.name}" }
                             if nic.tunnel_only { span { class: "cell-detail", "VPN tunnel only" } }
+                            if let Some(vpn) = &nic.vpn {
+                                span { class: "cell-detail", "Profile " a { href: "/vpn", "{vpn.profile}" }
+                                    {match (&vpn.server, &vpn.location) {
+                                        (Some(server), Some(location)) => format!(" · {server} · {location}"),
+                                        (Some(server), None) => format!(" · {server}"),
+                                        _ => " · no server yet".into(),
+                                    }}
+                                    if vpn.ready == Some(false) { " · not ready" }
+                                }
+                                span { class: "cell-detail",
+                                    {match (vpn.forwarded_port, &vpn.port_message) {
+                                        (Some(port), _) => format!("Forwarded port {port} (TCP and UDP, on the tunnel address)"),
+                                        (None, Some(message)) => format!("No forwarded port: {message}"),
+                                        (None, None) => "No forwarded port".into(),
+                                    }}
+                                }
+                            }
                         } }
                         td { "data-label": "MAC", code { {or_dash(&nic.mac)} } }
                         td { "data-label": "IP", code { {or_dash(&nic.ip)} } }
@@ -1259,12 +1278,29 @@ fn network_fieldset(page: &LaunchPage) -> Element {
                     let nic = launch::nic_name(i);
                     let enabled = format!("nic{i}_enabled");
                     let groups = format!("nic{i}_security_groups");
+                    let network = format!("nic{i}_network");
+                    let chosen = input_value(&page.values, &network, "direct");
                     let checked = if fresh { i == 0 } else { input_value(&page.values, &enabled, "") == "on" };
                     rsx! { div { class: "nic-row", role: "group", aria_label: "Network interface {nic}",
                         label { class: "confirm",
                             input { r#type: "checkbox", name: "{enabled}", value: "on", checked: checked }
                             "Attach a network interface ({nic})"
                         }
+                        label { r#for: "{network}", "Network" }
+                        select { id: "{network}", name: "{network}", aria_invalid: page.invalid(&network), aria_describedby: page.described_by(&network, "vpn-help"),
+                            option { value: "direct", selected: chosen == "direct", "Direct (the NIC Pod's IP)" }
+                            for choice in &page.vpn {
+                                {
+                                    let value = launch::vpn_value(&choice.name);
+                                    let label = match &choice.used_by {
+                                        Some(used) => format!("VPN {} — {} (in use by {used})", choice.name, choice.summary),
+                                        None => format!("VPN {} — {}", choice.name, choice.summary),
+                                    };
+                                    rsx! { option { value: "{value}", selected: chosen == value, disabled: choice.used_by.is_some() && chosen != value, "{label}" } }
+                                }
+                            }
+                        }
+                        {field_error(page, &network)}
                         label { r#for: "{groups}", "Security groups" }
                         input { id: "{groups}", name: "{groups}", aria_invalid: page.invalid(&groups), placeholder: "web, ssh", autocomplete: "off", autocapitalize: "none", spellcheck: "false", value: input_value(&page.values, &groups, ""), aria_describedby: page.described_by(&groups, "nic-help") }
                         {field_error(page, &groups)}
@@ -1273,6 +1309,15 @@ fn network_fieldset(page: &LaunchPage) -> Element {
             }
             p { id: "nic-help", class: "muted",
                 "Optional, comma-separated names such as web, ssh. At most {launch::MAX_SECURITY_GROUPS}; use lowercase letters, digits and hyphens."
+            }
+            p { id: "vpn-help", class: "muted",
+                "A VPN interface sends all of its guest traffic through that ProtonVPN profile's WireGuard tunnel, terminated in its NIC Pod (the key never reaches the VM), and joins security group "
+                code { "{launch::VPN_EGRESS_GROUP}" } ". Each profile serves one interface. With a forwarded port, the guest receives it on its tunnel address. "
+                if page.vpn.is_empty() { "No VPN profiles exist yet: " }
+                a { href: "/vpn", "Manage VPN profiles" } "."
+            }
+            if launch::FORM_NICS > 1 {
+                p { class: "muted", "With two interfaces the guest gets a default route on each; cloud images normally prefer the first, so put the VPN on eth0 for all traffic to use it." }
             }
             p { class: "muted",
                 strong { "Without any matching policy the NIC is default-allow" }

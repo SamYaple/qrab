@@ -1,0 +1,21 @@
+# Security group vpn-egress (docs/networking.md, "VPN NICs"): the dashboard
+# adds it to every VPN NIC it launches. Selecting the anchor turns on
+# default-deny egress for it, so the only thing the anchor sends is the
+# tunnel's WireGuard UDP, to any address because Proton servers change.
+# Forwarded ports arrive inside the tunnel, so ingress is not restricted here.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sg-vpn-egress
+  labels:
+    app.kubernetes.io/part-of: qrab
+spec:
+  description: "Security group vpn-egress: a VPN NIC's anchor sends only WireGuard UDP 51820"
+  endpointSelector:
+    matchLabels:
+      sg.qrab.yapplesauce.com/vpn-egress: ""
+  egress:
+  - toEntities: [world]
+    toPorts:
+    - ports:
+      - {port: "51820", protocol: UDP}

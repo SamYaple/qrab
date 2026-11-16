@@ -539,6 +539,7 @@ fn main() {
                 ("os".into(), "cirros:2".into()),
                 ("root_size_gib".into(), "1".into()),
                 ("nic0_enabled".into(), "on".into()),
+                ("nic0_network".into(), "vpn:ch-p2p".into()),
                 ("nic0_security_groups".into(), "web, SSH".into()),
                 ("hostname".into(), "web-1".into()),
             ],
@@ -555,6 +556,18 @@ fn main() {
             namespace: "qrab".into(),
             storage_node: Some("kube03".into()),
             images: catalog.clone(),
+            vpn: vec![
+                qrab_dashboard::launch::VpnChoice {
+                    name: "ch-p2p".into(),
+                    summary: "CH#496 · CH · Zurich".into(),
+                    used_by: None,
+                },
+                qrab_dashboard::launch::VpnChoice {
+                    name: "us".into(),
+                    summary: "US-GA#442 · US · Atlanta".into(),
+                    used_by: Some("seedbox/eth0".into()),
+                },
+            ],
             user_data_cleared: true,
         })),
         &css,

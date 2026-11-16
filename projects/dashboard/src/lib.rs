@@ -419,7 +419,15 @@ async fn detail(
         )),
     };
     let catalog = base_images(&app).await.unwrap_or_default();
-    let detail = model::detail(&vm, role, &usage, pod.as_ref(), ip, &catalog);
+    let mut detail = model::detail(&vm, role, &usage, pod.as_ref(), ip, &catalog);
+    if detail.nics.iter().any(|n| n.tunnel_only) {
+        match app.cluster.vpn_profiles().await {
+            Ok(profiles) => model::attach_vpn(&mut detail.nics, &vm, &profiles),
+            Err(error) => {
+                tracing::warn!(error = %cluster::describe(&error), "VPN profiles unavailable for the VM page")
+            }
+        }
+    }
     let deletable = access::can_delete(&vm, role);
     page(
         &app,
@@ -578,11 +586,49 @@ async fn images_page(
     page(&app, &session, &user, ui::Body::Images(catalog)).await
 }
 
+/// The VpnProfiles a launch can attach, with any NIC already using each.
+/// The VMs' specs decide "in use"; the broker's `status.attached` lags.
+async fn vpn_choices(app: &AppState) -> anyhow::Result<Vec<launch::VpnChoice>> {
+    let profiles = app.cluster.vpn_profiles().await?;
+    let vms = app.cluster.list_vms().await?;
+    let mut choices: Vec<launch::VpnChoice> = profiles
+        .iter()
+        .map(|profile| {
+            let row = vpn_page::ProfileRow::from(profile);
+            let summary = match (&row.server, &row.location) {
+                (Some(server), Some(location)) => format!("{server} · {location}"),
+                (Some(server), None) => server.clone(),
+                _ => "no server yet".into(),
+            };
+            let used_by = vms.iter().find_map(|vm| {
+                vm.spec.nics.iter().find_map(|nic| {
+                    let secret = nic.vpn.as_ref()?.secret_name.as_str();
+                    (launch::vpn_profile_of(secret) == Some(row.name.as_str())).then(|| {
+                        format!(
+                            "{}/{}",
+                            vm.metadata.name.as_deref().unwrap_or_default(),
+                            nic.name
+                        )
+                    })
+                })
+            });
+            launch::VpnChoice {
+                name: row.name,
+                summary,
+                used_by,
+            }
+        })
+        .collect();
+    choices.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(choices)
+}
+
 fn launch_page(
     app: &AppState,
     values: Vec<(String, String)>,
     errors: Vec<launch::FormError>,
     images: Vec<images::BaseImage>,
+    vpn: Vec<launch::VpnChoice>,
 ) -> ui::Body {
     // user-data is never rendered, not even back to the user who typed it.
     let user_data_cleared = launch::user_data(&values).is_some();
@@ -596,6 +642,7 @@ fn launch_page(
         namespace: app.namespace.clone(),
         storage_node: app.storage_node.clone(),
         images,
+        vpn,
     })
 }
 
@@ -610,18 +657,25 @@ async fn launch_form(
             "Launching VMs requires membership of qrab_vm_launchers.".into(),
         ));
     }
-    let (catalog, errors) = match base_images(&app).await {
+    let (catalog, mut errors) = match base_images(&app).await {
         Ok(catalog) => (catalog, Vec::new()),
         Err(_) => (
             Vec::new(),
             vec!["The base-image catalog is unavailable; only the demo ESP can be chosen.".into()],
         ),
     };
+    let vpn = vpn_choices(&app).await.unwrap_or_else(|_| {
+        errors.push(
+            "The VPN profiles are unavailable; only direct network interfaces can be chosen."
+                .into(),
+        );
+        Vec::new()
+    });
     page(
         &app,
         &session,
         &user,
-        launch_page(&app, Vec::new(), errors, catalog),
+        launch_page(&app, Vec::new(), errors, catalog, vpn),
     )
     .await
 }
@@ -643,11 +697,20 @@ async fn launch(
         }
         Err(_) => Vec::new(),
     };
+    let wants_vpn = fields
+        .iter()
+        .any(|(k, v)| k.ends_with("_network") && v.starts_with("vpn:"));
+    let vpn = match vpn_choices(&app).await {
+        Ok(vpn) => vpn,
+        Err(e) if wants_vpn => return Err(Failure::upstream(&e)),
+        Err(_) => Vec::new(),
+    };
     let request = match launch::parse_form(
         &fields,
         &app.namespace,
         app.storage_node.as_deref(),
         &catalog,
+        &vpn,
     ) {
         Ok(r) => r,
         Err(errors) => {
@@ -655,7 +718,7 @@ async fn launch(
                 &app,
                 &session,
                 &user,
-                launch_page(&app, fields, errors, catalog),
+                launch_page(&app, fields, errors, catalog, vpn),
             )
             .await?
             .into_response();

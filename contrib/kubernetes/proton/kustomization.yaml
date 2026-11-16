@@ -8,4 +8,5 @@ resources:
 - rbac.yaml
 - policy.yaml
 - network-policy.yaml
+- sg-vpn-egress.yaml
 - deployment.yaml

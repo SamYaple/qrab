@@ -15,7 +15,10 @@ pub const MAX_NAME: usize = 50;
 pub const FORM_DISKS: usize = 4;
 pub const MAX_DISK_GIB: u64 = 1024;
 /// NIC rows on the form, named `eth0`, `eth1`, ...; the CRD allows 4.
-pub const FORM_NICS: usize = 1;
+pub const FORM_NICS: usize = 2;
+/// The security group every VPN NIC joins: `contrib/kubernetes/proton/sg-vpn-egress.yaml`
+/// admits only the tunnel's UDP to any address, because Proton servers change.
+pub const VPN_EGRESS_GROUP: &str = "vpn-egress";
 pub const MAX_SECURITY_GROUPS: usize = 8;
 pub use qrab_operator::resources::USER_DATA_LIMIT;
 /// A launch form carries up to 32 KiB of user-data, URL-encoded.
@@ -74,6 +77,28 @@ pub const ROOT_DISK: &str = "root";
 pub struct Nic {
     pub name: String,
     pub security_groups: Vec<String>,
+    /// The VpnProfile whose Secret `vpn-<profile>` carries this NIC's tunnel.
+    pub vpn_profile: Option<String>,
+}
+
+/// A VpnProfile as the launch form offers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VpnChoice {
+    pub name: String,
+    /// `CH#12 · CH · Zurich`, or why there is no server yet.
+    pub summary: String,
+    /// `vm/nic` of a NIC that already uses the profile.
+    pub used_by: Option<String>,
+}
+
+/// The form value of a NIC's network choice.
+pub fn vpn_value(profile: &str) -> String {
+    format!("vpn:{profile}")
+}
+
+/// The profile named by a `vpn-<profile>` NIC Secret.
+pub fn vpn_profile_of(secret_name: &str) -> Option<&str> {
+    secret_name.strip_prefix("vpn-").filter(|p| !p.is_empty())
 }
 
 /// The guest name of form NIC `i`, matching the seed's `ethN`.
@@ -244,8 +269,9 @@ pub fn parse(
     namespace: &str,
     storage_node: Option<&str>,
     catalog: &[BaseImage],
+    vpn: &[VpnChoice],
 ) -> Result<Request, Vec<String>> {
-    parse_form(fields, namespace, storage_node, catalog)
+    parse_form(fields, namespace, storage_node, catalog, vpn)
         .map_err(|errors| errors.into_iter().map(|error| error.message).collect())
 }
 
@@ -255,6 +281,7 @@ pub fn parse_form(
     namespace: &str,
     storage_node: Option<&str>,
     catalog: &[BaseImage],
+    vpn: &[VpnChoice],
 ) -> Result<Request, Vec<FormError>> {
     let mut errors = Vec::new();
     let name = field(fields, "name").to_owned();
@@ -425,22 +452,66 @@ pub fn parse_form(
             "Data disks need a storage node; DASHBOARD_STORAGE_NODE is not configured.".into(),
         );
     }
-    let mut nics = Vec::new();
+    let mut nics: Vec<Nic> = Vec::new();
     for i in 0..FORM_NICS {
         let name = nic_name(i);
-        let raw = field(fields, &format!("nic{i}_security_groups"));
-        let security_groups =
-            security_groups(&mut errors, &format!("nic{i}_security_groups"), &name, raw);
-        if field(fields, &format!("nic{i}_enabled")) == "on" {
-            nics.push(Nic {
-                name,
-                security_groups,
-            });
-        } else if !raw.is_empty() {
-            errors.push(FormError::at(format!("nic{i}_security_groups"), format!(
-                "Security groups apply to a network interface: attach {name} or clear its security groups."
-            )));
+        let groups_field = format!("nic{i}_security_groups");
+        let network_field = format!("nic{i}_network");
+        let raw = field(fields, &groups_field);
+        let mut security_groups = security_groups(&mut errors, &groups_field, &name, raw);
+        let vpn_profile = match field(fields, &network_field) {
+            "" | "direct" => None,
+            value => match value
+                .strip_prefix("vpn:")
+                .and_then(|p| vpn.iter().find(|c| c.name == p))
+            {
+                None => {
+                    errors.push(FormError::at(&network_field, format!(
+                        "{name}: the VPN profile {} does not exist (it may have been deleted). Reload the form and choose again.",
+                        value.strip_prefix("vpn:").unwrap_or(value)
+                    )));
+                    None
+                }
+                Some(choice) => {
+                    if let Some(used_by) = &choice.used_by {
+                        errors.push(FormError::at(&network_field, format!(
+                            "{name}: VPN profile {} is already used by {used_by}; a profile is one Proton connection for one NIC. Create another profile on the VPN page.",
+                            choice.name
+                        )));
+                    }
+                    Some(choice.name.clone())
+                }
+            },
+        };
+        if field(fields, &format!("nic{i}_enabled")) != "on" {
+            if !raw.is_empty() || vpn_profile.is_some() {
+                errors.push(FormError::at(groups_field, format!(
+                    "Security groups and VPN profiles apply to a network interface: attach {name} or clear its settings."
+                )));
+            }
+            continue;
         }
+        if let Some(profile) = &vpn_profile {
+            if nics.iter().any(|n| n.vpn_profile.as_ref() == Some(profile)) {
+                errors.push(FormError::at(&network_field, format!(
+                    "{name}: VPN profile {profile} is already chosen for another interface of this VM."
+                )));
+            }
+            if !security_groups.iter().any(|g| g == VPN_EGRESS_GROUP) {
+                if security_groups.len() >= MAX_SECURITY_GROUPS {
+                    errors.push(FormError::at(groups_field, format!(
+                        "{name} may have at most {} other security groups: a VPN interface also joins {VPN_EGRESS_GROUP}.",
+                        MAX_SECURITY_GROUPS - 1
+                    )));
+                }
+                security_groups.push(VPN_EGRESS_GROUP.to_owned());
+            }
+        }
+        nics.push(Nic {
+            name,
+            security_groups,
+            vpn_profile,
+        });
     }
     let hostname = match field(fields, "hostname") {
         "" => None,
@@ -566,6 +637,9 @@ pub fn render_vm(
                 let mut value = json!({"name": nic.name});
                 if !nic.security_groups.is_empty() {
                     value["securityGroups"] = json!(nic.security_groups);
+                }
+                if let Some(profile) = &nic.vpn_profile {
+                    value["vpn"] = json!({"secretName": format!("vpn-{profile}")});
                 }
                 value
             })
@@ -846,7 +920,7 @@ mod tests {
             ("disk0_id", "data"),
             ("disk0_size_gib", "oops"),
         ]);
-        let errors = parse_form(&fields, "qrab", Some("kube03"), &[]).unwrap_err();
+        let errors = parse_form(&fields, "qrab", Some("kube03"), &[], &[]).unwrap_err();
         assert!(
             errors
                 .iter()
@@ -858,7 +932,7 @@ mod tests {
                 .any(|e| e.field.as_deref() == Some("disk0_size_gib"))
         );
         assert_eq!(
-            parse(&fields, "qrab", Some("kube03"), &[]).unwrap_err(),
+            parse(&fields, "qrab", Some("kube03"), &[], &[]).unwrap_err(),
             errors.into_iter().map(|e| e.message).collect::<Vec<_>>()
         );
     }
@@ -915,6 +989,7 @@ mod tests {
             ]),
             "qrab",
             Some("kube03"),
+            &[],
             &[],
         )
         .unwrap();
@@ -1006,7 +1081,7 @@ mod tests {
                 "DNS label",
             ),
         ] {
-            let errors = parse(&form(&pairs), "qrab", Some("kube03"), &[]).unwrap_err();
+            let errors = parse(&form(&pairs), "qrab", Some("kube03"), &[], &[]).unwrap_err();
             assert!(
                 errors.iter().any(|e| e.contains(needle)),
                 "{needle}: {errors:?}"
@@ -1022,6 +1097,7 @@ mod tests {
             ]),
             "qrab",
             None,
+            &[],
             &[],
         )
         .unwrap_err();
@@ -1045,6 +1121,7 @@ mod tests {
             ]),
             "qrab",
             Some("kube03"),
+            &[],
             &[],
         )
         .unwrap();
@@ -1120,7 +1197,7 @@ mod tests {
         use crate::images::tests::cirros;
         let catalog = [cirros()];
         let parsed = |extra: &[(&str, &str)], node: Option<&str>| {
-            parse(&os_form(extra), "qrab", node, &catalog)
+            parse(&os_form(extra), "qrab", node, &catalog, &[])
         };
         // None keeps the demo-ESP launch.
         for none in [&[][..], &[("os", "none")][..], &[("os", "")][..]] {
@@ -1173,6 +1250,7 @@ mod tests {
             "qrab",
             Some("kube03"),
             &[big.clone()],
+            &[],
         )
         .unwrap_err();
         assert!(errors[0].contains("from 6 to 1024"), "{errors:?}");
@@ -1181,6 +1259,7 @@ mod tests {
             "qrab",
             Some("kube03"),
             &[big],
+            &[],
         )
         .unwrap()
         .os
@@ -1211,6 +1290,7 @@ mod tests {
             "qrab",
             Some("kube03"),
             &[cirros()],
+            &[],
         )
         .unwrap();
         let n = names("qrab", "web").unwrap();
@@ -1245,7 +1325,7 @@ mod tests {
     }
 
     fn rendered(extra: &[(&str, &str)], catalog: &[BaseImage]) -> serde_json::Value {
-        let request = parse(&os_form(extra), "qrab", Some("kube03"), catalog).unwrap();
+        let request = parse(&os_form(extra), "qrab", Some("kube03"), catalog, &[]).unwrap();
         render_vm(
             &request,
             &names("qrab", "web").unwrap(),
@@ -1299,6 +1379,119 @@ mod tests {
     }
 
     #[test]
+    fn a_vpn_nic_references_its_profile_secret_and_joins_the_egress_group() {
+        let vpn = [
+            VpnChoice {
+                name: "ch-p2p".into(),
+                summary: "CH#12".into(),
+                used_by: None,
+            },
+            VpnChoice {
+                name: "us".into(),
+                summary: "US-GA#442".into(),
+                used_by: Some("web/eth0".into()),
+            },
+        ];
+        let request = parse(
+            &os_form(&[
+                ("nic0_enabled", "on"),
+                ("nic0_network", "vpn:ch-p2p"),
+                ("nic0_security_groups", "ssh"),
+                ("nic1_enabled", "on"),
+                ("nic1_network", "direct"),
+            ]),
+            "qrab",
+            Some("kube03"),
+            &[],
+            &vpn,
+        )
+        .unwrap();
+        assert_eq!(request.nics.len(), 2);
+        let vm = render_vm(
+            &request,
+            &names("qrab", "web").unwrap(),
+            "qrab",
+            "subject",
+            &Groups {
+                admins: "a",
+                viewers: "v",
+            },
+            Some("kube03"),
+        );
+        assert_eq!(
+            vm["spec"]["nics"],
+            json!([
+                {"name": "eth0", "securityGroups": ["ssh", "vpn-egress"], "vpn": {"secretName": "vpn-ch-p2p"}},
+                {"name": "eth1"},
+            ])
+        );
+        let typed: qrab_operator::api::VirtualMachine = serde_json::from_value(vm).unwrap();
+        assert!(typed.spec.nics[0].vpn.is_some());
+        // vpn-egress given explicitly is not repeated.
+        let request = parse(
+            &os_form(&[
+                ("nic0_enabled", "on"),
+                ("nic0_network", "vpn:ch-p2p"),
+                ("nic0_security_groups", "vpn-egress"),
+            ]),
+            "qrab",
+            Some("kube03"),
+            &[],
+            &vpn,
+        )
+        .unwrap();
+        assert_eq!(request.nics[0].security_groups, ["vpn-egress"]);
+        for (extra, field, needle) in [
+            (
+                vec![("nic0_enabled", "on"), ("nic0_network", "vpn:gone")],
+                "nic0_network",
+                "does not exist",
+            ),
+            (
+                vec![("nic0_enabled", "on"), ("nic0_network", "vpn:us")],
+                "nic0_network",
+                "already used by web/eth0",
+            ),
+            (
+                vec![
+                    ("nic0_enabled", "on"),
+                    ("nic0_network", "vpn:ch-p2p"),
+                    ("nic1_enabled", "on"),
+                    ("nic1_network", "vpn:ch-p2p"),
+                ],
+                "nic1_network",
+                "another interface of this VM",
+            ),
+            (
+                vec![
+                    ("nic0_enabled", "on"),
+                    ("nic0_network", "vpn:ch-p2p"),
+                    ("nic0_security_groups", "a,b,c,d,e,f,g,h"),
+                ],
+                "nic0_security_groups",
+                "at most 7 other",
+            ),
+            (
+                vec![("nic1_network", "vpn:ch-p2p")],
+                "nic1_security_groups",
+                "attach eth1 or clear",
+            ),
+        ] {
+            let errors =
+                parse_form(&os_form(&extra), "qrab", Some("kube03"), &[], &vpn).unwrap_err();
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.field.as_deref() == Some(field) && e.message.contains(needle)),
+                "{needle}: {errors:?}"
+            );
+        }
+        assert_eq!(vpn_profile_of("vpn-ch-p2p"), Some("ch-p2p"));
+        assert_eq!(vpn_profile_of("vpn-"), None);
+        assert_eq!(vpn_profile_of("other"), None);
+    }
+
+    #[test]
     fn network_and_cloud_init_are_validated_without_quoting_user_data() {
         let secret = "#cloud-config\npassword: hunter2-secret\n";
         let too_big = format!("{secret}{}", "x".repeat(USER_DATA_LIMIT));
@@ -1325,7 +1518,7 @@ mod tests {
             (vec![("hostname", long_host.as_str())], "Hostname"),
             (vec![("user_data", too_big.as_str())], "at most 32768 bytes"),
         ] {
-            let errors = parse(&os_form(&extra), "qrab", Some("kube03"), &[]).unwrap_err();
+            let errors = parse(&os_form(&extra), "qrab", Some("kube03"), &[], &[]).unwrap_err();
             assert!(
                 errors.iter().any(|e| e.contains(needle)),
                 "{needle}: {errors:?}"
@@ -1344,6 +1537,7 @@ mod tests {
             "qrab",
             Some("kube03"),
             &[],
+            &[],
         )
         .unwrap();
         assert_eq!(request.nics[0].security_groups.len(), 8);
@@ -1352,6 +1546,7 @@ mod tests {
             &os_form(&[("user_data", secret)]),
             "qrab",
             Some("kube03"),
+            &[],
             &[],
         )
         .unwrap();

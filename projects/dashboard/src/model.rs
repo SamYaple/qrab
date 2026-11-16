@@ -50,6 +50,58 @@ pub struct NicRow {
     pub ready: bool,
     /// Routing mode only; never expose a tunnel's Secret reference or keys.
     pub tunnel_only: bool,
+    /// The ProtonVPN profile behind a VPN NIC, when its Secret is one the
+    /// broker keeps (`vpn-<profile>` for an existing VpnProfile).
+    pub vpn: Option<NicVpnView>,
+}
+
+/// What the VM page shows about a VPN NIC's profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NicVpnView {
+    pub profile: String,
+    pub server: Option<String>,
+    pub location: Option<String>,
+    pub forwarded_port: Option<u16>,
+    /// Why there is no forwarded port, when the profile says so.
+    pub port_message: Option<String>,
+    pub ready: Option<bool>,
+}
+
+/// Fills [`NicRow::vpn`] from the cluster's VpnProfiles. A NIC whose Secret
+/// is not a profile's stays `tunnel_only` with no details.
+pub fn attach_vpn(
+    rows: &mut [NicRow],
+    vm: &VirtualMachine,
+    profiles: &[qrab_proton::crd::VpnProfile],
+) {
+    for row in rows {
+        let Some(secret) = vm
+            .spec
+            .nics
+            .iter()
+            .find(|n| n.name == row.name)
+            .and_then(|n| n.vpn.as_ref())
+            .map(|v| v.secret_name.as_str())
+        else {
+            continue;
+        };
+        let Some(profile) = crate::launch::vpn_profile_of(secret).and_then(|p| {
+            profiles
+                .iter()
+                .find(|v| v.metadata.name.as_deref() == Some(p))
+        }) else {
+            continue;
+        };
+        let p = crate::vpn_page::ProfileRow::from(profile);
+        row.vpn = Some(NicVpnView {
+            profile: p.name,
+            server: p.server,
+            location: p.location,
+            forwarded_port: p.forwarded_port,
+            port_message: p.port_message,
+            ready: p.ready.map(|r| r.0),
+        });
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -239,6 +291,7 @@ pub fn nics(vm: &VirtualMachine) -> Vec<NicRow> {
                 pod_name: status.map(|s| s.pod_name.clone()).filter(|p| !p.is_empty()),
                 ready: status.is_some_and(|s| s.ready),
                 tunnel_only: nic.vpn.is_some(),
+                vpn: None,
             }
         })
         .collect()
@@ -463,6 +516,7 @@ mod tests {
                 pod_name: Some("web-nic-eth0".into()),
                 ready: true,
                 tunnel_only: false,
+                vpn: None,
             }
         );
         assert_eq!((nics[1].ip.as_deref(), nics[1].ready), (None, false));

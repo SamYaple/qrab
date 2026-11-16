@@ -2954,3 +2954,82 @@ async fn vpn_profile_changes_are_checked_and_written_by_uid() {
         )
     );
 }
+
+#[tokio::test]
+async fn a_launch_attaches_a_vpn_profile_and_the_vm_page_shows_its_port() {
+    let h = harness().await;
+    catalog_with_cirros(&h);
+    *h.cluster.vpn_profiles.lock().unwrap() = vec![
+        vpn_profile(
+            "ch-p2p",
+            "uid-ch",
+            serde_json::json!({
+                "server": "CH#496", "exitCountry": "CH", "city": "Zurich", "forwardedPort": 42077,
+                "conditions": [{"type": "Ready", "status": "True", "reason": "Configured", "message": "CH#496 (CH)"}],
+            }),
+        ),
+        vpn_profile("taken", "uid-taken", serde_json::json!({})),
+    ];
+    let mut other: VirtualMachine = serde_json::from_value(serde_json::json!({
+        "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
+        "metadata": {"name": "seedbox", "namespace": "qrab", "uid": "uid-seedbox"},
+        "spec": {"stateVolumeClaim": "seedbox-state",
+            "nics": [{"name": "eth0", "vpn": {"secretName": "vpn-taken"}}]},
+    }))
+    .unwrap();
+    other.metadata.annotations = None;
+    h.cluster.vms.lock().unwrap().push(other);
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (_, _, body) = send(&h, get("/launch", Some(&cookie))).await;
+    assert!(body.contains("name=\"nic0_network\""), "{body}");
+    assert!(body.contains("value=\"vpn:ch-p2p\"") && body.contains("CH#496 · CH · Zurich"));
+    assert!(body.contains("(in use by seedbox/eth0)"));
+    assert!(body.contains("name=\"nic1_enabled\""));
+    let form = |network: &str| {
+        let mut s = url::form_urlencoded::Serializer::new(String::new());
+        s.extend_pairs([
+            ("csrf", "correct"),
+            ("name", "web"),
+            ("cpus", "1"),
+            ("memory_mib", "512"),
+            ("os", "cirros:1"),
+            ("nic0_enabled", "on"),
+            ("nic0_network", network),
+        ]);
+        s.finish()
+    };
+    // A profile another VM uses is refused before anything is created.
+    let (status, _, body) = send(
+        &h,
+        post("/launch", Some(&cookie), Some(ORIGIN), &form("vpn:taken")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("already used by seedbox/eth0"), "{body}");
+    assert_eq!(h.cluster.mutations(), 0);
+    let (status, _, _) = send(
+        &h,
+        post("/launch", Some(&cookie), Some(ORIGIN), &form("vpn:ch-p2p")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let created = h.cluster.created_vms.lock().unwrap()[0].clone();
+    assert_eq!(
+        created["spec"]["nics"],
+        serde_json::json!([{"name": "eth0", "securityGroups": ["vpn-egress"], "vpn": {"secretName": "vpn-ch-p2p"}}])
+    );
+    let mut vm: VirtualMachine = serde_json::from_value(created).unwrap();
+    vm.metadata.uid = Some("uid-web".into());
+    h.cluster.vms.lock().unwrap().push(vm);
+    let (_, _, detail) = send(&h, get("/vms/qrab/web", Some(&cookie))).await;
+    for cell in [
+        "VPN tunnel only",
+        "href=\"/vpn\"",
+        "ch-p2p",
+        "CH#496 · CH · Zurich",
+        "Forwarded port 42077",
+    ] {
+        assert!(detail.contains(cell), "{cell}: {detail}");
+    }
+    assert!(!detail.contains("vpn-ch-p2p"));
+}
