@@ -18,6 +18,7 @@
 #
 #   bash contrib/check-vpn-nic.sh [vm-name]
 set -euo pipefail
+umask 077
 vm=${1:-vpnnic}
 ns=qrab
 host_ip=${HOST_IP:-10.203.0.1}
@@ -66,7 +67,7 @@ class H(http.server.BaseHTTPRequestHandler):
 http.server.ThreadingHTTPServer((sys.argv[1],int(sys.argv[2])),H).serve_forever()' "$host_ip" "$host_port" > "$work/reports.log" 2>&1 &
 pids+=($!)
 
-pexec() { kubectl -n qrab-node exec "$provider" -- sh -c "$1"; }
+pexec() { kubectl -n qrab-node exec -i "$provider" -- sh -c "$1"; }
 if [ "$lab" = yes ]; then
   log "starting the lab WireGuard provider"
   kubectl apply -f - >/dev/null <<EOF
@@ -89,8 +90,11 @@ EOF
   wait_for 120 "the provider Pod" kubectl -n qrab-node wait --for=condition=Ready "pod/$provider" --timeout=1s
   provider_ip=$(kubectl -n qrab-node get pod "$provider" -o jsonpath='{.status.podIP}')
   server_key=$(pexec 'wg genkey'); client_key=$(pexec 'wg genkey')
-  server_pub=$(pexec "echo $server_key | wg pubkey"); client_pub=$(pexec "echo $client_key | wg pubkey")
-  pexec "ip link add wg0 type wireguard && echo $server_key | wg set wg0 private-key /dev/stdin listen-port 51820 peer $client_pub allowed-ips 10.66.0.2/32 && ip addr add 10.66.0.1/24 dev wg0 && ip link set wg0 up && echo 1 > /proc/sys/net/ipv4/ip_forward && nft add table ip lab && nft add chain ip lab post '{ type nat hook postrouting priority srcnat; }' && nft add rule ip lab post ip saddr 10.66.0.0/24 oifname eth0 masquerade"
+  # Exec arguments can be audited. Only public peer material belongs there;
+  # private keys travel through the encrypted exec stdin stream.
+  server_pub=$(printf '%s\n' "$server_key" | pexec 'wg pubkey')
+  client_pub=$(printf '%s\n' "$client_key" | pexec 'wg pubkey')
+  printf '%s\n' "$server_key" | pexec "ip link add wg0 type wireguard && wg set wg0 private-key /dev/stdin listen-port 51820 peer $client_pub allowed-ips 10.66.0.2/32 && ip addr add 10.66.0.1/24 dev wg0 && ip link set wg0 up && echo 1 > /proc/sys/net/ipv4/ip_forward && nft add table ip lab && nft add chain ip lab post '{ type nat hook postrouting priority srcnat; }' && nft add rule ip lab post ip saddr 10.66.0.0/24 oifname eth0 masquerade"
   kubectl -n "$ns" create secret generic "$secret" --from-file=wg.conf=/dev/stdin >/dev/null <<EOF
 [Interface]
 PrivateKey = $client_key
@@ -161,12 +165,23 @@ summary=("tunnel: the guest has $tunnel_ip; its egress arrives from $(tr '\n' ' 
 # The key stays in the anchor.
 key_prefix=${client_key:0:20}
 vm_pod=$(field virtualmachine "$vm" '{.status.podName}')
-if kubectl -n "$ns" exec "$vm_pod" -c manager -- sh -c "grep -rqsF '$key_prefix' /etc/qrab /run /var/lib/qrab /tmp" 2>/dev/null; then
-  fail "the private key is visible in the VM Pod"
-fi
+key_scan=$(printf '%s\n' "$key_prefix" | kubectl -n "$ns" exec -i "$vm_pod" -c manager -- sh -c \
+  'if grep -rqsF -f /dev/stdin /etc/qrab /run /var/lib/qrab /tmp; then printf "%s\n" present; else scan_status=$?; [ "$scan_status" -eq 1 ] || exit "$scan_status"; printf "%s\n" absent; fi' \
+  2>/dev/null) || fail "could not complete the VM private-key scan"
+[ "$key_scan" = absent ] || fail "the private key is visible in the VM Pod"
 node=$(field virtualmachine "$vm" '{.status.nodeName}')
 netd=$(kubectl -n qrab-node get pods -l app.kubernetes.io/name=qrab-netd --field-selector "spec.nodeName=$node" -o name | head -1)
-kubectl -n qrab-node logs "$netd" | grep -qF "$key_prefix" && fail "qrab-netd logged the private key"
+# Fetch all logs before scanning: grep -q can otherwise close the pipe early,
+# making kubectl's SIGPIPE hide a match under pipefail. Retrieval and scan
+# errors must also fail the check. The pattern stays off the grep argv.
+kubectl -n qrab-node logs "$netd" > "$work/netd.log" || fail "could not read qrab-netd logs"
+scan_status=0
+grep -qF -f <(printf '%s\n' "$key_prefix") "$work/netd.log" || scan_status=$?
+case "$scan_status" in
+  0) fail "qrab-netd logged the private key";;
+  1) :;;
+  *) fail "could not complete the qrab-netd private-key scan";;
+esac
 summary+=("key: absent from the VM Pod and qrab-netd's logs")
 
 if [ "$lab" = yes ]; then

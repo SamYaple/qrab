@@ -685,11 +685,17 @@ The same lab oracle passed again on 2026-11-16 after the strict cluster
 WireGuard and manager heartbeat rollouts (manager digest `480be89f…`). The
 provider on kube01 received the guest's `10.66.0.2` traffic from `10.203.0.11`,
 with no report from the anchor's `10.244.128.1`. Disabling the provider tunnel
-for 15 seconds stopped reports without a leak; they resumed two seconds after
+for 15 seconds stopped reports without a leak; they resumed one second after
 restoration. Migration kube03 → kube01 preserved the boot identity and tunnel.
 The largest report gap, including the deliberate outage, was 17.1 seconds.
 The disposable VM/provider/Secret/migration were removed; retained data kept
 its normal storage semantics. This verifies the lab peer, not a Proton account.
+
+The oracle sends private keys and scan patterns through stdin, including remote
+exec; they are absent from command arguments. It requires successful filesystem
+scans and complete log retrieval before reporting key absence. Injected
+present/absent/unreadable-file checks and a 4 MiB log fixture verify detection
+and error handling. The final harness also passed the full live run above.
 
 ### ProtonVPN
 
