@@ -22,9 +22,9 @@ Open **https://vms.yapplesauce.com**, sign in with Kanidm, choose a VM, then
 browser OIDC callback. See [dashboard.md](dashboard.md#full-bmc-page) for the
 VM-scoped proxy and authorization details.
 
-The older standalone demo uses **https://qrab-demo.yapplesauce.com** (VM
-`qrab-redfish-poc`), with private DNS and Cilium ingress. Its manifest does not
-add a public edge route. On either page, choose **Connect console**.
+A standalone per-VM console needs its own host, as the
+[qrab-demo sample](../contrib/kubernetes/examples/qrab-demo/console.yaml) shows
+with private DNS and Cilium ingress; it adds no public edge route. On either page, choose **Connect console**.
 Video, keyboard, USB tablet input, Ctrl Alt Del and full
 screen run through the vendored noVNC client. There are no CDN dependencies.
 Everything else on the page (power state, power actions, guest-agent actions,
@@ -270,7 +270,7 @@ control-socket and attested Workload API volumes, never the directory holding QM
 [redfish.md](redfish.md). It never accepts a socket path from HTTP. QEMU has `-nic none` when no guest NICs are configured; optional guest NICs
 use separate anchor namespaces and never share the BMC Pod network. Opening
 the BMC's Pod port does not create guest networking.
-The console's Cilium policy (`contrib/kubernetes/redfish-poc/console.yaml`)
+The console's Cilium policy (`contrib/kubernetes/examples/qrab-demo/console.yaml`)
 admits the ingress and host on 8080 and 8081 and permits only DNS, Kanidm
 HTTPS and the native iSCSI portal outbound. The VM Pod mounts no Kubernetes API token.
 
@@ -467,14 +467,15 @@ additional registry identity is needed: the BMC ships in `qrab/manager`.
 # Install the operator/CRD and preserve namespace/SA identity.
 kubectl apply -k contrib/kubernetes
 kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
-kubectl apply -k contrib/kubernetes/redfish-poc
-kubectl -n qrab wait --for=condition=Ready certificate/qrab-demo-tls --timeout=180s
-kubectl -n qrab wait --for=condition=Ready pod/qrab-redfish-poc --timeout=120s
-bash contrib/kubernetes/check.sh qrab qrab-redfish-poc
+# Create the VM from a renamed copy of contrib/kubernetes/examples/qrab-demo, then:
+bash contrib/kubernetes/examples/qrab-demo/render-console.sh qrab <vm> | kubectl -n qrab apply -f -
+kubectl -n qrab wait --for=condition=Ready certificate/<vm>-tls --timeout=180s
+kubectl -n qrab wait --for=condition=Ready pod/<vm> --timeout=120s
+bash contrib/kubernetes/check.sh qrab <vm>
 ```
 
 The per-VM Service/Ingress and certificate are part of each VM's own bundle
-(`contrib/kubernetes/redfish-poc/console.yaml`), never of the root
+(rendered from `contrib/kubernetes/examples/qrab-demo/console.yaml`), never of the root
 kustomization.
 The namespace and private-image-pull ServiceAccount stay in Kubernetes GitOps.
 The sidecars' readiness is HTTP `/readyz`, the manager's live probe over the

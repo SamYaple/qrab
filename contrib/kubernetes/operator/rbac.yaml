@@ -23,9 +23,11 @@ rules:
   verbs: [patch]
 # State PVCs of live-migration targets (<vm>-state-<id>, VM-owned); the
 # operator deletes only those it labelled vm-state for the same VM UID.
+# patch: it makes a dashboard-created state PVC owned by its VM
+# (resources::state_claim_adoption), so the claim goes with the VM.
 - apiGroups: ['']
   resources: [persistentvolumeclaims]
-  verbs: [get, create, delete]
+  verbs: [get, create, patch, delete]
 # Operator-generated CHAP Secrets for spec.disks (<vm>-disk-<id>, VM-owned).
 # Write-only: no get/list/watch, so the operator cannot read hand-declared
 # credentials. secret-policy.yaml confines these writes to its own objects.
@@ -41,6 +43,10 @@ rules:
   resources: [serviceaccounts]
   resourceNames: [qrab-manager]
   verbs: [use]
+# The Warning event of a VM released without evicting its guest SPIRE agent.
+- apiGroups: [events.k8s.io]
+  resources: [events]
+  verbs: [create, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

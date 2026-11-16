@@ -127,7 +127,7 @@ or operator-rendered values; separate Pods can reuse a port for unrelated APIs.
 | --- | --- | --- | --- |
 | M1 | Browser → `vms.yapplesauce.com:443` ingress | Dashboard HTML/forms/assets, VM-scoped JSON, Redfish bridge, SSE and console WebSocket | TLS/WSS ends at ingress; application cookie and Origin/CSRF checks at dashboard. HTTP redirects to HTTPS. |
 | M2 | Ingress → dashboard Pod `:8445` | Proxied HTTP requests and upgraded WS | **Deployed SPIRE-issued TLS 1.3 mTLS**, exact dashboard URI and ingress client SVID; verified on all three Envoy nodes. Ordinary HTTP is loopback health-only in workload mode. |
-| M3 | Browser → `qrab-demo.yapplesauce.com:443` ingress | Standalone per-VM BMC UI, OIDC callbacks, WS, browser `/bmc/redfish/*` | TLS/WSS ends at ingress. Example host routes to `qrab-redfish-poc`. New dashboard-launched VMs normally need no per-VM ingress. |
+| M3 | Browser → `qrab-demo.yapplesauce.com:443` ingress | Standalone per-VM BMC UI, OIDC callbacks, WS, browser `/bmc/redfish/*` | TLS/WSS ends at ingress. Only a VM given its own console objects has one. New dashboard-launched VMs normally need no per-VM ingress. |
 | M4 | Ingress → VM Pod BMC `:8443` | HTTP/WS for all routes except native `/redfish` | **SPIRE-issued TLS 1.3 mTLS**, exact per-VM BMC URI and ingress client SVID, followed by normal user authentication. Deployed release tested through UID-bound disposable entrypoints. |
 | M5 | Native client → HTTPS ingress `/redfish` → VM Pod Redfish `:8444` | Redfish JSON/OData, actions, sessions, SSE | **Frontend HTTPS plus backend SPIRE-issued TLS 1.3 mTLS**, direct to Redfish with exact immutable VM UID. Verified on all three ingress nodes before/after migration; user credentials remain required. |
 | M6 | Dashboard → selected VM Pod `:8444` | HTTPS Redfish reads, actions and VM-scoped browser bridge/SSE | **SPIFFE TLS 1.3 mTLS**, exact `/vm/<VM-UID>/redfish` service ID derived from trusted VM namespace/UID and controlled Pod IP. User ID-token bearer and roles remain separately verified. No HTTP fallback. |
@@ -139,7 +139,7 @@ or operator-rendered values; separate Pods can reuse a port for unrelated APIs.
 | M12 | Manager → private session `qga.sock` → QEMU virtio-serial → guest agent | QGA sync nonce, JSON commands/replies, inventory, freeze/thaw, fixed update hook, boot/EFI operations | **Local** host socket plus virtual serial device, no protocol encryption or bearer. The guest daemon's fixed allowlist and host access boundary authorize operations. No guest network is required. |
 | M13 | Dashboard / same-VM BMC → Redfish workload `:8444`; dashboard → BMC workload `:8443` | Existing app routers over workload TLS | **SPIFFE TLS 1.3 mTLS**, enabled by the updated operator with distinct container-scoped SVIDs and CSI socket mounts. Exact peer IDs **plus** normal app authorization. Standalone listeners remain opt-in. Ingress uses the separate role and peer admission in M2/M4/M5; observability uses P6–P8. |
 
-Source: [ingress and Service routing](../contrib/kubernetes/redfish-poc/console.yaml),
+Source: [ingress and Service routing](../contrib/kubernetes/examples/qrab-demo/console.yaml),
 [dashboard ingress](../contrib/kubernetes/dashboard/ingress.yaml),
 [dashboard Redfish client](../projects/dashboard/src/redfish.rs),
 [console client](../projects/dashboard/src/bmc.rs),

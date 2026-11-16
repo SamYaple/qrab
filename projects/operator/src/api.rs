@@ -628,19 +628,26 @@ pub struct ResizeStatus {
     pub max_memory_mib: u32,
 }
 
-/// The dashboard ServiceAccount, which may patch VMs only to power them on or off.
+/// The dashboard ServiceAccount, which may patch VMs only to power them on or
+/// off and to add or remove its own finalizer.
 pub const DASHBOARD_USER: &str = "system:serviceaccount:qrab:qrab-dashboard";
 
+/// The dashboard's finalizer: it deletes the VM's Kanidm access groups first.
+pub const DASHBOARD_FINALIZER: &str = "qrab.yapplesauce.com/access-groups";
+
 /// A ValidatingAdmissionPolicy that refuses any dashboard update changing
-/// anything but `spec.running`. CEL cannot iterate a CRD's typed object
-/// fields, so the rule names every other top-level spec field from the CRD
-/// itself and is regenerated with it (checked by `contrib/check-runtime.sh`).
+/// anything but `spec.running` and its own finalizer. CEL cannot iterate a
+/// CRD's typed object fields, so the rule names every other top-level spec
+/// field from the CRD itself and is regenerated with it (checked by
+/// `contrib/check-runtime.sh`).
 ///
 /// ```
 /// let policy = qrab_operator::api::dashboard_update_policy();
 /// let rule = policy["spec"]["validations"][0]["expression"].as_str().unwrap();
 /// assert!(rule.contains("object.spec.console == oldObject.spec.console"));
 /// assert!(!rule.contains("spec.running"));
+/// let finalizers = policy["spec"]["validations"][2]["expression"].as_str().unwrap();
+/// assert!(finalizers.contains("f != 'qrab.yapplesauce.com/access-groups'"));
 /// ```
 pub fn dashboard_update_policy() -> serde_json::Value {
     let crd = crd();
@@ -666,6 +673,11 @@ pub fn dashboard_update_policy() -> serde_json::Value {
             "(has(object.metadata.{key}) ? object.metadata.{key} : {{}}) == (has(oldObject.metadata.{key}) ? oldObject.metadata.{key} : {{}})"
         )
     };
+    let others = |object: &str| {
+        format!(
+            "(has({object}.metadata.finalizers) ? {object}.metadata.finalizers : []).filter(f, f != '{DASHBOARD_FINALIZER}')"
+        )
+    };
     serde_json::json!({
         "apiVersion": "admissionregistration.k8s.io/v1",
         "kind": "ValidatingAdmissionPolicy",
@@ -684,7 +696,9 @@ pub fn dashboard_update_policy() -> serde_json::Value {
                 {"expression": unchanged,
                  "message": "the dashboard may change only spec.running on an existing VirtualMachine"},
                 {"expression": format!("{} && {}", same("labels"), same("annotations")),
-                 "message": "the dashboard may not change a VirtualMachine's labels or annotations"}
+                 "message": "the dashboard may not change a VirtualMachine's labels or annotations"},
+                {"expression": format!("{} == {}", others("object"), others("oldObject")),
+                 "message": format!("the dashboard may add or remove only its own finalizer {DASHBOARD_FINALIZER}")}
             ]
         }
     })

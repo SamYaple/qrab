@@ -156,6 +156,17 @@ async fn main() -> Result<()> {
             ))?,
         "unexpected operator SPIFFE identity"
     );
+    // Optional: without it a deleted VM's guest SPIRE agent stays listed
+    // until its SVID expires (docs/spire-vm.md, step 7).
+    let evictor: Option<Arc<dyn qrab_operator::guest_identity::GuestEvictor>> =
+        match std::env::var("QRAB_GUEST_EVICTOR_URLS") {
+            Err(_) => None,
+            Ok(urls) => Some(Arc::new(qrab_operator::guest_identity::SpiffeEvictor::new(
+                identity.clone(),
+                qrab_operator::guest_identity::evictor_endpoints(&urls)
+                    .map_err(|e| anyhow::anyhow!(e))?,
+            ))),
+        };
     let metrics = Some(qrab_operator::power::Client::new(identity));
     let client = Client::try_default().await?;
     let vms: Api<VirtualMachine> = Api::namespaced(client.clone(), &settings.namespace);
@@ -196,6 +207,7 @@ async fn main() -> Result<()> {
         settings,
         storage,
         metrics,
+        evictor,
     });
     let controller = Controller::new(vms, watcher::Config::default())
         .owns(

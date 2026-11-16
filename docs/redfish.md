@@ -51,8 +51,7 @@ for the BMC.
 
 Every BMC-enabled VM has a Redfish sidecar: the BMC's browser UI manages the
 VM through it ([bmc.md](bmc.md#redfish-proxy)). A VM's console Ingress
-(`contrib/kubernetes/redfish-poc/console.yaml`, and the
-`examples/qrab-demo` sample) routes the public `/redfish` prefix directly to
+(as in the `examples/qrab-demo` console sample) routes the public `/redfish` prefix directly to
 Service port `redfish` (8081), bypassing the BMC. The rest of the host reaches
 BMC port 8080. Browser UI management uses the distinct `/bmc/redfish` session
 adapter, which forwards over Pod loopback with the browser login's server-side
@@ -64,7 +63,7 @@ the runtime directory, and `BMC_REDFISH_URL` on the BMC. It requires exactly
 one Ingress `/redfish` Prefix route for the console host, to a Service port
 whose target is 8081, and 401 with `WWW-Authenticate: Bearer` on `/redfish`,
 the service root, `Systems/1` and `Reset`, with no token or a malformed one.
-Run it as `check.sh qrab qrab-redfish-poc`; the namespace and VM are required.
+Run it as `check.sh qrab <vm>`; the namespace and VM are required.
 
 `contrib/kubernetes/redfish-live.py` is the authenticated half, run by an
 allowlisted person. It obtains an ID token by PKCE through the loopback

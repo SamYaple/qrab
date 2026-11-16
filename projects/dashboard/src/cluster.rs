@@ -37,6 +37,15 @@ pub trait Cluster: Send + Sync {
     async fn delete_vm(&self, name: &str, uid: &str) -> Result<()>;
     /// Sets `spec.running` on exactly the VM with this UID, and nothing else.
     async fn set_running(&self, name: &str, uid: &str, running: bool) -> Result<()>;
+    /// Replaces `metadata.finalizers` on exactly the VM with this UID at this
+    /// resourceVersion (a conflict means it changed; the caller retries later).
+    async fn set_vm_finalizers(
+        &self,
+        name: &str,
+        uid: &str,
+        resource_version: &str,
+        finalizers: &[String],
+    ) -> Result<()>;
     /// ProtonVPN profiles (docs/networking.md, "ProtonVPN").
     async fn vpn_profiles(&self) -> Result<Vec<VpnProfile>>;
     /// The broker's compressed server catalog (ConfigMap `proton-catalog`).
@@ -310,6 +319,22 @@ impl Cluster for Kube {
         self.vms
             .patch(name, &params, &Patch::Merge(running_patch(uid, running)))
             .await?;
+        Ok(())
+    }
+    async fn set_vm_finalizers(
+        &self,
+        name: &str,
+        uid: &str,
+        resource_version: &str,
+        finalizers: &[String],
+    ) -> Result<()> {
+        let params = PatchParams {
+            field_manager: Some(FIELD_MANAGER.into()),
+            ..Default::default()
+        };
+        let patch = serde_json::json!({"metadata": {
+            "uid": uid, "resourceVersion": resource_version, "finalizers": finalizers}});
+        self.vms.patch(name, &params, &Patch::Merge(patch)).await?;
         Ok(())
     }
     async fn vpn_profiles(&self) -> Result<Vec<VpnProfile>> {

@@ -12,7 +12,7 @@ use axum::{
 use qrab_operator::{
     api::VirtualMachine,
     controller::{reconcile, Context},
-    guest_identity::{self, DEFAULT_DEVID_CA_CN, FINALIZER},
+    guest_identity::{self, Eviction, GuestEvictor, DEFAULT_DEVID_CA_CN, FINALIZER},
     resources::{self, Settings},
     Error,
 };
@@ -33,6 +33,7 @@ const CONFIGS: &str = "/api/v1/namespaces/qrab/configmaps";
 const MIGRATIONS: &str =
     "/apis/qrab.yapplesauce.com/v1alpha1/namespaces/qrab/virtualmachinemigrations";
 const ENTRIES: &str = "/apis/spire.spiffe.io/v1alpha1/clusterstaticentries";
+const EVENTS: &str = "/apis/events.k8s.io/v1/namespaces/qrab/events";
 
 fn settings() -> Settings {
     Settings {
@@ -310,7 +311,8 @@ async fn api(
     let mut objects = store.objects.lock().unwrap();
     let path = uri.path().trim_end_matches("/status").to_owned();
     let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-    let collection = [VMS, PODS, POLICIES, CONFIGS, MIGRATIONS, ENTRIES].contains(&path.as_str());
+    let collection =
+        [VMS, PODS, POLICIES, CONFIGS, MIGRATIONS, ENTRIES, EVENTS].contains(&path.as_str());
     match (method, collection) {
         (Method::GET, true) => {
             let selector = url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
@@ -380,6 +382,10 @@ async fn api(
 }
 
 async fn server(store: &Store) -> Arc<Context> {
+    server_with(store, None).await
+}
+
+async fn server_with(store: &Store, evictor: Option<Arc<dyn GuestEvictor>>) -> Arc<Context> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let client = kube::Client::try_from(kube::Config::new(
         format!("http://{}", listener.local_addr().unwrap())
@@ -398,6 +404,7 @@ async fn server(store: &Store) -> Arc<Context> {
         client,
         settings: settings(),
         metrics: None,
+        evictor,
         storage: None,
     })
 }
@@ -604,4 +611,167 @@ async fn the_sweep_deletes_only_entries_of_vanished_vms_in_its_namespace() {
     assert_eq!(entries.len(), 4);
     assert!(!entries.contains_key(foreign().0.rsplit('/').next().unwrap()));
     assert!(store.get(&elsewhere.0).is_some());
+}
+
+/// Answers each eviction from a script, recording the UIDs it was asked for.
+struct FakeEvictor {
+    answers: Mutex<std::collections::VecDeque<Eviction>>,
+    calls: Mutex<Vec<String>>,
+}
+
+impl FakeEvictor {
+    fn new(answers: impl IntoIterator<Item = Eviction>) -> Arc<Self> {
+        Arc::new(Self {
+            answers: Mutex::new(answers.into_iter().collect()),
+            calls: Mutex::new(Vec::new()),
+        })
+    }
+    fn calls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl GuestEvictor for FakeEvictor {
+    fn evict<'a>(&'a self, uid: &'a str) -> futures::future::BoxFuture<'a, Eviction> {
+        self.calls.lock().unwrap().push(uid.to_owned());
+        let answer = self
+            .answers
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("an unscripted eviction call");
+        Box::pin(async move { answer })
+    }
+}
+
+/// A running VM Pod the operator owns.
+fn vm_pod(name: &str) -> (String, Value) {
+    (
+        format!("{PODS}/{name}"),
+        json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":name,"namespace":"qrab","uid":format!("pod-{name}"),
+            "labels":{"app.kubernetes.io/name":"qrab","app.kubernetes.io/component":"vm","qrab.yapplesauce.com/owner-uid":UID},
+            "ownerReferences":[{"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine","name":"test-vm","uid":UID,"controller":true}]},
+            "spec":{"containers":[]},"status":{"phase":"Running"}}),
+    )
+}
+
+fn pods(store: &Store) -> Vec<String> {
+    store
+        .objects
+        .lock()
+        .unwrap()
+        .keys()
+        .filter_map(|k| k.strip_prefix(&format!("{PODS}/")).map(str::to_owned))
+        .collect()
+}
+
+fn events(store: &Store) -> Vec<Value> {
+    store
+        .objects
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(k, _)| k.starts_with(&format!("{EVENTS}/")))
+        .map(|(_, v)| v.clone())
+        .collect()
+}
+
+/// Bring the VM to its entries and finalizer, then mark it deleted at `at`,
+/// with or without a running Pod.
+async fn deleted_vm(store: &Store, ctx: &Arc<Context>, at: &str, running: bool) {
+    store.step(ctx).await;
+    store.step(ctx).await;
+    assert_eq!(store.finalizers(), json!([FINALIZER]));
+    store
+        .objects
+        .lock()
+        .unwrap()
+        .retain(|k, _| !k.starts_with(&format!("{PODS}/")));
+    if running {
+        let (path, pod) = vm_pod("test-vm");
+        store.objects.lock().unwrap().insert(path, pod);
+    }
+    let at = at.to_owned();
+    store.edit(VM, move |vm| {
+        vm["metadata"]["deletionTimestamp"] = json!(at)
+    });
+}
+
+#[tokio::test]
+async fn deletion_stops_the_vm_pods_then_evicts_the_guest_agent_before_releasing() {
+    let store = Store::with([
+        (VM.to_owned(), vm_json(Some(two_workloads()))),
+        state_pvc(),
+        foreign(),
+    ]);
+    let evictor = FakeEvictor::new([
+        Eviction::EntriesRemain,
+        Eviction::Unavailable("kube01: connection refused".into()),
+        Eviction::Evicted(vec![
+            "spiffe://yapplesauce.com/spire/agent/tpm_devid/3f95ef41".into(),
+        ]),
+    ]);
+    let ctx = server_with(&store, Some(evictor.clone())).await;
+    let now = k8s_openapi::jiff::Timestamp::now().to_string();
+    deleted_vm(&store, &ctx, &now, true).await;
+
+    // The entries go and the running Pod is stopped; no eviction while it runs.
+    store.step(&ctx).await;
+    assert_eq!(
+        store.entries().len(),
+        1,
+        "only the other VM's entry remains"
+    );
+    assert!(pods(&store).is_empty());
+    assert!(evictor.calls().is_empty());
+    assert_eq!(store.finalizers(), json!([FINALIZER]));
+
+    // 409 and an unreachable evictor keep the VM; a 200 releases it.
+    store.step(&ctx).await;
+    assert_eq!(store.finalizers(), json!([FINALIZER]));
+    store.step(&ctx).await;
+    assert_eq!(store.finalizers(), json!([FINALIZER]));
+    store.step(&ctx).await;
+    assert_eq!(store.finalizers(), json!([]));
+    assert_eq!(evictor.calls(), vec![UID; 3]);
+    assert!(events(&store).is_empty());
+}
+
+#[tokio::test]
+async fn deletion_releases_the_vm_with_a_warning_once_the_eviction_window_has_passed() {
+    let store = Store::with([
+        (VM.to_owned(), vm_json(Some(two_workloads()))),
+        state_pvc(),
+        foreign(),
+    ]);
+    let evictor = FakeEvictor::new([Eviction::Unavailable("no evictor".into())]);
+    let ctx = server_with(&store, Some(evictor.clone())).await;
+    deleted_vm(&store, &ctx, "2026-01-01T00:00:00Z", false).await;
+    store.step(&ctx).await;
+    assert_eq!(store.finalizers(), json!([]));
+    assert_eq!(evictor.calls(), vec![UID]);
+    let events = events(&store);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["type"], "Warning");
+    assert_eq!(events[0]["reason"], "GuestAgentNotEvicted");
+    assert_eq!(events[0]["regarding"]["uid"], UID);
+}
+
+#[tokio::test]
+async fn without_an_evictor_deletion_only_removes_the_entries() {
+    let store = Store::with([
+        (VM.to_owned(), vm_json(Some(two_workloads()))),
+        state_pvc(),
+        foreign(),
+    ]);
+    let ctx = server(&store).await;
+    let now = k8s_openapi::jiff::Timestamp::now().to_string();
+    deleted_vm(&store, &ctx, &now, true).await;
+    store.step(&ctx).await;
+    assert_eq!(store.finalizers(), json!([]));
+    assert_eq!(
+        pods(&store),
+        ["test-vm"],
+        "the Pod is left to garbage collection"
+    );
 }

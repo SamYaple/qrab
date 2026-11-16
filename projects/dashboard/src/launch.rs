@@ -687,6 +687,7 @@ pub fn render_vm(
                 ADMINS_GROUP: groups.admins,
                 VIEWERS_GROUP: groups.viewers,
             },
+            "finalizers": [crate::cleanup::FINALIZER],
         },
         "spec": spec,
     })
@@ -1176,7 +1177,8 @@ mod tests {
                     "annotations": {"qrab.yapplesauce.com/creator-subject": "sub-1",
                         "qrab.yapplesauce.com/launch-id": ID,
                         "qrab.yapplesauce.com/admins-group": "ga",
-                        "qrab.yapplesauce.com/viewers-group": "gv"}},
+                        "qrab.yapplesauce.com/viewers-group": "gv"},
+                    "finalizers": ["qrab.yapplesauce.com/access-groups"]},
                 "spec": {
                     "stateVolumeClaim": "web-state", "memoryMiB": 1024, "maxMemoryMiB": 4096, "cpus": 2,
                     "running": true, "bootDisk": "/opt/qrab/demo/boot.img",

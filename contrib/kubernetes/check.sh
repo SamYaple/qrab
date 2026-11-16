@@ -3,7 +3,7 @@
 #
 #   bash contrib/kubernetes/check.sh NAMESPACE VM [CONNECT_IP]
 #
-# e.g. `check.sh qrab qrab-redfish-poc`. CONNECT_IP pins the console host to an
+# e.g. `check.sh qrab my-vm`. CONNECT_IP pins the console host to an
 # address (the Cilium Ingress) when private DNS does not resolve it.
 set -euo pipefail
 if [ $# -lt 2 ] || [ $# -gt 3 ]; then

@@ -31,6 +31,8 @@ pub struct Context {
     pub storage: Option<SharedStorage>,
     /// Exact-VM authenticated metrics reader; absent only in isolated controller fixtures.
     pub metrics: Option<power::Client>,
+    /// Evicts a deleted VM's guest SPIRE agent; absent leaves it to expire.
+    pub evictor: Option<Arc<dyn guest_identity::GuestEvictor>>,
 }
 
 pub(crate) fn state(
@@ -725,9 +727,12 @@ async fn synchronize(
     if matches!(nics_finalized, Finalized::Patched) {
         return Ok(Action::requeue(Duration::from_secs(1)));
     }
-    if vm.metadata.deletion_timestamp.is_some()
-        && guest_identity::finalize(vm, &ctx.client, vms).await?
-    {
+    let guest_finalized = if vm.metadata.deletion_timestamp.is_some() {
+        guest_identity::finalize(vm, &ctx.client, vms, ctx.evictor.as_deref()).await?
+    } else {
+        guest_identity::Finalized::Absent
+    };
+    if guest_finalized == guest_identity::Finalized::Released {
         return Ok(Action::requeue(Duration::from_secs(1)));
     }
     if let Some(action) = storage_guard::reconcile(vm, pod.as_ref(), vms, &pods, ctx).await? {
@@ -736,6 +741,9 @@ async fn synchronize(
     if vm.metadata.deletion_timestamp.is_some() {
         return Ok(match nics_finalized {
             Finalized::Waiting => Action::requeue(Duration::from_secs(2)),
+            _ if guest_finalized == guest_identity::Finalized::Waiting => {
+                Action::requeue(Duration::from_secs(5))
+            }
             _ => Action::await_change(),
         });
     }
@@ -889,6 +897,17 @@ async fn synchronize(
             return Ok(Action::requeue(Duration::from_secs(1)));
         }
         _ => {}
+    }
+    // The dashboard's state claim goes with its VM (docs/dashboard.md).
+    if let Some(patch) = resources::state_claim_adoption(&claim, vm) {
+        claims
+            .patch(
+                &incarnation.state_claim,
+                &PatchParams::default(),
+                &Patch::Merge(patch),
+            )
+            .await?;
+        tracing::info!(vm=%vm.name_any(), claim=%incarnation.state_claim, "the VM now owns its state claim");
     }
     let Some(nics) = nics else {
         publish(

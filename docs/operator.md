@@ -32,9 +32,8 @@ never creates or retargets a VM:
 kubectl apply -k contrib/kubernetes
 kubectl wait --for=condition=Established crd/virtualmachines.qrab.yapplesauce.com
 kubectl -n qrab rollout status deployment/qrab-operator --timeout=180s
-kubectl apply -k contrib/kubernetes/redfish-poc
 kubectl -n qrab get qvm,pod,pvc
-bash contrib/kubernetes/check.sh qrab qrab-redfish-poc
+bash contrib/kubernetes/check.sh qrab <vm>   # for a console VM you created
 ```
 
 With the storage service enabled (`contrib/kubernetes/operator-storage-api`,
@@ -52,8 +51,8 @@ image-pull ServiceAccounts.
 
 The [qrab-demo sample](../contrib/kubernetes/examples/qrab-demo/vm.yaml) provides
 a retained 1 GiB filesystem PVC on `zfs-block` and a VM CR. The qrab-demo VM
-itself was retired, and on this cluster its console names and host belong to
-`redfish-poc`, so copy and rename the sample before applying it
+itself was retired, and leftover live console objects may still carry its
+names, so copy and rename the sample before applying it
 ([why](../contrib/kubernetes/README.md#examplesqrab-demo)):
 
 ```yaml
@@ -260,7 +259,7 @@ Service, Ingress or policy entry for port 8081. Native Redfish clients do not
 go through the BMC: the console Ingress routes the public `/redfish` prefix
 straight to Service port `redfish` (8081), and the console's
 CiliumNetworkPolicy admits 8081 from the ingress, as
-`contrib/kubernetes/redfish-poc/console.yaml` does. Without that route and
+`contrib/kubernetes/examples/qrab-demo/console.yaml` does. Without that route and
 port a VM's Redfish is reachable only by the dashboard. A Redfish-only VM needs
 the same explicit infrastructure; see [redfish.md](redfish.md#exposure).
 
@@ -291,10 +290,8 @@ first operator rollout with it replaces each Redfish-enabled VM Pod once.
 
 The console public URL must have a matching Service/Ingress, TLS certificate and
 exact registered Kanidm callback. See [bmc.md](bmc.md). The operator does not
-mutate the identity provider. On this cluster `https://qrab-demo.yapplesauce.com`
-and its callback now serve `qrab-redfish-poc`
-([redfish-poc/console.yaml](../contrib/kubernetes/redfish-poc/console.yaml));
-a new console VM needs its own host, objects and callback.
+mutate the identity provider. A new console VM needs its own host, objects and callback
+([sample](../contrib/kubernetes/examples/qrab-demo/console.yaml)).
 
 ### Admin bucket
 
@@ -751,8 +748,8 @@ native disks; failed native probes require hard-fence recovery.
 ### VM-platform rollout record (2026-11-12)
 
 These dated records describe the cluster at the time. The qrab-demo VM they
-verify has since been retired; its host and console objects now serve
-`qrab-redfish-poc` ([contrib/kubernetes/README.md](../contrib/kubernetes/README.md#examplesqrab-demo)).
+verify has since been retired, as has `qrab-redfish-poc`, which later used its
+host ([contrib/kubernetes/README.md](../contrib/kubernetes/README.md#examplesqrab-demo)).
 
 Images built from main 503ea0e: manager
 `zot.yapplesauce.com/qrab/manager@sha256:b6b8f19bd2e6fc10401addcecd0845a3ff8fcdb6534b29981bf2f53ba6fb2e0f`

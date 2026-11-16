@@ -10,6 +10,14 @@ pub struct Kanidm {
     token: Arc<str>,
 }
 
+/// A Kanidm group as the dashboard sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Group {
+    pub uuid: String,
+    pub name: String,
+    pub description: String,
+}
+
 #[derive(Deserialize)]
 struct Entry {
     attrs: BTreeMap<String, Vec<String>>,
@@ -83,6 +91,35 @@ impl Kanidm {
                     .and_then(|v| v.first())
                     .map(|v| uuid(v))
                     .context("group entry has no uuid")?
+            })
+            .transpose()
+    }
+
+    /// `GET /v1/group/{uuid or name}`: the group's UUID, name and description.
+    pub async fn group(&self, group: &str) -> Result<Option<Group>> {
+        let group = match crate::config::uuid(group) {
+            Some(id) => id,
+            None if group_name(group) => group.to_owned(),
+            None => bail!("invalid group reference"),
+        };
+        let response = self
+            .http
+            .get(format!("{}/v1/group/{group}", self.base))
+            .bearer_auth(&*self.token)
+            .send()
+            .await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let entry: Option<Entry> = response.error_for_status()?.json().await?;
+        entry
+            .map(|e| {
+                let first = |key: &str| e.attrs.get(key).and_then(|v| v.first()).cloned();
+                Ok(Group {
+                    uuid: uuid(&first("uuid").context("group entry has no uuid")?)?,
+                    name: first("name").context("group entry has no name")?,
+                    description: first("description").unwrap_or_default(),
+                })
             })
             .transpose()
     }
