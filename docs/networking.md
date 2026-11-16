@@ -681,6 +681,16 @@ provider Pod on kube01, the VM on kube03):
 - After a live migration kube03 → kube01 the tunnel resumed from the new
   anchor with the same boot id.
 
+The same lab oracle passed again on 2026-11-16 after the strict cluster
+WireGuard and manager heartbeat rollouts (manager digest `480be89f…`). The
+provider on kube01 received the guest's `10.66.0.2` traffic from `10.203.0.11`,
+with no report from the anchor's `10.244.128.1`. Disabling the provider tunnel
+for 15 seconds stopped reports without a leak; they resumed two seconds after
+restoration. Migration kube03 → kube01 preserved the boot identity and tunnel.
+The largest report gap, including the deliberate outage, was 17.1 seconds.
+The disposable VM/provider/Secret/migration were removed; retained data kept
+its normal storage semantics. This verifies the lab peer, not a Proton account.
+
 ### ProtonVPN
 
 ProtonVPN is the supported provider; qrab keeps its `vpn-*` Secrets itself

@@ -1,0 +1,60 @@
+{
+  "date": "2026-11-16",
+  "scope": "Private network namespaces on kube01; no production link activation",
+  "hostKernel": "7.0.0-38-generic",
+  "package": "wpasupplicant 2:2.11-7",
+  "hashes": {
+    "contrib/network-encryption/check-macsec.py": "ffa454803099ad6b8a6dc768666245428a8c9adeb50348c663fa37ddf7772150",
+    "contrib/network-encryption/Containerfile.tools": "8493fb451f12d372b8add4d825b64a61575ede18f15e1c8fef177928bed7fb15",
+    "contrib/network-encryption/run-wpa": "b6d0899bf58d27afab4a23d83d69f112ca17ecf191b4638267ec1f80a3856104"
+  },
+  "toolBinarySha256": "13b6a65f587fe57817d1aa4075c0459add5b93df384304547206e4a4bbd74ab8",
+  "packageInventorySha256": "8c96997cf767a450c82d27bcc2a44555d478486b1ecd3084a0ca5bbdb17f54f7",
+  "result": {
+    "trustedIPv4": true,
+    "trustedIPv6": true,
+    "wrongCAKRefused": true,
+    "tcp": [
+      {
+        "port": 179,
+        "bytes": 8192,
+        "addressPreserved": true
+      },
+      {
+        "port": 3260,
+        "bytes": 8192,
+        "addressPreserved": true
+      }
+    ],
+    "interfaces": {
+      "a": "macsec0",
+      "b": "macsec0",
+      "c": "macsec0"
+    },
+    "lowerCapture": {
+      "macsec": 37,
+      "clearIP": 0,
+      "mka": 4
+    },
+    "replayRefused": true,
+    "plaintextRefused": true,
+    "automaticRekey": true,
+    "restartRecovered": true,
+    "freshSessionKey": true
+  },
+  "ciliumBpfTests": {
+    "cases": 24,
+    "result": "passed",
+    "optionDefault": "empty device list",
+    "liveAttachmentVerified": false,
+    "testRunnerSysctlRestored": true,
+    "sourceRevision": "517c5fe834e26db4f3fb10465c77cf957a5bc526"
+  },
+  "limits": [
+    "Synthetic TCP echo on 179/3260; actual BGP, iSCSI and fencing were not tested under MACsec",
+    "Short private-namespace capture only; not production packet or performance proof",
+    "CAK possession authenticates link-group membership; no per-peer SPIFFE SVID",
+    "Native bridge, boot, addresses, VIP, routes and Cilium upper attachment remain deployment work",
+    "Physical gateway root access unresolved; production underlay unchanged"
+  ]
+}

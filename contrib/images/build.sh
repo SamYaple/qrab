@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-component=${1:?usage: build.sh qemu|manager|operator|dashboard|tpm-issuer TAG}
+component=${1:?usage: build.sh qemu|manager|operator|dashboard|tpm-issuer|link-tools TAG}
 tag=${2:?image tag required}
 [[ $tag =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo 'invalid image tag' >&2; exit 1; }
 revision=$(git rev-parse HEAD)
@@ -28,6 +28,9 @@ case "$component" in
   tpm-issuer)
     podman build --label "org.opencontainers.image.revision=$revision" -f contrib/images/Containerfile.tpm-issuer --build-arg "QRAB_REVISION=$revision" -t "$image" .
     ;;
-  *) echo 'component must be qemu, manager, operator, dashboard or tpm-issuer' >&2; exit 1;;
+  link-tools)
+    podman build --label "org.opencontainers.image.revision=$revision" --target bundle -f contrib/network-encryption/Containerfile.tools -t "$image" .
+    ;;
+  *) echo 'component must be qemu, manager, operator, dashboard, tpm-issuer or link-tools' >&2; exit 1;;
 esac
 printf '%s\n' "$image"

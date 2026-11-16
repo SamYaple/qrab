@@ -66,7 +66,9 @@ retained disk data keeps its normal storage semantics.
 Pure host traffic, native iSCSI, BGP and ordinary external traffic are outside
 this Pod-to-Pod mode. Cilium also excludes world-origin traffic forwarded by an
 intermediate node, including that origin's temporary handoff path. Those links
-remain tracked separately. All three nodes are control-plane nodes;
+remain tracked separately. See the
+[native link prototype and deployment requirements](node-link-encryption.md)
+for the remaining Ethernet/storage boundary. All three nodes are control-plane nodes;
 `nodeEncryption` stays false and its control-plane bootstrap exclusion remains
 intact. Forcing encryption there can lock nodes out of the API needed to update
 their keys. The [Cilium guide](https://docs.cilium.io/en/stable/security/network/encryption-wireguard/)

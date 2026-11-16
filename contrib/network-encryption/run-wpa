@@ -1,0 +1,7 @@
+#!/bin/sh
+# Keep the verified bundle's loader/libraries independent of the host distro.
+set -eu
+bundle_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$bundle_root/lib64/ld-linux-x86-64.so.2" --inhibit-cache \
+    --library-path "$bundle_root/lib/x86_64-linux-gnu:$bundle_root/usr/lib/x86_64-linux-gnu" \
+    "$bundle_root/wpa_supplicant" "$@"

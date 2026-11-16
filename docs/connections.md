@@ -26,6 +26,10 @@ Cilium-managed Pod links now use [strict WireGuard](node-encryption.md)
 (N14/I11), with [live migration and capture evidence](connections/platform-evidence.md#strict-pod-wireguard-rollout-2026-11-16). Host and world-origin
 forwarding remain separate work.
 
+The [native link prototype](node-link-encryption.md) records isolated MACsec/MKA
+results and the remaining gateway, boot and Cilium deployment requirements.
+It does not change the live host/iSCSI security status in this inventory.
+
 Start here for endpoints, payloads and transport protection. Continue with:
 
 - [Data paths and migration diagrams](connections/data-paths.md).

@@ -1,0 +1,26 @@
+# Standard MKA implementation for isolated node-link experiments.
+# This image contains no CAK, CKN, interface configuration or service activation.
+FROM zot.yapplesauce.com/qrab/qemu@sha256:1187d49e124d53a1c82e8b51c7cdf11c116ccd4fbf821b46f51b1e822eb3e312 AS tools
+USER 0
+ARG WPASUPPLICANT_VERSION=2:2.11-7
+COPY contrib/images/apt-https.sh /usr/local/libexec/qrab-apt-https
+RUN sh /usr/local/libexec/qrab-apt-https && \
+    printf '%s\n' 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://deb.debian.org/debian forky main' > /etc/apt/sources.list.d/qrab-link-tools.list && \
+    apt-get update --error-on=any && \
+    apt-get install -y --no-install-recommends "wpasupplicant=${WPASUPPLICANT_VERSION}" && \
+    rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /out/licenses && \
+    cp /usr/sbin/wpa_supplicant /out/wpa_supplicant && \
+    ldd /usr/sbin/wpa_supplicant > /out/runtime-libraries.txt && \
+    for library in $(awk '/=> \// {print $3} /^[[:space:]]*\// {print $1}' /out/runtime-libraries.txt); do \
+        cp -L --parents "$library" /out; \
+    done && \
+    dpkg-query -W -f='${binary:Package}\t${Version}\n' > /out/packages.txt && \
+    cp -a /usr/share/doc/. /out/licenses/
+COPY contrib/network-encryption/run-wpa /out/run-wpa
+RUN chmod 0755 /out/run-wpa
+FROM scratch AS bundle
+LABEL org.opencontainers.image.source="https://gitea.yapplesauce.com/infrastructure/qrab" \
+      org.opencontainers.image.title="qrab native MKA tool bundle" \
+      org.opencontainers.image.version="2.11-7"
+COPY --from=tools /out/ /
