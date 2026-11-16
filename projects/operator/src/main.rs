@@ -16,6 +16,10 @@ use std::sync::Arc;
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["probe-health"] {
+        qrab_spiffe::http::probe_health("127.0.0.1:8081".parse()?, "/healthz").await?;
+        return Ok(());
+    }
     if args.as_slice() == ["crd"] {
         println!(
             "{}",
@@ -211,7 +215,7 @@ async fn main() -> Result<()> {
                 tracing::warn!(%error,"controller event failed");
             }
         });
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8081").await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8081").await?;
     let server = axum::serve(
         listener,
         Router::new().route("/healthz", get(|| async { "ok" })),

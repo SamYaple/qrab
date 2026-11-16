@@ -1175,8 +1175,8 @@ fn sidecars(
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError",
             "volumeMounts":[{"name":"control","mountPath":"/run/qrab-control"},workload_socket().1],
             // No startup probe: it would delay the manager, which starts after sidecars.
-            "readinessProbe":{"httpGet":{"path":"/readyz","port":port.0},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":2},
-            "livenessProbe":{"httpGet":{"path":"/healthz","port":port.0},"periodSeconds":10,"failureThreshold":3,"timeoutSeconds":2}})
+            "readinessProbe":{"exec":{"command":[command,"probe-ready"]},"periodSeconds":2,"failureThreshold":3,"timeoutSeconds":3},
+            "livenessProbe":{"exec":{"command":[command,"probe-health"]},"periodSeconds":10,"failureThreshold":3,"timeoutSeconds":3}})
     };
     let creator = creator(vm)?;
     let mut containers = Vec::new();
@@ -1222,14 +1222,11 @@ fn sidecars(
         env.extend([
             json!({"name":"BMC_REDFISH_URL","value":BMC_REDFISH_URL}),
             json!({"name":"BMC_REDFISH_SPIFFE_ID","value":format!("spiffe://yapplesauce.com/kubernetes/{}/vm/{}/redfish",settings.namespace,vm.uid().unwrap_or_default())}),
+            json!({"name":"BMC_LISTEN","value":"127.0.0.1:8080"}),
             json!({"name":"BMC_WORKLOAD_LISTEN","value":"0.0.0.0:8443"}),
-            json!({"name":"BMC_WORKLOAD_PEERS","value":format!("spiffe://yapplesauce.com/kubernetes/{}/qrab-dashboard",settings.namespace)}),
+            json!({"name":"BMC_WORKLOAD_PEERS","value":format!("spiffe://yapplesauce.com/kubernetes/{}/qrab-dashboard,spiffe://yapplesauce.com/kubernetes/kube-system/qrab-ingress",settings.namespace)}),
         ]);
-        let mut bmc = sidecar("bmc", "qrab-bmc", ("http", 8080), Value::Array(env));
-        bmc["ports"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"name":"bmc-mtls","containerPort":8443}));
+        let bmc = sidecar("bmc", "qrab-bmc", ("bmc-mtls", 8443), Value::Array(env));
         containers.push(bmc);
     }
     let redfish = &vm.spec.components.redfish;
@@ -1238,6 +1235,7 @@ fn sidecars(
             "spiffe://yapplesauce.com/kubernetes/{}/qrab-dashboard",
             settings.namespace
         )];
+        peers.push("spiffe://yapplesauce.com/kubernetes/kube-system/qrab-ingress".into());
         if vm.spec.components.bmc.enabled {
             peers.push(format!(
                 "spiffe://yapplesauce.com/kubernetes/{}/vm/{}/bmc",
@@ -1248,6 +1246,7 @@ fn sidecars(
         let mut env = vec![
             json!({"name":"REDFISH_OIDC_ISSUER","value":settings.redfish_oidc_issuer}),
             json!({"name":"REDFISH_OIDC_AUDIENCE","value":settings.redfish_oidc_audience}),
+            json!({"name":"REDFISH_LISTEN","value":"127.0.0.1:8081"}),
             json!({"name":"REDFISH_WORKLOAD_LISTEN","value":"0.0.0.0:8444"}),
             json!({"name":"REDFISH_WORKLOAD_PEERS","value":peers.join(",")}),
         ];
@@ -1299,13 +1298,9 @@ fn sidecars(
         let mut container = sidecar(
             "redfish",
             "qrab-redfish",
-            ("redfish", 8081),
+            ("redfish-mtls", 8444),
             Value::Array(env),
         );
-        container["ports"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"name":"redfish-mtls","containerPort":8444}));
         // Authenticated Prometheus/operator export; see redfish_metrics_policy.
         container["ports"]
             .as_array_mut()

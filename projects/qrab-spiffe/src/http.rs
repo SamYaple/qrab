@@ -250,6 +250,61 @@ pub fn client(identity: &Identity, peer: SpiffeId) -> crate::Result<reqwest::Cli
         .map_err(|e| crate::Error::Config(e.to_string()))
 }
 
+/// Plain HTTP is confined to the local kernel/network namespace. Remote
+/// application connections must use a workload TLS listener.
+pub fn require_loopback(address: SocketAddr) -> crate::Result<()> {
+    if !address.ip().is_loopback() {
+        return Err(crate::Error::Config(
+            "plain HTTP must bind literal loopback; use workload mTLS for network access".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Restrict the ordinary listener to health in workload mode. The authenticated
+/// application router remains available only through its TLS listener.
+pub async fn health_only(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if request.method() != axum::http::Method::GET
+        || request.uri().query().is_some()
+        || !matches!(request.uri().path(), "/healthz" | "/readyz")
+    {
+        return axum::response::IntoResponse::into_response(axum::http::StatusCode::NOT_FOUND);
+    }
+    next.run(request).await
+}
+
+/// Fixed-path local exec probe. A single deadline covers connect, headers and
+/// response; no identity, Kubernetes client or OIDC discovery is initialized.
+pub async fn probe_health(address: SocketAddr, path: &str) -> crate::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    require_loopback(address)?;
+    if !matches!(path, "/healthz" | "/readyz") {
+        return Err(crate::Error::Config(
+            "invalid local health probe path".into(),
+        ));
+    }
+    tokio::time::timeout(Duration::from_secs(2), async {
+        let mut stream = TcpStream::connect(address).await?;
+        stream
+            .write_all(
+                format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                    .as_bytes(),
+            )
+            .await?;
+        let mut status = [0; 16];
+        stream.read_exact(&mut status).await?;
+        if !status.starts_with(b"HTTP/1.1 200 ") {
+            return Err(crate::Error::Config("local service is not ready".into()));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| crate::Error::Timeout)?
+}
+
 /// Optional extra listener configuration. Setting peers without a listener,
 /// invalid IDs, duplicates or a colliding port refuses startup.
 pub struct Config {

@@ -152,7 +152,7 @@ On SIGTERM the sidecar closes live streams within two seconds and exits 0.
 | `BMC_ADMIN_BUCKET` | Comma-separated [admin-bucket](#admin-bucket) features enabled for this VM: `audio`, `usb-redirect`. Unset means none; an unknown name stops startup |
 | `QRAB_NODE_NAME`, `QRAB_POD_NAME`, `QRAB_POD_NAMESPACE`, `QRAB_IMAGE` | Optional deployment metadata shown to admins |
 | `BMC_REDFISH_URL` | Origin of the in-pod Redfish sidecar behind `/bmc/redfish`; standalone default `http://127.0.0.1:8081`; operator uses SPIFFE HTTPS `127.0.0.1:8444` |
-| `BMC_LISTEN` | Listener; defaults to `0.0.0.0:8080` |
+| `BMC_LISTEN` | Local listener; defaults to `127.0.0.1:8080`; workload mode serves health only |
 | `BMC_ASSETS_DIR` | Defaults to the source assets directory; image sets `/opt/qrab/bmc/assets` |
 | `BMC_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
 | `RUST_LOG` | Default `bmc=info,qrab_bmc=info` |
@@ -541,3 +541,9 @@ compatibility is permitted only to a literal loopback IP without URL credentials
 path, query or fragment. There is no remote plaintext or default WebPKI fallback.
 The updated operator's workload-enabled BMC cannot select that HTTP compatibility
 path. See [enrollment/verification](dashboard.md#workload-tls-enrollment-and-verification).
+
+Public ingress backends now have [SPIRE mTLS source support](ingress.md).
+The ingress role joins the exact workload peer allowlist; user roles remain
+independent. Native `/redfish` routes directly to Redfish8444, with BMC8443
+handling its console/UI paths. Health checks execute locally; ordinary8080
+binds loopback and cannot carry remote application requests in workload mode.

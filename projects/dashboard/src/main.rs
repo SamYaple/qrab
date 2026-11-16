@@ -16,6 +16,18 @@ async fn main() -> anyhow::Result<()> {
         .init();
     qrab_spiffe::http::install_tls13_provider()?;
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.as_slice() == ["probe-health"] || args.as_slice() == ["probe-ready"] {
+        let path = if args[0] == "probe-ready" {
+            "/readyz"
+        } else {
+            "/healthz"
+        };
+        let address = std::env::var("DASHBOARD_LISTEN")
+            .unwrap_or_else(|_| "127.0.0.1:8080".into())
+            .parse()?;
+        qrab_spiffe::http::probe_health(address, path).await?;
+        return Ok(());
+    }
     if !args.is_empty() {
         anyhow::ensure!(
             args.len() == 5 && args[0] == "workload-probe",
@@ -24,6 +36,7 @@ async fn main() -> anyhow::Result<()> {
         return workload_probe(&args[1], &args[2], &args[3], &args[4]).await;
     }
     let config = Config::from_env()?;
+    qrab_spiffe::http::require_loopback(config.listen)?;
     let kanidm = Kanidm::new(
         &config.kanidm_url,
         config.kanidm_token.clone(),
@@ -65,6 +78,11 @@ async fn main() -> anyhow::Result<()> {
             ),
         "unexpected dashboard SPIFFE identity"
     );
+    let workload = match qrab_spiffe::http::Config::from_env("DASHBOARD", &[config.listen.port()])?
+    {
+        Some(config) => Some(config.bind(&identity).await?),
+        None => None,
+    };
     let state = AppState {
         oidc,
         origin: config.origin.clone(),
@@ -84,9 +102,39 @@ async fn main() -> anyhow::Result<()> {
     };
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(origin=%config.origin, namespace=%config.namespace, "qrab-dashboard started");
-    axum::serve(listener, qrab_dashboard::router(state))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    let app = qrab_dashboard::router(state);
+    let ordinary_app = if workload.is_some() {
+        app.clone()
+            .layer(axum::middleware::from_fn(qrab_spiffe::http::health_only))
+    } else {
+        app.clone()
+    };
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let stopping = |mut signal: tokio::sync::watch::Receiver<bool>| async move {
+        let _ = signal.wait_for(|v| *v).await;
+    };
+    let servers = async {
+        let ordinary =
+            axum::serve(listener, ordinary_app).with_graceful_shutdown(stopping(stopped.clone()));
+        let protected = async {
+            match workload {
+                Some(listener) => {
+                    axum::serve(listener, app)
+                        .with_graceful_shutdown(stopping(stopped.clone()))
+                        .await
+                }
+                None => Ok(()),
+            }
+        };
+        tokio::try_join!(std::future::IntoFuture::into_future(ordinary), protected).map(|_| ())
+    };
+    tokio::pin!(servers);
+    tokio::select! {
+        result = &mut servers => return result.map_err(Into::into),
+        _ = shutdown() => { stop.send_replace(true); }
+    }
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), &mut servers).await;
+
     Ok(())
 }
 
