@@ -68,5 +68,10 @@
     "image": "zot.yapplesauce.com/infrastructure/cilium@sha256:6575d06b830d70814399c686a14ade8bebb1b021dac01f9da45fc21fa51b85e7",
     "source_revision": "b62a4ec4f00c17b37f411ebd2ed589be7b3bb222",
     "version": "1.20.2"
+  },
+  "image_importer": {
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:d4f0631a762b620e749c4eb66448431b57481f1195e78c2138be99ebefc63795",
+    "source_revision": "c60fa8dfa2307ae354c8c46054d2cd973744a9ee",
+    "qemu": "zot.yapplesauce.com/qrab/qemu@sha256:23d0574f7ca8660ff0907795a38bb5818948be4413a3c894d96c387b335b8c4b"
   }
 }

@@ -33,7 +33,7 @@ spec:
       containers:
       - name: importer
         # The Jobs run the same image; both are set by the release pin commit.
-        image: zot.yapplesauce.com/qrab/operator@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        image: zot.yapplesauce.com/qrab/operator@sha256:d4f0631a762b620e749c4eb66448431b57481f1195e78c2138be99ebefc63795
         imagePullPolicy: Always
         args: [image-importer]
         env:
@@ -41,7 +41,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        - {name: QRAB_IMAGE_JOB_IMAGE, value: 'zot.yapplesauce.com/qrab/operator@sha256:0000000000000000000000000000000000000000000000000000000000000000'}
+        - {name: QRAB_IMAGE_JOB_IMAGE, value: 'zot.yapplesauce.com/qrab/operator@sha256:d4f0631a762b620e749c4eb66448431b57481f1195e78c2138be99ebefc63795'}
         - {name: QRAB_STORAGE_ORIGIN, value: 'https://10.203.0.1:9477'}
         - {name: QRAB_STORAGE_EXCHANGE_ORIGIN, value: 'https://10.203.0.10:8444'}
         - {name: QRAB_STORAGE_CA, value: /etc/qrab-storage-tls/ca.pem}

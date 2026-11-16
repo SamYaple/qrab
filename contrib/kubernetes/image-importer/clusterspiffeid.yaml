@@ -19,7 +19,7 @@ spec:
   - k8s:ns:qrab
   - k8s:sa:qrab-image-importer
   - k8s:container-name:importer
-  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - k8s:container-image:zot.yapplesauce.com/qrab/operator@sha256:d4f0631a762b620e749c4eb66448431b57481f1195e78c2138be99ebefc63795
   - unix:uid:10001
   ttl: 10m
   admin: false

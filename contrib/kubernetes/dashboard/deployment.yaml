@@ -51,7 +51,7 @@ spec:
         - {name: DASHBOARD_VM_USERS_GROUP, value: 3d40e2a1-3968-43ea-b4a4-154cbd26d88b}
         # Image admins (stage/refresh/retire on /images): a name resolved at
         # startup; pin the group's UUID here once it is provisioned.
-        - {name: DASHBOARD_IMAGE_ADMIN_GROUP, value: qrab_image_admins}
+        - {name: DASHBOARD_IMAGE_ADMIN_GROUP, value: 6d3d883f-c9db-4357-b8d8-f94ad1518a01}
         - {name: DASHBOARD_KANIDM_URL, value: 'https://idm.yaple.net'}
         - {name: DASHBOARD_KANIDM_TOKEN_FILE, value: /run/secrets/qrab-dashboard/kanidm-token}
         - name: DASHBOARD_NAMESPACE
