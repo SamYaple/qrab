@@ -923,23 +923,38 @@ def peer_checks(state):
     for role, peer in HOSTS.items():
         if role == profile["role"]:
             continue
-        with socket.socket() as client:
-            client.settimeout(5)
-            client.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, UPPER.encode() + b"\0")
-            client.bind((profile["aux"], 0))
-            client.connect((peer["aux"], PROBE_PORT))
-            client.sendall(payload)
-            client.shutdown(socket.SHUT_WR)
-            answer = b""
-            while True:
-                part = client.recv(4096)
-                if not part:
-                    break
-                answer += part
-                require(len(answer) <= 4096, "probe response exceeds limit")
-        value = json.loads(answer)
-        require(value == {"peer": profile["aux"], "bytes": len(payload), "sha256": digest(payload)},
-                "encrypted peer probe failed or changed source address")
+        step = "connect"
+        try:
+            with socket.socket() as client:
+                client.settimeout(5)
+                client.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, UPPER.encode() + b"\0")
+                client.bind((profile["aux"], 0))
+                client.connect((peer["aux"], PROBE_PORT))
+                step = "send"
+                client.sendall(payload)
+                client.shutdown(socket.SHUT_WR)
+                step = "receive"
+                answer = b""
+                while True:
+                    part = client.recv(4096)
+                    if not part:
+                        break
+                    answer += part
+                    require(len(answer) <= 4096, "probe response exceeds limit")
+            step = "validate reply"
+            value = json.loads(answer)
+            require(value == {"peer": profile["aux"], "bytes": len(payload), "sha256": digest(payload)},
+                    "encrypted peer probe failed or changed source address")
+        except (OSError, ValueError, DeployError) as error:
+            record = {"source": profile["role"], "source_ip": profile["aux"],
+                      "target": role, "target_ip": peer["aux"], "step": step,
+                      "error": str(error), "at": time.time()}
+            try:
+                save(state / "peer-error.json", record)
+            except OSError:
+                pass  # Diagnostics must not replace the actual probe error.
+            raise DeployError(f"encrypted peer {profile['role']} ({profile['aux']}) -> "
+                              f"{role} ({peer['aux']}:{PROBE_PORT}) failed during {step}: {error}") from None
     return {"encrypted_peers": 3, "probe_bytes_per_peer": len(payload)}
 
 
@@ -1080,9 +1095,9 @@ def commit(state):
     require(current_phase(state) == "verified", "host verification is incomplete")
     require(time.time() < load(state / "profile.json")["deadline"] - 10,
             "rollback deadline is too close to commit safely")
+    run(["systemctl", "stop", "qrab-macsec-probe.service"])
     (state / "uncommitted").unlink()
     run(["systemctl", "disable", "--now", "qrab-macsec-rollback.timer"])
-    run(["systemctl", "stop", "qrab-macsec-probe.service"])
     phase(state, "committed")
     return {"phase": "committed"}
 
@@ -1254,7 +1269,21 @@ def rpc(state, role, action, user, aux=False):
         remaining = load(state / "profile.json")["deadline"] - time.time() - 15
         require(remaining > 0, "deployment rollback deadline expired")
         timeout = min(timeout, max(1, int(remaining)))
-    return json.loads(ssh_run(user, HOSTS[role], command, aux=aux, timeout=timeout).stdout)
+    result=ssh_run(user, HOSTS[role], command, aux=aux, timeout=timeout, check=False)
+    if result.returncode:
+        stderr=result.stderr.decode(errors="replace")
+        if DIAGNOSTIC_STATE is not None:
+            save(DIAGNOSTIC_STATE/"last-command.json",
+                 {"argv":ssh_command(user,HOSTS[role],command,aux=aux),
+                  "exit":result.returncode,"stderr":stderr[-65536:]})
+        prefix="qrab native deployment failed: "
+        messages=[line[len(prefix):] for line in stderr.splitlines() if line.startswith(prefix)]
+        reason=messages[-1] if messages else ssh_failure_reason(result.stderr)
+        raise DeployError(f"{role} {action} failed: {reason}")
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        raise DeployError(f"{role} {action} returned an invalid agent reply") from None
 
 
 def package(state, role, profile, source, tools, release):
@@ -1357,6 +1386,29 @@ def rollback_all(state, user):
     return results
 
 
+def staging_peers(state, user, seconds=60):
+    # New members and a newly elected key server may take several MKA rounds
+    # to install every receive SC. Never move production addresses until a
+    # complete round of all twelve directed TCP paths succeeds.
+    end=time.monotonic()+seconds
+    attempts=[]
+    while True:
+        failures={}
+        for role in HOSTS:
+            try:
+                rpc(state,role,"peers",user,aux=role!="gateway")
+            except (DeployError,OSError) as error:
+                failures[role]=str(error)
+        attempts.append({"at":time.time(),"failures":failures})
+        save(state/"staging-peer-attempts.json",attempts)
+        if not failures:
+            return
+        if time.monotonic()>=end:
+            raise DeployError("encrypted staging peers did not converge: "
+                              + "; ".join(role+": "+reason for role,reason in failures.items()))
+        time.sleep(1)
+
+
 def deploy_cluster(state, user):
     receipts = {}
     try:
@@ -1364,8 +1416,7 @@ def deploy_cluster(state, user):
         # readiness. All four peers use the same freshly generated CAK.
         for role in ("kube01", "kube02", "kube03", "gateway"):
             receipts[role] = rpc(state, role, "stage", user)
-        for role in HOSTS:
-            rpc(state, role, "peers", user, aux=role != "gateway")
+        staging_peers(state,user)
         for role in ("kube01", "kube02", "kube03"):
             rpc(state, role, "stop-control", user, aux=True)
         for role in HOSTS:
@@ -1388,8 +1439,23 @@ def deploy_cluster(state, user):
             rpc(state, role, "commit", user, aux=role != "gateway")
         save(state / "cluster-receipt.json", receipts)
         return {"state": str(state), "deployment": "committed", "hosts": receipts}
-    except BaseException:
-        rollback_all(state, user)
+    except BaseException as error:
+        # Cleanup has its own SSH failures as auxiliary addresses disappear.
+        # Preserve the triggering error before rollback can replace diagnostics.
+        record = {"error": str(error), "at": time.time()}
+        if (state / "last-command.json").exists():
+            record["command"] = load(state / "last-command.json")
+        try:
+            save(state / "primary-error.json", record)
+        except OSError:
+            pass  # Native recovery must still run if diagnostic storage fails.
+        try:
+            rollback_all(state, user)
+        except BaseException as cleanup_error:
+            try:
+                save(state / "rollback-controller-error.json", {"error": str(cleanup_error)})
+            except OSError:
+                pass
         raise
 
 

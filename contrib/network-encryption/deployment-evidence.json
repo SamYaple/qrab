@@ -100,5 +100,62 @@
       "tests/check-ssh.py": "d2ca7da161293a6f01f0cdcb2018b248532e12732f66e21a8ce354619f932563",
       "tests/test_deploy_root.py": "5ece912e4fd1ab8dc89dbdf8c97552920173949eef866b45773ef8f23629da68"
     }
+  },
+  "peerConvergenceUpdate": {
+    "unitContracts": 36,
+    "topology": {
+      "bridgeMasterBaseline": {
+        "gateway": {
+          "exit": 0,
+          "stderr": ""
+        },
+        "kube01": {
+          "exit": 0,
+          "stderr": ""
+        },
+        "kube02": {
+          "exit": 0,
+          "stderr": ""
+        },
+        "kube03": {
+          "exit": 0,
+          "stderr": ""
+        }
+      },
+      "convergenceSeconds": 1.3388247187249362,
+      "defaultDropDiagnosedWithoutPolicyChange": true,
+      "peerError": {
+        "at": 1794858083.7357464,
+        "error": "timed out",
+        "source": "kube01",
+        "source_ip": "192.0.2.11",
+        "step": "connect",
+        "target": "gateway",
+        "target_ip": "192.0.2.1"
+      },
+      "all12PathsPassedAfterMkaConvergence": true
+    },
+    "observedStartupConvergenceSeconds": 27.3125,
+    "realCiliumPath": {
+      "realCiliumAuxSourcePreserved": true,
+      "tcpBytes": 32768,
+      "upperKernelHooksVerified": true
+    },
+    "failedAttempt": "1f7646cba22f50e0d24d2282",
+    "failingRemoteAction": "kube01 peers (from sudo journal)",
+    "originalErrorPreservedInOldKit": false,
+    "gatewayPolicyReportedByOperator": [
+      "INPUT ACCEPT",
+      "INPUT jump NETAVARK_INPUT",
+      "NETAVARK_INPUT empty",
+      "OUTPUT ACCEPT"
+    ],
+    "firewallPolicyChangedByFix": false,
+    "sourceHashes": {
+      "deploy_root.py": "dd4d88c467c68cdeb265a27a1a73b856603303eb18cc821a65b78df74696755b",
+      "tests/check-topology.py": "701ada6a882aaa4334ab8c7e614191a911e7681a11ef54e49d5b2e0f36aa2fe9",
+      "tests/check-cilium-peer.py": "6b2d8d6d7843a975da1cb299a5eac0cd885e23cb84d8efd17fc2a76a0153ade0",
+      "tests/test_deploy_root.py": "3da8eaca55d929e682ba8f1584885d73b4e12a59f3720e6faa410c98ffcb64e7"
+    }
   }
 }

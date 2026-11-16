@@ -98,6 +98,14 @@ Auxiliary `192.0.2.0/24` addresses exist only on encrypted uppers. Three
 addresses move. Checks cover encryption, strict validation, replay protection,
 MTU, preserved source addresses and Cilium's kernel hooks.
 
+Staging allows a bounded retry window for MKA membership and key-server
+convergence. A successful gateway-to-node connection alone does not establish
+node-to-node readiness. Every direction must pass in the same complete round
+before control services stop or production addresses move. Attempts and
+directional failures are recorded in `staging-peer-attempts.json`; a node's
+`peer-error.json` names the source, target and connect/send/receive/validation
+step. Existing host access policy is not relaxed to make these probes pass.
+
 Every prior BGP destination must retain its next hops, and peer/iSCSI connection
 counts must recover. Nodes verify the API VIP's `/readyz` against the existing
 Kubernetes CA. Existing kernel iSCSI block devices receive a direct read-only
@@ -139,6 +147,13 @@ The first JSON line prints the common state directory on all four hosts:
 receipts remain there. Select an older attempt with `--state`. Repeating
 `deploy` after a recorded commit does not replace keys or reset SAs.
 
+On a deployment failure, inspect `primary-error.json` first. It snapshots the
+triggering exception and remote stderr before cleanup. `last-command.json` can
+instead describe a later rollback timeout: an auxiliary SSH session may lose
+its reply as its own MACsec interface is removed. Cleanup failures are recorded
+separately and do not replace the original error. A diagnostic write failure
+does not prevent the rollback attempt.
+
 A controller killed during partial commitment can require per-node recovery:
 uncommitted hosts retain timers while committed hosts retain encryption.
 From a node console or available SSH path, use its saved agent:
@@ -167,6 +182,11 @@ sudo python3 contrib/network-encryption/tests/check-nft.py \
   contrib/network-encryption/deploy_root.py /path/to/exported-image
 sudo python3 contrib/network-encryption/tests/check-ssh.py \
   contrib/network-encryption/deploy_root.py automation
+sudo python3 contrib/network-encryption/tests/check-topology.py \
+  contrib/network-encryption/deploy_root.py /path/to/exported-image
+sudo python3 contrib/network-encryption/tests/check-cilium-peer.py \
+  contrib/network-encryption/deploy_root.py /path/to/exported-image \
+  contrib/network-encryption/deployment-release.json
 sudo python3 contrib/network-encryption/check-macsec.py \
   --tools /path/to/exported-image \
   --deployment-agent contrib/network-encryption/deploy_root.py
@@ -178,6 +198,13 @@ guards, replay, rekey and restart. Injection checks disable reverse-path
 filtering. Static IPv6 test addresses use `nodad`; native production
 configuration is IPv4-only. Namespace/configuration tests do not claim a
 completed physical cutover or production reboot.
+
+The topology fixture places the gateway's MACsec lower on the bridge master
+with three node ports, then checks all twelve directed paths. It also verifies
+that a deliberate default-drop policy is diagnosed without changing that
+policy. A separate temporary veth/MKA peer exercises the live Cilium host
+datapath, confirms preserved auxiliary source addresses and removes its test
+interface/address/route afterward.
 
 [Acceptance evidence](deployment-evidence.json) includes the four-member
 fixture, firewall round trips, live node preflights and temporary upper hook

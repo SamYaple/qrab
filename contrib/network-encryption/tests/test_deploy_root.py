@@ -333,6 +333,53 @@ class BootAndIdentity(unittest.TestCase):
 
 
 class ClusterTransactions(unittest.TestCase):
+    def test_remote_peer_error_reaches_the_coordinator(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root);D.save(state/"profile.json",{"deadline":D.time.time()+720})
+            error=b"qrab native deployment failed: encrypted peer kube01 -> kube02 failed during connect: timed out\n"
+            with patch.object(D,"ssh_run",return_value=subprocess.CompletedProcess([],1,b"",error)), \
+                 patch.object(D,"DIAGNOSTIC_STATE",None), \
+                 self.assertRaisesRegex(D.DeployError,"kube01 peers failed: encrypted peer.*kube02"):
+                D.rpc(state,"kube01","peers","root",aux=True)
+
+    def test_diagnostic_io_failure_does_not_skip_rollback_or_hide_error(self):
+        with tempfile.TemporaryDirectory() as root, \
+             patch.object(D,"rpc",side_effect=D.DeployError("triggering error")), \
+             patch.object(D,"save",side_effect=OSError("diagnostic disk full")), \
+             patch.object(D,"rollback_all") as cleanup, \
+             self.assertRaisesRegex(D.DeployError,"triggering error"):
+            D.deploy_cluster(Path(root),"root")
+        cleanup.assert_called_once()
+
+    def test_transient_mka_membership_waits_before_cutover(self):
+        with tempfile.TemporaryDirectory() as root:
+            calls=[]
+            def request(state,role,action,user,aux=False):
+                calls.append(role)
+                if len(calls)==2:raise D.DeployError("MKA receive SC not ready")
+            with patch.object(D,"rpc",side_effect=request),patch.object(D.time,"sleep"):
+                D.staging_peers(Path(root),"root")
+            self.assertEqual(len(calls),8)
+            record=D.load(Path(root)/"staging-peer-attempts.json")
+            self.assertTrue(record[0]["failures"])
+            self.assertFalse(record[-1]["failures"])
+
+    def test_cleanup_errors_do_not_replace_the_first_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root)
+            original={"argv":["ssh","node","peers"],"stderr":"original peer error","exit":1}
+            D.save(state/"last-command.json",original)
+            def cleanup(*args):
+                D.save(state/"last-command.json",{"stderr":"cleanup timeout","exit":255})
+                raise D.DeployError("cleanup controller failed")
+            with patch.object(D,"rpc",side_effect=D.DeployError("original failure")), \
+                 patch.object(D,"rollback_all",side_effect=cleanup), \
+                 self.assertRaisesRegex(D.DeployError,"original failure"):
+                D.deploy_cluster(state,"root")
+            self.assertEqual(D.load(state/"primary-error.json")["command"],original)
+            self.assertEqual(D.load(state/"primary-error.json")["error"],"original failure")
+            self.assertTrue((state/"rollback-controller-error.json").exists())
+
     def exercise(self, failure=None):
         with tempfile.TemporaryDirectory() as root:
             state=Path(root)
