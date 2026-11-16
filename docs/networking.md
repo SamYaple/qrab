@@ -29,8 +29,9 @@ node.
 
 ## Why a Pod per NIC
 
-- **The VM Pod's namespace stays private.** It holds the BMC (8080), Redfish
-  (8081) and the manager's control socket. A guest on the same network
+- **The VM Pod's namespace stays private.** It holds the BMC (mTLS 8443), Redfish
+  (mTLS 8444) and the manager's control socket. Their health-only HTTP
+  listeners bind literal loopback. A guest on the same network
   namespace could reach those listeners, and policies selecting the VM Pod would
   have to treat guest traffic and BMC traffic as one identity.
 - **Upstream Cilium gives one endpoint per Pod.** A second interface inside the

@@ -10,9 +10,9 @@ flowchart LR
     browser["Browser / native Redfish client"]
     envoy["Cilium Envoy<br/>qrab-ingress SVID"]
     agent["SPIRE agent SDS<br/>local CSI Unix socket"]
-    dashboard["Dashboard8445<br/>qrab-dashboard SVID"]
-    bmc["BMC8443<br/>VM-UID/bmc SVID"]
-    rf["Redfish8444<br/>VM-UID/redfish SVID"]
+    dashboard["Dashboard :8445<br/>qrab-dashboard SVID"]
+    bmc["BMC :8443<br/>VM-UID/bmc SVID"]
+    rf["Redfish :8444<br/>VM-UID/redfish SVID"]
     probe["Kubelet exec probe"]
     local["127.0.0.1 health only<br/>inside application namespace"]
     browser -->|"HTTPS: public certificate<br/>OIDC or native app credential"| envoy
@@ -66,6 +66,45 @@ controller nor Kubernetes Secret objects receive its workload private key;
 SPIRE sends it directly to the attested Envoy process. Public ACME certificates
 keep their separate existing Secret/SDS lifecycle.
 
+## Native agent and image admission prerequisites
+
+Use the runtime's **ContainerStatus.ImageID**, such as
+`quay.io/cilium/cilium-envoy@sha256:…`, for the image selector. The Pod spec's
+`tag@digest` string need not appear in the attested selectors. SPIRE derives
+image selectors from ContainerStatus.Image/ImageID; its
+[Kubernetes attestor reference](https://github.com/spiffe/spire/blob/main/doc/plugin_agent_workloadattestor_k8s.md#image-selector-limitations)
+explains why digest-based identifiers are reliable. Keep the namespace,
+ServiceAccount, container name, Unix UID and controller-added Pod UID constraints.
+
+The native agents on kube01/02/03 also calculate executable hashes. The pinned
+Envoy executable is 75,395,768 bytes, above this cluster's former 64 MiB limit.
+The inline Unix attestor configuration in `/etc/spire/agent.conf` now uses:
+
+```hcl
+WorkloadAttestor "unix" {
+    plugin_data {
+        discover_workload_path = true
+        workload_size_limit = 134217728
+    }
+}
+```
+
+The 128 MiB limit remains finite and executable hashing stays enabled. A binary
+over the limit causes the Unix attestor to fail the entire attestation, even
+when registration does not require a hash selector. See the
+[Unix attestor contract](https://github.com/spiffe/spire/blob/main/doc/plugin_agent_workloadattestor_unix.md).
+These native files are maintained on the nodes separately from Flux resources.
+
+Validate a candidate with `spire-agent validate -config CANDIDATE`, keep a
+root-only local backup, and restart one agent at a time. Check agent health,
+SDS issuance and application traffic before continuing. The current inline
+`plugin_data` requires restart; SPIRE's dynamic reload uses `SIGUSR1` with
+`plugin_data_file`, as described in its
+[configuration reference](https://spiffe.io/docs/latest/deploying/spire_agent/#reconfiguring-plugins-posix-only).
+`RuntimeDirectoryPreserve=yes` keeps the CSI-mounted public socket directory's
+inode stable across restart. That directory exposes only the public agent
+socket; administrative sockets belong outside it.
+
 ## Health and standalone local access
 
 Ordinary dashboard/BMC/Redfish HTTP binds literal loopback. In workload mode it
@@ -82,8 +121,8 @@ or VNC TCP listener is introduced.
 
 ## Public per-VM entrypoints
 
-Native `/redfish` routes to Redfish8444 directly. Other console paths route to
-BMC8443. The browser `/bmc/redfish` adapter remains a separate authenticated BMC
+Native `/redfish` routes to Redfish :8444 directly. Other console paths route to
+BMC :8443. The browser `/bmc/redfish` adapter remains a separate authenticated BMC
 route; it still reaches its same-VM Redfish over mTLS.
 
 The [POC helper](../contrib/kubernetes/redfish-poc/apply-console.sh) renders
@@ -94,7 +133,8 @@ reusing its old public infrastructure cannot silently authorize a new UID.
 
 ## Release order
 
-Enroll the Envoy SVID and CSI mount and stage the fixed bootstrap SDS cluster
+Verify the native attestor prerequisites, enroll the Envoy SVID and CSI mount,
+and stage the fixed bootstrap SDS cluster
 through kubernetes-gitops. Keep the bootstrap's existing Cilium clusters and
 settings intact. Then activate the tested Cilium operator translation image
 and the independently published qrab operator/dashboard/manager images with

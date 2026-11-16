@@ -99,22 +99,23 @@ Operator rendering mounts the CSI Workload API volume into the **manager**.
 BMC and Redfish sidecars now also mount that CSI Workload API, with their
 **own container-scoped registrations**, not the manager ID or private runtime.
 Their IDs append `/bmc` or `/redfish` to the per-VM ID. Dashboard accepts exactly
-the service ID derived from the controlled VM's namespace/UID; BMC accepts only
-the dashboard, while Redfish admits dashboard and this VM's BMC. OIDC still
+the service ID derived from the controlled VM's namespace/UID; BMC accepts the exact
+dashboard and ingress identities; Redfish admits those identities and this
+VM's BMC. OIDC still
 decides user roles after TLS. NIC anchors have no active SPIFFE packet relay
 to enroll. The old NIC-relay mTLS plan was superseded by kernel TAP/vhost.
 
 The [optional Redfish listener](../../projects/redfish/src/workload.rs) requires
 `REDFISH_WORKLOAD_LISTEN`, exact `REDFISH_WORKLOAD_PEERS`, its own socket mount
-and SPIRE registration, and separate routing/policy. It uses the same app router
-as port 8081: successful mTLS with an allowed workload still needs an application
+and SPIRE registration, and separate routing/policy. It uses the authenticated application router: successful mTLS with an allowed workload still needs an application
 credential and role. The shared listener bounds 32 connections/eight concurrent handshakes and
 retains permits through HTTP response, SSE and WebSocket IO lifetimes.
-The ordinary HTTP API and metrics sockets remain distinct. The updated operator
+Health, application and metrics listeners have distinct roles. The updated operator
 enables Redfish on 8444 and BMC on 8443, mounts each
 container's Workload API socket, and asserts `QRAB_EXPECTED_SPIFFE_ID` at startup.
 Its examples require separate GitOps enrollments before rollout. Ordinary
-ingress-facing HTTP remains a separate protection task. Metrics9181 admits exact
+Ingress uses its own image-bound SVID and exact-peer TLS on 8445/8443/8444;
+ordinary HTTP serves only loopback health in workload mode. Metrics9181 admits exact
 operator and qrab telemetry SVIDs, while the telemetry gateway admits exact current
 Redfish SVIDs from API discovery and checks owned-Pod history scope; see
 [observability identity and local trust boundaries](../observability.md).
@@ -130,18 +131,18 @@ sequenceDiagram
     participant R as VM Redfish mTLS 8444
     participant C as VM BMC mTLS 8443
     B->>E: HTTPS GET dashboard login
-    E->>D: Plain HTTP
+    E->>D: M2: TLS 1.3 mTLS, exact dashboard URI
     D-->>B: Redirect with state, nonce, S256 PKCE challenge
     B->>K: HTTPS user authentication / authorize
     K-->>B: Redirect to dashboard callback with code and state
     B->>E: HTTPS callback
-    E->>D: Plain HTTP callback
+    E->>D: M2: TLS 1.3 mTLS callback
     D->>K: HTTPS code + verifier + client_secret_basic
     K-->>D: ID token and OAuth token response
     D->>D: Verify signature, issuer, audience, nonce, expiry and token hash
     D-->>B: Opaque Secure HttpOnly SameSite=Lax session cookie
     B->>E: HTTPS VM action / SSE / WSS console
-    E->>D: Plain HTTP / WS, cookie lookup and VM role checks
+    E->>D: M2: mTLS HTTP / WS, cookie lookup and VM role checks
     D->>R: M6: SPIFFE mTLS HTTPS, user ID-token bearer
     R->>R: Verify trusted issuer/audience/expiry and VM subject/group role
     D->>C: M7: SPIFFE mTLS WSS, same user ID token
@@ -162,9 +163,9 @@ opaque session cookie and CSRF value. VM-scoped browser management under
 `/vms/{namespace}/{name}/bmc/redfish/...` goes dashboard → Redfish directly;
 the full BMC page's HTML/assets can be served by the dashboard without fetching
 the standalone BMC page. The graphical console still goes dashboard → BMC →
-manager control socket → private VNC. TLS terminates at ingress; subsequent
-M2 from the ingress to dashboard remains plain; M6/M7 use workload mTLS
-with exact per-VM service IDs.
+manager control socket → private VNC. Ingress terminates the public TLS
+session and creates a separate M2 mTLS connection with the exact dashboard
+service URI. M6/M7 independently use mTLS with exact per-VM service IDs.
 
 Standalone BMC browser management goes through `/bmc/redfish/*`. BMC validates
 the ambient session and exact Origin/CSRF for mutations, strips `/bmc` and

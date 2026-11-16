@@ -51,14 +51,14 @@ owned ones. Multiple rows may observe the same bytes at different boundaries.
 | Inventory IDs | Capture / evidence point | What is visible and what is not |
 | --- | --- | --- |
 | M1, M3, public part of M5 | Browser network tools; ingress-facing interface | HTTPS/WSS records and connection metadata in pcap. Browser/application boundary can show decrypted HTTP or WS frames; IdP credentials belong to the separate browser/IdP leg. |
-| M2, M4, backend of M5 | Ingress backend and destination Pod netns `eth0` | Plain HTTP/WS, including bearer/session/Basic credentials where supplied. Compare both sides if service NAT or a node proxy changes the tuple. |
+| M2, M4, backend of M5 | Ingress backend and destination Pod netns `eth0`, ports 8445/8443/8444 | TLS 1.3 mTLS records. Correlate Envoy SDS certificate metadata and exact backend URI with the VM UID. HTTP/WS, bearer/session and native Basic credentials require endpoint observation after decryption. Compare both sides when NAT changes the tuple. |
 | M6, M7 | Dashboard egress and selected VM Pod `eth0` | TLS 1.3 on Redfish8444/BMC8443. HTTP bearer/WS/RFB data require endpoint tracing after TLS decryption. Include new Pod IP after replacement/migration and correlate exact service URI from namespace/VM UID. |
 | M8 | VM Pod netns `lo`, port 8444 | Browser adapter's loopback mTLS records; HTTP/SSE and forwarded credential remain encrypted on this interface. Plain loopback HTTP8081 is only standalone compatibility, not the updated operator path. |
 | M9 | BMC/Redfish and manager Unix-socket read/write boundary | Versioned JSON and events; after console acknowledgement, raw RFB. IP pcap sees nothing. Existing lifecycle logs are not a full socket transcript. |
 | M10 | Manager's QMP Unix read/write and sendmsg/recvmsg boundary | Greeting, commands, replies and events; SCM_RIGHTS ancillary metadata for NIC FDs. This requires local process/Unix tracing, not another QMP connection. |
 | M11 | Manager/QEMU VNC Unix boundary; corresponding WS frames | RFB frames/input/audio. No additional VNC encryption locally. WS message boundaries can split/coalesce RFB messages. |
 | M12 | Manager QGA Unix boundary or guest virtio-serial daemon boundary | JSON, `0xFF` synchronization and replies. Guest agent has a fixed allowlist. A guest NIC pcap cannot see QGA. |
-| M13 | Workload/client interface, BMC8443/Redfish8444 and app boundary | TLS 1.3 records, not plaintext Redfish. Decrypted access requires endpoint-side evidence/session traffic secrets if deliberately supported; ordinary backend8081/8080 are different connections; ingress and observability use their separately configured transports. |
+| M13 | Workload/client interface, BMC8443/Redfish8444 and app boundary | TLS 1.3 records, not plaintext Redfish. Decrypted access requires endpoint-side evidence/session traffic secrets if deliberately supported; ordinary 8081/8080 listeners are health-only loopback in workload mode; ingress and observability have their own peer allowlists. |
 | N1 | netd and manager Unix sendmsg/recvmsg | Queue/grant/probe/handoff control and ancillary FD numbers/types. It does **not** contain guest Ethernet packets. |
 | N2, N3, N4 | Anchor netns TAP and `eth0`; DHCP/DNS/gateway filters | Guest packets on TAP and routed traffic on `eth0`. ARP and DHCP stay near TAP; application TLS remains ciphertext. Capture all NIC anchors, not just the VM Pod. |
 | N5 | VPN anchor TAP, `wg0` and `eth0`; provider if controlled | TAP/`wg0` show inner packets; `eth0` shows WireGuard UDP. Inner application TLS is still encrypted. Provider control API captures do not decrypt WireGuard packet traffic. |
@@ -85,7 +85,7 @@ owned ones. Multiple rows may observe the same bytes at different boundaries.
 | P15 | Adapter interface → API443 | HTTPS list responses, correlated by current VM UID/owner references, Pod IP and refresh age. Capture files do not themselves expose API JSON. |
 | P9 | Redfish/BMC/dashboard HTTP and browser SSE boundary | Text event records and cursors at each plaintext/decrypted hop; public TLS pcap stays encrypted. Record gaps and epoch changes, not just events received. |
 | P10 | Redfish egress to exact event receiver; receiver application | HTTPS records on wire, redacted Event JSON at endpoints. Creator token is not delivered to receiver. Events can replay after a crash; deduplicate by event ID. |
-| P11 | Kubelet-to-Pod HTTP; exec probe records/status files for manager | Unauthenticated health HTTP or local probe execution. Probes are not real guest application checks. |
+| P11 | Kubelet exec results; container loopback health; manager status files | Fixed local HTTP reads and process/file checks. No remote plaintext health connection is needed. Probe success remains separate from guest application correctness. |
 | P12 | Kubelet/plugin Unix gRPC and CDI file | Local registration/health/allocation and CDI device/mount edits; QEMU KVM ioctl/mmap execution requires kernel/process evidence, not IP pcap. No TCP listener to sniff. |
 | P13 | Container serial/stdout/stderr, retained serial tail, log collector | Text/local pipes, then externally configured log shipping. Container log rotation/backpressure and the manager's bounded tail mean logs are not an unlimited recording. |
 | P14 | Relevant Pod/anchor resolver leg, UDP/TCP 53 | DNS plaintext at that boundary; for VPN DNS observe inside anchor WG. Capture resolution as well as final HTTPS endpoints. |
@@ -234,5 +234,6 @@ For the [ingress implementation](../ingress.md), capture8445/8443/8444 as
 backend TLS, the Envoy SDS Unix stream as credential delivery (I10), and the
 local exec/loopback health boundary separately. Inspect only public certificate
 metadata and cluster URI/SDS references; never export workload private keys from
-SDS or a complete unredacted secret dump. The source implementation has a
-separate rollout record; the original plain ingress captures remain historical.
+SDS or a complete unredacted secret dump. The [live rollout record](platform-evidence.md#ingress-backend-mtls-and-https-build-rollout-2026-11-16)
+supersedes the initial snapshot's plaintext backend status. No packet recording
+was taken during that snapshot or the rollout tests.

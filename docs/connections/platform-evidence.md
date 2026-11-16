@@ -329,3 +329,137 @@ Retain semantics preserve storage data. No fresh human OIDC login or privileged
 live console session was attempted. Ingress backend HTTP, native iSCSI and node
 link protection remain separate work; this rollout does not establish their
 confidentiality.
+
+## Ingress backend mTLS and HTTPS build rollout: 2026-11-16
+
+The deployed release adds M2/M4/M5 backend mTLS, local exec health probes
+(P11), and native SPIRE SDS delivery to Envoy (I10). The
+[ingress guide and diagram](../ingress.md) describe the final configuration;
+this record separates publication, platform enrollment and live acceptance.
+Guest application protocols and ordinary LAN/internet connectivity retain the
+[user-selected policy](../networking.md#guest-protocol-and-link-protection-policy).
+
+| Artifact | Build source | Published and verified digest |
+| --- | --- | --- |
+| qrab operator and telemetry | `bc7e422` | `sha256:c75cf38dd6690440e71c1175e5aa6ee872a904273355ebcd21b9de2d3c92d0ad` |
+| Dashboard | `bc7e422` | `sha256:3e05ed075b7785bf723177b5e3710baf42a44a116895ae483393ddd71dcd620c` |
+| Manager/BMC/Redfish | `bc7e422` | `sha256:e165cfc654ce85fdfeeab57b500471d6a2dc2abc2e55942be1eac175e865f220` |
+| QEMU runtime/build | `f97a3de` | `sha256:1187d49e124d53a1c82e8b51c7cdf11c116ccd4fbf821b46f51b1e822eb3e312` |
+| Cilium operator | `dc87287dfb` | `sha256:b44bd24f9ad290f90edb7ba8c7c99ce479934056c0ce8e056aba7261b3f10e1e` |
+
+Image revision labels were checked after publication and immutable pull. The
+Cilium operator's executable also reported the expected fork revision. Its
+agent stayed on `sha256:f102ff20…`; netd/KVM stayed on `sha256:88818c3f…`.
+The QEMU source baseline remained `005c61c`, fetched from the local mirror.
+Release pins are recorded in `images.lock.json` at `664e6b2`.
+
+All four image recipes now fetch Debian packages over verified HTTPS (A3).
+They bootstrap public CA certificates from the immutable Rust builder, set
+APT's CA path explicitly, retain package signatures, reject plaintext sources
+and disable redirects. `apt-get update --error-on=any` refuses partial-fetch
+failure. The minimal Debian HTTPS check succeeded, then the QEMU and all three
+Rust artifacts were built and published. The deployed guest boot and migration
+used this QEMU runtime, including its `qemu-img` tools. No QEMU baseline advance
+was needed.
+
+Platform changes passed the protected GitOps CI/review process:
+
+| PR | Merge | Effect |
+| --- | --- | --- |
+| [474](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/474) | `6c5c09b` | Image-bound ingress SVID, CSI mount, fixed SDS bootstrap and optional Flux overlay |
+| [477](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/477) | `8d72b31` | Preload the published Cilium operator through the node alias |
+| [478](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/478) | `f15b09c` | Activate the operator translator and exact qrab image identities; pair telemetry image/identity |
+| [479](https://gitea.yapplesauce.com/sam/kubernetes-gitops/pulls/479) | `afc3d76` | Correct Envoy's selector to its attested digest-only ImageID |
+
+The preload reached 3/3 Ready, and read-only node inspection verified the exact
+image and node-wide kubelet pull records on kube01/02/03. Temporary one-image
+preload Pods held the new image while an older all-image Pod took several
+minutes to terminate; those temporary Pods were removed after the DaemonSet
+completed. Flux's initially stale reader credential was renewed through its
+normal attested exchange path and the original renewer Deployment restarted;
+no credential was exported. The diagnostic Pod used for that repair was removed.
+
+Live acceptance exposed two independent admission prerequisites. SPIRE's image
+selector uses ContainerStatus.Image/ImageID, so the spec's `tag@digest` string
+was replaced with the exact runtime ImageID. The native Unix attestor also
+refused Envoy's 75,395,768-byte executable under the local 64 MiB cap. Each
+agent's inline configuration was validated, backed up root-only on that node,
+and changed to a finite 128 MiB limit with executable hashing enabled. Agents
+were restarted sequentially. Their preserved public socket directory kept its
+inode, agent health recovered, and existing CSI clients continued to work.
+See the [native prerequisites](../ingress.md#native-agent-and-image-admission-prerequisites).
+
+The installed Envoy lacks the specialized SPIFFE certificate validator. Native
+SDS therefore supplies standard X509 validation against only the local SPIRE
+bundle, combined with mandatory exact URI SAN checks and TLS 1.3. Active Cilium
+cluster resources contained the expected peer, fixed SDS cluster and ingress
+client identity. No plaintext fallback was introduced.
+
+The scoped operator/storage-client and dashboard bundles were applied with
+matching images and exec probes. A fresh VM, `secure-ingress-20261116`, UID
+`5b456b25-ddb6-4aa1-9c65-a5375b371bc3`, booted on kube03 and migrated to kube02
+in 27 seconds. Its per-VM public test Service selected that immutable UID;
+`/redfish` routed directly to Redfish. Other test Services exercised wrong and
+missing backend pins without changing the production dashboard Service.
+
+Requests were directed to each node's HTTPS NodePort with certificate/SNI
+verification. The node's own Envoy request counter increased for the test VM;
+this verified the chosen ingress process, not just load-balancer availability.
+Before and after migration, and again after certificate rotation, all three
+nodes returned:
+
+| Request | Result |
+| --- | --- |
+| Public dashboard | HTTPS 200 |
+| BMC `/api/session`, no user credential | 401 after workload TLS admission |
+| Native `/redfish/v1/Systems/1`, no user credential | Redfish 401, `Base.1.18.NoValidSession` |
+| Valid backend with a wrong expected URI | 503; backend TLS refused |
+| Host from an Ingress missing its required identity pin | 404; no backend route |
+
+Local Envoy counters recorded TLS 1.3 handshakes to BMC and Redfish. The missing
+pin test used a valid configured SNI with the missing route's HTTP Host, so its
+404 was a routing result rather than a frontend certificate failure. A public
+WebSocket upgrade without a user credential returned 401.
+
+Additional tests passed against the actual containers before/after migration:
+
+- Dashboard's fixed-path probes admitted the exact BMC/Redfish identities and
+  returned application 401. A wrong VM UID failed TLS before HTTP.
+- Dashboard, BMC and Redfish rejected missing client certificates with
+  `certificate_required`; self-signed clients claiming the exact ingress URI
+  also failed TLS. Plain HTTP sent to each TLS port received a seven-byte TLS
+  alert and no HTTP response.
+- Ordinary dashboard/BMC/Redfish and operator Pod-address health ports refused
+  connections. Local `/healthz` returned 200 and application `/` returned 404.
+  Dashboard/BMC/Redfish also rejected query-bearing health requests; the
+  operator's local health route accepts query strings.
+- Production scrapes remained `up=1`, operator power remained `On`, and Redfish
+  obtained a 200 scoped history matrix with three container series. The guest
+  agent remained connected after migration, reporting QEMU guest agent 11.1.3.
+- Prometheus retained its original 20 Gi claim, UID
+  `d3f38601-aacb-46f9-85d7-74b19f041781`. Its telemetry container recovered from
+  one initial API-inventory deadline failure; the Pod became 4/4 Ready.
+
+Public certificate metadata demonstrated native SDS rotation in all three
+unchanged Envoy processes, each with zero restarts:
+
+| Node | First observed SVID notBefore | Rotated SVID notBefore |
+| --- | --- | --- |
+| kube01 | 02:22:17 UTC | 02:26:47 UTC |
+| kube02 | 02:22:46 UTC | 02:27:40 UTC |
+| kube03 | 02:22:49 UTC | 02:27:26 UTC |
+
+Serials changed and every certificate retained the exact ingress URI. Public
+checks passed after rotation. Only public certificate metadata and counters
+were read; SPIFFE private keys and bearer tokens stayed inside their workload boundary.
+The full Rust runtime gate and Cilium model tests passed for the published
+source. Fixture tests cover successful authorized WSS and HTTP bridge behavior;
+a fresh human OIDC login and privileged interactive console were not attempted
+in this live run. These observations are functional/transport evidence, not a
+packet recording.
+
+The temporary VM, migration, entrypoints, negative-test Services/Ingresses,
+certificate and claims were removed; storage Retain semantics preserve their
+data. The inactive canonical POC was not recreated. Node-link encryption and
+native iSCSI remain separate tracked work; this ingress release establishes
+no confidentiality for those paths.
