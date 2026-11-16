@@ -70,8 +70,8 @@
     "version": "1.20.2"
   },
   "image_importer": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:d4f0631a762b620e749c4eb66448431b57481f1195e78c2138be99ebefc63795",
-    "source_revision": "c60fa8dfa2307ae354c8c46054d2cd973744a9ee",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:37c8fcad7a5f4dd7524ca7fdb197183e59f29dc0bfafe981a7fc30dc0ace6ac6",
+    "source_revision": "1b663bea0585b934714c0cb3e5f5ceac4b0d42b0",
     "qemu": "zot.yapplesauce.com/qrab/qemu@sha256:23d0574f7ca8660ff0907795a38bb5818948be4413a3c894d96c387b335b8c4b"
   }
 }
