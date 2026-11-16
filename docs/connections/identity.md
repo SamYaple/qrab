@@ -255,7 +255,9 @@ no API token.
 
 ## Guest SPIRE and image-pull identities
 
-The built-in guest agent is a QGA daemon, **not a SPIRE agent**. The VM's swtpm
+The built-in guest agent is a QGA daemon, **not a SPIRE agent**. The decided guest
+identity design (in-guest SPIRE agent on the vTPM, IDs under `qrab/guest/`) is in
+[VM identity foundation](../spire-vm.md#guest-workload-identity-design-2026-11-15). The VM's swtpm
 and UEFI foundation can support guest TPM enrollment, but qrab does not install
 an in-guest SPIRE agent, issue its DevID/EK certificates or register guest
 workloads. Even a manager holding a valid SVID therefore does not prove guest

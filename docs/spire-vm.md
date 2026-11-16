@@ -86,3 +86,119 @@ Operational history is in towl `towl/work/deploy-spire-three-kubernetes-vms` and
 `towl/work/complete-spire-ha-and-zot-delegation-rollout`. Kubernetes GitOps keeps
 the native-node TPM parent mappings explicit. The node/shim's pod-bound image
 pull authorization authenticates the host and pod; it does not attest the guest.
+
+## Guest workload identity (design, 2026-11-15)
+
+Status: decided, not yet built. The towl container is
+`qrab/container/vm-guest-spiffe-identity`; its implementation tasks are blocked
+on `work/guest-identity-mechanism-design`.
+
+### What a guest identity proves
+
+A guest SVID proves two things:
+- **Pod-vouched.** The SPIRE-attested VM manager Pod, holding
+  `spiffe://yapplesauce.com/kubernetes/qrab/vm/<vm-uid>`, vouched for the
+  swtpm it runs.
+- **TPM-bound.** The guest agent's key cannot leave that vTPM.
+
+It does **not** prove measured boot, guest integrity, or isolation from node
+or hypervisor administrators. The issuer checks no PCR values, and SPIRE's
+`tpm_devid` attestor does not either. The guest identity is a different
+SPIFFE ID from the Pod's, so the Pod boundary (migration, storage) and the
+guest boundary (what code in the VM may do) stay separate.
+
+### SPIFFE IDs
+
+| Subject | ID | Issued to |
+| --- | --- | --- |
+| Guest SPIRE agent | `spiffe://yapplesauce.com/spire/agent/tpm_devid/<SHA1 of the DevID cert>` | in-guest `spire-agent`, by `tpm_devid` attestation |
+| Guest node alias | `spiffe://yapplesauce.com/qrab/guest-node/<vm-uid>` | every agent whose DevID subject CN is `qrab-vm-<vm-uid>` from the qrab DevID CA |
+| Guest workload | `spiffe://yapplesauce.com/qrab/guest/<vm-uid>/<name>` | guest processes matching the entry's `unix:`/`systemd:` selectors, under the alias |
+
+### Mechanism: an in-guest SPIRE agent with `tpm_devid` on the vTPM
+
+1. **Issuer.** `qrab-tpm-issuer` is a Rust Deployment in its own namespace.
+   - It holds two CAs, the qrab endorsement CA and the qrab DevID CA. Their
+     keys live in a Kubernetes Secret that only the issuer's ServiceAccount
+     may read. They never go into VM images, VirtualMachine CRs or the manager.
+   - It listens only for SPIFFE mTLS. It admits peers whose ID is exactly
+     `spiffe://yapplesauce.com/kubernetes/qrab/vm/<uuid>` and signs only for
+     that uuid, taken from the peer certificate, never from the request body.
+   - A CiliumNetworkPolicy admits only `component=vm` Pods.
+2. **Provisioning before first boot.** The manager owns swtpm and works on
+   its control socket before QEMU attaches. Only on a TPM with no existing
+   identity, it:
+   - creates the EK;
+   - asks the issuer for an EK certificate and writes it to NV index
+     `0x01c00002`;
+   - creates the LDevID signing key under the SPIRE `tpm_devid` SRK template
+     (RSA 2048, fixedTPM/fixedParent);
+   - asks the issuer for a DevID certificate with CN `qrab-vm-<vm-uid>`.
+
+   It stores the key's raw `TPMT_PUBLIC`/`TPMT_PRIVATE` blobs and both
+   certificates in the VM's retained state volume. They reach the guest on a
+   read-only `qrab-identity` virtio-blk disk. The private blob is useless off
+   this vTPM.
+
+   The trust root here is the manager's attested SVID. A credential-activation
+   handshake inside the guest would add nothing, because the manager already
+   controls the swtpm the guest would use.
+3. **SPIRE server.** The native servers on kube01–03 trust the qrab
+   endorsement and DevID CA certificates. They are appended to
+   `endorsement_ca_path` and `devid_ca_path`, separate from the node CAs, so
+   the issuer CN distinguishes guests from nodes. This is an attended native
+   change.
+4. **Transport, without a guest network.**
+   - The manager adds a second virtio-serial port,
+     `org.yapplesauce.spire.0`.
+   - It splices that port to a TCP connection to the SPIRE server VIP
+     `10.203.0.10:8081`; the VM Pod's network policy gains that egress only.
+   - In the guest, `qrab-spire-relay`, a separate binary rather than part of
+     the allowlist-only guest agent, listens on `127.0.0.1:8081` and pipes to
+     the port.
+   - The agent→server channel is SPIRE's own mTLS end to end, so the manager
+     only moves bytes. The guest's bootstrap bundle comes from the identity
+     disk.
+5. **Registration.**
+   - The qrab operator writes `ClusterStaticEntry` objects for a VM whose spec
+     asks for guest identity: one node alias entry
+     (`parentID spiffe://yapplesauce.com/spire/server`, selectors
+     `tpm_devid:subject:cn:qrab-vm-<vm-uid>` and
+     `tpm_devid:issuer:cn:<qrab DevID CA CN>`), plus one entry per requested
+     workload under that alias.
+   - spire-controller-manager reconciles them; GitOps sets
+     `reconcile.clusterStaticEntries: true`.
+   - The operator gains create/update/delete on ClusterStaticEntries.
+   - A ValidatingAdmissionPolicy bounds that power to the operator's own
+     prefixes: spiffeID under `/qrab/guest/<uid>/` or `/qrab/guest-node/<uid>`,
+     the parent either the server or that VM's alias, `admin` and `downstream`
+     false, and `<uid>` an existing VirtualMachine.
+   - The entries stay visible to the IDM dashboard through the Kubernetes API.
+6. **Live migration.** TPM state, the identity disk and the guest's agent data
+   ride the migration. The agent ID and alias are unchanged. The relay's TCP
+   connection is re-opened by the target manager, and the agent reconnects as
+   on any server failover. No re-enrollment and no entry change.
+7. **Deletion.** The operator removes the VM's ClusterStaticEntries. The guest
+   agent's SVIDs lapse at their TTL, and the agent is evicted from SPIRE.
+
+### Rejected alternatives
+
+- **SPIRE Delegated Identity API from a node-level helper.** The agent returns
+  an SVID for any selectors the delegate presents. The helper could therefore
+  mint every identity on its node, and the guest would be attested only by
+  the host's word.
+- **Join tokens.** These are bearer secrets minted through the server admin
+  API. They need re-minting on agent state loss and bind nothing to the vTPM.
+- **Guest NIC egress to the SPIRE VIP.** It exposes the server to guest
+  networking and fails for NIC-less VMs. It remains a possible later option.
+- **Reusing the node DevID CA.** Guest and node identities would share one
+  root and could not be told apart by issuer.
+- **PCR-gated issuance.** Deferred: it needs a per-image measured-boot policy.
+
+### Boundaries the IDM dashboard shows
+
+The two columns of a VM's page show:
+- **Pod:** the `vm/<uid>` SVID, its peer==self migration tunnel, temporary
+  `qrab-migration-*` policies and storage authority.
+- **Guest:** the agent ID (L0), alias and workload entries (L1), and what the
+  guest workloads may call (L2–L4), with this section's trust statement.
