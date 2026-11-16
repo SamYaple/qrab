@@ -17,6 +17,7 @@ use tower::ServiceExt;
 const ORIGIN: &str = "https://vms.example";
 const LAUNCHERS: &str = "55555555-5555-4555-8555-555555555555";
 const VM_USERS: &str = "66666666-6666-4666-8666-666666666666";
+const IMAGE_ADMINS: &str = "77777777-7777-4777-8777-777777777777";
 const KANIDM_TOKEN: &str = "service-account-token";
 
 #[derive(Default)]
@@ -39,6 +40,10 @@ struct FakeCluster {
     vpn_catalog: Mutex<Option<Vec<u8>>>,
     /// VPN profile writes: ("create" | "patch" | "delete", name, body).
     vpn_writes: Mutex<Vec<(String, String, serde_json::Value)>>,
+    base_images: Mutex<Vec<qrab_operator::image::BaseImage>>,
+    fail_base_images: std::sync::atomic::AtomicBool,
+    /// BaseImage writes: ("create" | "patch", name, body).
+    image_writes: Mutex<Vec<(String, String, serde_json::Value)>>,
 }
 
 impl FakeCluster {
@@ -48,6 +53,7 @@ impl FakeCluster {
             + self.running.lock().unwrap().len()
             + self.pvcs.lock().unwrap().len()
             + self.vpn_writes.lock().unwrap().len()
+            + self.image_writes.lock().unwrap().len()
     }
 }
 
@@ -156,6 +162,40 @@ impl cluster::Cluster for FakeCluster {
             "delete".into(),
             name.into(),
             serde_json::json!({"uid": uid}),
+        ));
+        Ok(())
+    }
+    async fn list_base_images(&self) -> anyhow::Result<Vec<qrab_operator::image::BaseImage>> {
+        if self
+            .fail_base_images
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("baseimages.qrab.yapplesauce.com is forbidden");
+        }
+        Ok(self.base_images.lock().unwrap().clone())
+    }
+    async fn create_base_image(
+        &self,
+        image: &qrab_operator::image::BaseImage,
+    ) -> anyhow::Result<()> {
+        self.image_writes.lock().unwrap().push((
+            "create".into(),
+            image.metadata.name.clone().unwrap_or_default(),
+            serde_json::to_value(image).unwrap(),
+        ));
+        self.base_images.lock().unwrap().push(image.clone());
+        Ok(())
+    }
+    async fn patch_base_image_retired(
+        &self,
+        name: &str,
+        uid: &str,
+        retired: bool,
+    ) -> anyhow::Result<()> {
+        self.image_writes.lock().unwrap().push((
+            "patch".into(),
+            name.into(),
+            cluster::retire_patch(uid, retired),
         ));
         Ok(())
     }
@@ -521,6 +561,7 @@ async fn harness() -> Harness {
         namespace: "qrab".into(),
         launcher_group: LAUNCHERS.into(),
         vm_users_group: VM_USERS.into(),
+        image_admin_group: IMAGE_ADMINS.into(),
         storage_node: Some("kube03".into()),
         cluster: cluster.clone(),
         kanidm: kanidm::Kanidm::new(&kanidm_url, KANIDM_TOKEN.into(), None, true).unwrap(),
@@ -761,6 +802,8 @@ async fn every_post_requires_session_csrf_and_exact_origin() {
         ("/launch", "name=web&cpus=1&memory_mib=512".to_string()),
         ("/vms/qrab/a/action", "action=Pause".to_string()),
         ("/vms/qrab/a/delete", "confirm_name=a".to_string()),
+        ("/images", "image=x&generation=1".to_string()),
+        ("/images/cirros-g1/retire", "confirm=yes".to_string()),
     ];
     for (path, fields) in &routes {
         for (cookie, csrf, origin, expected) in [
@@ -1039,43 +1082,396 @@ fn catalog_with_cirros(h: &Harness) {
         Some(serde_json::json!([crate::images::tests::cirros_json(), broken]).to_string());
 }
 
+fn base_images(h: &Harness, images: Vec<qrab_operator::image::BaseImage>) {
+    *h.cluster.base_images.lock().unwrap() = images;
+}
+
+use crate::images::tests::resource as base_image;
+
 #[tokio::test]
-async fn the_images_page_lists_the_catalog_for_any_signed_in_user() {
+async fn the_images_page_lists_every_generation_for_any_signed_in_user() {
     let h = harness().await;
     assert_eq!(
         send(&h, get("/images", None)).await.0,
         StatusCode::UNAUTHORIZED
     );
-    let viewer = session(&h.state.sessions, BOB, &[]).await;
+    let viewer = session(&h.state.sessions, BOB, &[LAUNCHERS]).await;
     let (status, _, body) = send(&h, get("/images", Some(&viewer))).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("No base images are staged yet."));
     assert!(body.contains("href=\"/images\""));
     catalog_with_cirros(&h);
+    let mut writing = base_image("cirros", 2, "Writing", false);
+    writing.status.as_mut().unwrap().message = "converting <qcow2>".into();
+    writing.status.as_mut().unwrap().sha256 = None;
+    let mut adopted = base_image("alpine", 1, "Sealed", false);
+    adopted.status.as_mut().unwrap().adopted = true;
+    base_images(
+        &h,
+        vec![writing, base_image("cirros", 3, "Sealed", true), adopted],
+    );
     let (status, _, body) = send(&h, get("/images", Some(&viewer))).await;
     assert_eq!(status, StatusCode::OK);
     for text in [
-        "CirrOS 0.6.3",
         "<code>cirros</code>",
+        "<code>alpine</code>",
+        "CirrOS 0.6.2",
+        "Writing",
+        "converting &#60;qcow2&#62;",
         "112 MiB",
-        "<code>0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef</code>",
-        "https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
-        "data-label=\"Raw SHA-256\"",
+        "title=\"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\"",
+        "fedcba987654…",
+        ">download.cirros-cloud.net</a>",
+        "Retired",
+        "Launchable",
+        "Listed by ConfigMap qrab-base-images only",
         "A separate disk for each VM",
         "Image verification and staging",
-        "contrib/images/stage-base-image.sh",
-        "1 staged",
+        "4 generations",
     ] {
         assert!(body.contains(text), "{text}");
     }
     assert!(!body.contains("broken"));
+    // Grouped by name, newest generation first.
+    let at = |text: &str| body.find(text).unwrap();
+    assert!(at("<code>alpine</code>") < at("<code>cirros</code>"));
+    assert!(at("<code>cirros-g3</code>") < at("<code>cirros-g2</code>"));
+    assert!(at("<code>cirros-g2</code>") < at("Listed by ConfigMap"));
+    // Not an image admin: no forms, no refresh or adopt links.
+    for absent in [
+        "action=\"/images\"",
+        "/retire",
+        "?refresh=",
+        "?adopt=",
+        "Stage an image",
+    ] {
+        assert!(!body.contains(absent), "{absent}");
+    }
     // A catalog the dashboard cannot read is an upstream failure, not an empty list.
+    h.cluster
+        .fail_base_images
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        send(&h, get("/images", Some(&viewer))).await.0,
+        StatusCode::BAD_GATEWAY
+    );
+    h.cluster
+        .fail_base_images
+        .store(false, std::sync::atomic::Ordering::SeqCst);
     h.cluster
         .fail_catalog
         .store(true, std::sync::atomic::Ordering::SeqCst);
     assert_eq!(
         send(&h, get("/images", Some(&viewer))).await.0,
         StatusCode::BAD_GATEWAY
+    );
+}
+
+const STAGE: &str = "csrf=correct&image=debian&generation=1&title=Debian+13&os=debian&version=13&url=https%3A%2F%2Fcloud.debian.org%2Fimages%2Fcloud%2Ftrixie%2Flatest%2Fdebian-13-generic-amd64.qcow2&sha256=ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789&format=qcow2";
+
+#[tokio::test]
+async fn image_forms_are_for_image_admins_and_404_for_everyone_else() {
+    let h = harness().await;
+    base_images(&h, vec![base_image("cirros", 1, "Sealed", false)]);
+    for groups in [&[][..], &[LAUNCHERS, ADMINS][..]] {
+        let cookie = session(&h.state.sessions, BOB, groups).await;
+        for (path, body) in [
+            ("/images", STAGE.to_string()),
+            (
+                "/images/cirros-g1/retire",
+                "csrf=correct&confirm=yes".into(),
+            ),
+        ] {
+            let (status, _, _) = send(&h, post(path, Some(&cookie), Some(ORIGIN), &body)).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{path} {groups:?}");
+        }
+        let (_, _, page) = send(&h, get("/images?refresh=cirros", Some(&cookie))).await;
+        assert!(!page.contains("name=\"generation\""));
+    }
+    assert_eq!(h.cluster.mutations(), 0);
+    // An admin still needs CSRF and the exact Origin.
+    let admin = session(&h.state.sessions, ALICE, &[IMAGE_ADMINS]).await;
+    let (status, _, _) = send(
+        &h,
+        post("/images", Some(&admin), Some("https://evil.example"), STAGE),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = send(
+        &h,
+        post(
+            "/images",
+            Some(&admin),
+            Some(ORIGIN),
+            &STAGE.replace("csrf=correct", "csrf=wrong"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(h.cluster.mutations(), 0);
+    let (_, _, page) = send(&h, get("/images", Some(&admin))).await;
+    for text in [
+        "action=\"/images\"",
+        "action=\"/images/cirros-g1/retire\"",
+        "href=\"/images?refresh=cirros#stage\"",
+        "Refresh (generation 2)",
+        "Stage an image",
+        "name=\"csrf\" value=\"correct\"",
+    ] {
+        assert!(page.contains(text), "{text}");
+    }
+}
+
+#[tokio::test]
+async fn an_image_admin_stages_the_exact_base_image() {
+    let h = harness().await;
+    let admin = session(&h.state.sessions, ALICE, &[IMAGE_ADMINS]).await;
+    let (status, headers, _) = send(&h, post("/images", Some(&admin), Some(ORIGIN), STAGE)).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "/images");
+    let writes = h.cluster.image_writes.lock().unwrap().clone();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(
+        (writes[0].0.as_str(), writes[0].1.as_str()),
+        ("create", "debian-g1")
+    );
+    assert_eq!(
+        writes[0].2,
+        serde_json::json!({
+            "apiVersion": "qrab.yapplesauce.com/v1alpha1",
+            "kind": "BaseImage",
+            "metadata": {
+                "name": "debian-g1",
+                "namespace": "qrab",
+                "annotations": {"qrab.yapplesauce.com/creator-subject": ALICE},
+                "labels": {"app.kubernetes.io/managed-by": "qrab-dashboard"},
+            },
+            "spec": {
+                "image": "debian", "generation": 1, "title": "Debian 13", "os": "debian",
+                "version": "13", "retired": false,
+                "source": {
+                    "url": "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2",
+                    "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+                    "format": "qcow2",
+                },
+            },
+        })
+    );
+    let (_, _, page) = send(&h, get("/images", Some(&admin))).await;
+    assert!(page.contains("Staging Debian 13 as debian-g1."));
+    assert!(page.contains("Pending"));
+    // A generation is never staged twice.
+    let (status, _, page) = send(&h, post("/images", Some(&admin), Some(ORIGIN), STAGE)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(page.contains("debian g1 already exists"), "{page}");
+    assert!(page.contains("such as 2"));
+    assert_eq!(h.cluster.image_writes.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn invalid_stage_fields_rerender_the_form_and_create_nothing() {
+    let h = harness().await;
+    let admin = session(&h.state.sessions, ALICE, &[IMAGE_ADMINS]).await;
+    let body = STAGE
+        .replace("image=debian", "image=Debian_13")
+        .replace("generation=1", "generation=0")
+        .replace("url=https%3A", "url=http%3A")
+        .replace("sha256=ABCDEF", "sha256=XYZ")
+        .replace("format=qcow2", "format=vmdk");
+    let (status, _, page) = send(&h, post("/images", Some(&admin), Some(ORIGIN), &body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for text in [
+        "Check the form",
+        "Nothing was staged.",
+        "href=\"#stage-image\"",
+        "href=\"#stage-generation\"",
+        "href=\"#stage-url\"",
+        "href=\"#stage-sha256\"",
+        "href=\"#stage-format\"",
+        "id=\"error-url\"",
+        "aria-invalid=\"true\"",
+        // The rejected values come back, the CSRF token only as the form's own.
+        "value=\"Debian_13\"",
+        "value=\"Debian 13\"",
+    ] {
+        assert!(page.contains(text), "{text}");
+    }
+    assert!(!page.contains("href=\"#stage-title\""));
+    assert!(page.contains("<title>Check image form"));
+    assert_eq!(h.cluster.mutations(), 0);
+}
+
+#[tokio::test]
+async fn refresh_and_adopt_prefill_the_stage_form() {
+    let h = harness().await;
+    catalog_with_cirros(&h);
+    base_images(&h, vec![base_image("cirros", 2, "Sealed", false)]);
+    let admin = session(&h.state.sessions, ALICE, &[IMAGE_ADMINS]).await;
+    let (_, _, page) = send(&h, get("/images?refresh=cirros", Some(&admin))).await;
+    assert!(page.contains("Refresh cirros"));
+    let form = &page[page.find("id=\"stage\"").unwrap()..];
+    for text in [
+        "name=\"image\" value=\"cirros\"",
+        "name=\"generation\" value=\"3\"",
+        "name=\"title\" value=\"CirrOS 0.6.2\"",
+        "name=\"url\" value=\"\"",
+        "name=\"sha256\" value=\"\"",
+    ] {
+        assert!(form.contains(text), "{text}: {form}");
+    }
+    // The ConfigMap-only g1 can be adopted as it is.
+    assert!(page.contains("href=\"/images?adopt=cirros:1#stage\""));
+    let (_, _, page) = send(&h, get("/images?adopt=cirros:1", Some(&admin))).await;
+    let form = &page[page.find("id=\"stage\"").unwrap()..];
+    assert!(form.contains("Adopt cirros g1"));
+    assert!(form.contains("name=\"generation\" value=\"1\""));
+    assert!(form.contains(&format!(
+        "name=\"sha256\" value=\"{}\"",
+        crate::images::tests::cirros().upstream_sha256
+    )));
+    assert_eq!(h.cluster.mutations(), 0);
+}
+
+#[tokio::test]
+async fn retiring_is_confirmed_and_patches_by_uid() {
+    let h = harness().await;
+    base_images(
+        &h,
+        vec![
+            base_image("cirros", 1, "Sealed", false),
+            base_image("cirros", 2, "Sealed", true),
+        ],
+    );
+    let admin = session(&h.state.sessions, ALICE, &[IMAGE_ADMINS]).await;
+    let (_, _, page) = send(&h, get("/images", Some(&admin))).await;
+    assert!(page.contains("action=\"/images/cirros-g1/retire\""));
+    assert!(
+        !page.contains("action=\"/images/cirros-g2/retire\""),
+        "already retired"
+    );
+    assert!(page.contains("permanently"));
+    let retire = |path: &str, body: &str| post(path, Some(&admin), Some(ORIGIN), body);
+    for (path, body, needle) in [
+        (
+            "/images/cirros-g1/retire",
+            "csrf=correct",
+            "cannot be undone",
+        ),
+        (
+            "/images/cirros-g2/retire",
+            "csrf=correct&confirm=yes",
+            "already retired",
+        ),
+        (
+            "/images/missing-g1/retire",
+            "csrf=correct&confirm=yes",
+            "No such base image",
+        ),
+    ] {
+        let (status, _, page) = send(&h, retire(path, body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{path}");
+        assert!(page.contains(needle), "{needle}");
+    }
+    assert_eq!(h.cluster.mutations(), 0);
+    let (status, headers, _) = send(
+        &h,
+        retire("/images/cirros-g1/retire", "csrf=correct&confirm=yes"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(headers["location"], "/images");
+    assert_eq!(
+        h.cluster.image_writes.lock().unwrap().clone(),
+        [(
+            "patch".to_string(),
+            "cirros-g1".to_string(),
+            serde_json::json!({"metadata": {"uid": "uid-cirros-g1"}, "spec": {"retired": true}})
+        )]
+    );
+    let (_, _, page) = send(&h, get("/images", Some(&admin))).await;
+    assert!(page.contains("Retired cirros-g1."));
+}
+
+#[tokio::test]
+async fn launch_offers_and_accepts_only_launchable_generations() {
+    let h = harness().await;
+    // The ConfigMap lists cirros g1; a BaseImage for g1 still writing hides it.
+    catalog_with_cirros(&h);
+    base_images(
+        &h,
+        vec![
+            base_image("cirros", 1, "Writing", false),
+            base_image("cirros", 2, "Sealed", true),
+            base_image("cirros", 3, "Sealed", false),
+        ],
+    );
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (_, _, form) = send(&h, get("/launch", Some(&cookie))).await;
+    assert!(form.contains("value=\"cirros:3\""));
+    assert!(!form.contains("value=\"cirros:1\"") && !form.contains("value=\"cirros:2\""));
+    let launch = |os: &str| {
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            &format!("csrf=correct&name=web&cpus=1&memory_mib=512&os={os}&root_size_gib=1"),
+        )
+    };
+    for os in ["cirros:1", "cirros:2"] {
+        let (status, _, body) = send(&h, launch(os)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{os}");
+        assert!(body.contains("not in the base-image catalog"), "{os}");
+    }
+    assert_eq!(h.cluster.mutations(), 0);
+    assert_eq!(send(&h, launch("cirros:3")).await.0, StatusCode::SEE_OTHER);
+    let created = h.cluster.created_vms.lock().unwrap()[0].clone();
+    assert_eq!(
+        created["spec"]["disks"][0]["baseImage"],
+        serde_json::json!({"name": "cirros", "generation": 3})
+    );
+    // The VM page names its boot source from the BaseImage, retired or not.
+    let mut vm: VirtualMachine = serde_json::from_value(created).unwrap();
+    vm.metadata.uid = Some("uid-web".into());
+    h.cluster.vms.lock().unwrap().push(vm);
+    base_images(&h, vec![base_image("cirros", 3, "Sealed", true)]);
+    let (_, _, body) = send(&h, get("/vms/qrab/web", Some(&cookie))).await;
+    assert!(
+        body.contains("CirrOS 0.6.3 (cirros g3) clone on root"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn the_image_admin_group_resolves_by_name_or_uuid() {
+    let h = harness().await;
+    let kanidm = &h.state.kanidm;
+    h.dir
+        .lock()
+        .unwrap()
+        .groups
+        .insert("qrab_image_admins".into(), IMAGE_ADMINS.into());
+    assert_eq!(
+        kanidm
+            .resolve_group("qrab_image_admins")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(IMAGE_ADMINS)
+    );
+    assert_eq!(kanidm.resolve_group("qrab_missing").await.unwrap(), None);
+    let calls = h.kanidm.lock().unwrap().len();
+    assert_eq!(
+        kanidm
+            .resolve_group(&IMAGE_ADMINS.to_uppercase())
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(IMAGE_ADMINS)
+    );
+    assert_eq!(
+        h.kanidm.lock().unwrap().len(),
+        calls,
+        "a UUID needs no lookup"
     );
 }
 

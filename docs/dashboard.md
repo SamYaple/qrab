@@ -9,7 +9,8 @@ Kubernetes and Kanidm service-account connections.
 **https://vms.yapplesauce.com**. Signed-in users see the VMs shared with them,
 with their size, disks and live usage, and open a VM's status, guest agent,
 QMP events, configuration and console. Members of `qrab_vm_launchers` can
-launch new VMs; VM admins can send power actions and delete VMs.
+launch new VMs; members of `qrab_image_admins` stage, refresh and retire base
+images; VM admins can send power actions and delete VMs.
 
 The updated dashboard uses SPIFFE mTLS for all per-VM management and console
 requests, with the user ID token still verified by the receiving service. BMC
@@ -106,7 +107,9 @@ Redfish admin actions offered on the full BMC page's Guest agent tab.
 | `GET /vms/{ns}/{name}/bmc` | Full BMC page with live status, metrics, configuration, events and role-appropriate controls |
 | `GET /vms/{ns}/{name}/console/ws` | Console WebSocket proxy (admin, exact Origin) |
 | `GET`/`POST /launch` | Launch form (launchers) |
-| `GET /images` | Base-image catalog and how images are staged (any signed-in user) |
+| `GET /images` | Every BaseImage generation with its import phase, and how images are staged (any signed-in user); image admins also get the forms, prefilled by `?refresh=<image>` or `?adopt=<image>:<generation>` ([below](#base-images)) |
+| `POST /images` | Stage a BaseImage `<image>-g<generation>` (`image`, `generation`, `title`, `os`, `version`, `url`, `sha256`, `format`; image admins, else 404) |
+| `POST /images/{name}/retire` | Retire one BaseImage generation (`confirm=yes`; image admins, else 404); irreversible |
 | `GET /vpn` | ProtonVPN profiles and the server browser (launchers; [below](#vpn)) |
 | `POST /vpn`, `POST /vpn/{name}`, `POST /vpn/use`, `POST /vpn/{name}/delete` | Create a profile; change its server (`action=server`, a server name or `auto`) or settings (`action=settings`); use a listed server for a profile; delete an unused profile |
 | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | OIDC |
@@ -323,6 +326,11 @@ Redfish admin, or Redfish refuses the resets (shown as a refused action); the
 dashboard role still comes from `spec.console` (or the creator annotation), so
 such a VM is visible only with a `console` grant.
 
+Image administration is separate from VM roles: members of the group
+`DASHBOARD_IMAGE_ADMIN_GROUP` (default `qrab_image_admins`) see the stage,
+refresh and retire forms on `/images`. For everyone else those forms are
+absent and their POST routes are 404; viewing `/images` needs only a sign-in.
+
 Admin wins when both apply. Deleting additionally requires the VM to carry
 `app.kubernetes.io/managed-by: qrab-dashboard`, which only dashboard launches
 set, so qrab-redfish-poc and other hand-made VMs cannot be deleted here. Kanidm group changes reach the dashboard, the
@@ -485,9 +493,61 @@ OVMF boots its EFI System partition. The image never changes; a new release
 or rebuild is a new generation. The VM detail page shows "Boots from:
 CirrOS 0.6.3 (cirros g1) clone on root" for such a VM, else "demo ESP".
 
-The dashboard reads the catalog from ConfigMap `qrab/qrab-base-images`, key
-`images.json`, on every Images page and launch request (RBAC: `get` on that
-one ConfigMap). It is a JSON array of objects with exactly these fields:
+Each generation is a `BaseImage` (`qrab.yapplesauce.com/v1alpha1`, short
+name `bimg`) named `<image>-g<generation>`; the image importer downloads,
+verifies, writes and seals it and reports `status.phase` (Pending,
+Inspecting, Staging, Writing, Sealing, Sealed, Retired, Failed). The dashboard
+lists BaseImages on every Images page and launch request. Only a launchable
+generation (well named, phase Sealed, not retired, with a measured
+`status.sizeBytes` or `status.capacityBytes` and `status.sha256`) appears on
+the launch form, and a launch of any other generation is refused. The
+catalog entry takes its name, generation, title, OS and version from the
+spec, its size and raw SHA-256 from the status, its upstream SHA-256 and URL
+from `spec.source`, and boots UEFI. The VM page's "Boots from" names any
+BaseImage generation, retired or not.
+
+`/images` shows every BaseImage grouped by image name, newest generation
+first: phase (with the importer's message and failed attempts), size, raw
+SHA-256 (shortened; the full digest is its tooltip), whether the generation
+was adopted, whether it is retired, and the download host. Image admins
+([Roles](#roles)) also get:
+
+- **Stage an image**: creates a BaseImage from image name, generation, title,
+  OS, version, HTTPS download URL, the SHA-256 of the downloaded file
+  (lowercased) and format (`qcow2` or `raw`). The fields are checked as the
+  CRD checks them (name 1-32 `[a-z0-9-]`, generation 1-999999, title at most
+  80 and OS and version at most 32 printable characters, an `https://` URL of
+  at most 2048 characters without credentials, 64 hex digits); a rejected
+  form comes back with its errors and creates nothing, and an existing
+  generation is refused, because a generation never changes. The BaseImage
+  carries `qrab.yapplesauce.com/creator-subject: <subject>` and
+  `app.kubernetes.io/managed-by: qrab-dashboard`.
+- **Refresh** on each image: the stage form prefilled with the next
+  generation (one past the newest) and the newest one's title, OS, version
+  and format. URL and SHA-256 are left empty for the new release.
+- **Retire** on each unretired generation (confirmed): a merge patch of
+  `spec.retired: true` carrying `metadata.uid`, so it cannot reach a
+  recreated BaseImage of the same name. New VMs can no longer clone it;
+  existing VMs keep their disks. It cannot be undone: the CRD keeps a retired
+  generation retired.
+
+RBAC: `baseimages` get, list, create and patch (no delete, no status). The
+importer owns the status and the storage.
+
+### The legacy ConfigMap catalog
+
+Until every generation is adopted, the dashboard also reads ConfigMap
+`qrab/qrab-base-images`, key `images.json` (RBAC: `get` on that one
+ConfigMap). An entry counts only while no BaseImage names its `(name,
+generation)`: a BaseImage always wins, even one that is not launchable yet,
+which hides the entry. `/images` lists the remaining entries as "Listed by
+ConfigMap qrab-base-images only", and image admins get an **Adopt as a
+BaseImage** link that prefills the stage form with that generation, its text,
+source URL and upstream SHA-256; the importer then finds the sealed
+generation and adopts it (`status.adopted`) instead of importing it again.
+If either the BaseImages or the ConfigMap cannot be read, the catalog is
+unavailable: `/images` fails and the launch form offers only the demo ESP.
+The ConfigMap is a JSON array of objects with exactly these fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -501,9 +561,12 @@ one ConfigMap). It is a JSON array of objects with exactly these fields:
 Entries with missing, extra or invalid fields, and duplicates of an earlier
 `(name, generation)`, are skipped with a logged warning.
 
-### Staging an image
+### Staging an image with the legacy script
 
-Staging is an administrator task with three parts: an unprivileged download
+Image admins stage new generations from `/images` (above). The script below
+is the legacy path that writes the ConfigMap; it is kept for generations
+staged before BaseImages. Staging this way is an administrator task with
+three parts: an unprivileged download
 and conversion, a root import on the storage node, and the catalog update.
 `contrib/images/stage-base-image.sh` drives all three. Its built-in table
 knows CirrOS 0.6.3 (x86_64, GPT with an EFI System partition, 117440512 bytes
@@ -581,6 +644,7 @@ delete and `get` on ConfigMap `proton-catalog` only.
 | `DASHBOARD_OIDC_CLIENT_SECRET_FILE` | File with the confidential client's secret (client_secret_basic; PKCE as well) |
 | `DASHBOARD_LAUNCHER_GROUP` | `7617e8d9-74ce-4525-a70b-80235206b06a` (`qrab_vm_launchers`) |
 | `DASHBOARD_VM_USERS_GROUP` | `3d40e2a1-3968-43ea-b4a4-154cbd26d88b` (`qrab_vm_users`) |
+| `DASHBOARD_IMAGE_ADMIN_GROUP` | Image admins: a group UUID, or a Kanidm group name resolved to its UUID once at startup through the service account (default `qrab_image_admins`). A name that does not resolve disables image administration (logged) until a restart; pin the UUID once the group exists |
 | `DASHBOARD_KANIDM_URL` | `https://idm.yaple.net` |
 | `DASHBOARD_KANIDM_TOKEN_FILE` | File with the API token of service account `qrab-dashboard-groups` |
 | `DASHBOARD_NAMESPACE` | Default `qrab` |
@@ -606,8 +670,9 @@ kanidm system oauth2 create qrab-dashboard 'qrab VMs' https://vms.yapplesauce.co
 kanidm system oauth2 add-redirect-url qrab-dashboard https://vms.yapplesauce.com/auth/callback -D idm_admin
 kanidm system oauth2 enable-strict-redirect-url qrab-dashboard -D idm_admin
 kanidm group create qrab_vm_launchers -D idm_admin
+kanidm group create qrab_image_admins -D idm_admin
 # update-scope-map replaces the set: always pass every scope.
-for group in qrab_vm_users qrab_vm_launchers qrab_operators; do
+for group in qrab_vm_users qrab_vm_launchers qrab_image_admins qrab_operators; do
   kanidm system oauth2 update-scope-map qrab-dashboard "$group" openid profile groups_uuid -D idm_admin
 done
 # Group administration for the launch flow.
@@ -621,8 +686,11 @@ The kanidm CLI exits 0 even when a command fails. Read its output, then check
 the result explicitly: `kanidm system oauth2 get qrab-dashboard` (redirect,
 scope maps, `oauth2_rs_basic_secret` present) and
 `kanidm group list-members idm_group_admins`. Users get in when they are members
-of `qrab_vm_users` (directly or through a per-VM group), `qrab_vm_launchers`
-or `qrab_operators`.
+of `qrab_vm_users` (directly or through a per-VM group), `qrab_vm_launchers`,
+`qrab_image_admins` or `qrab_operators`. `qrab_image_admins` (the image
+admins, [Roles](#roles)) is new: create it, add its scope map and members
+(`kanidm group add-members qrab_image_admins <user> -D idm_admin`), then
+restart the dashboard or set `DASHBOARD_IMAGE_ADMIN_GROUP` to its UUID.
 
 Copy the client secret and the API token straight into
 `contrib/kubernetes/dashboard/install-secret.py`. It reads both with hidden
@@ -636,7 +704,8 @@ prints them or puts them in arguments or files.
 
 `contrib/kubernetes/dashboard` holds a namespaced Role
 (VirtualMachines get/list/create/delete/patch, Pods get, PVCs get/create,
-ConfigMap `qrab-base-images` get, `metrics.k8s.io` pods list), the Deployment (one replica, `Recreate`,
+BaseImages get/list/create/patch, ConfigMap `qrab-base-images` get,
+`metrics.k8s.io` pods list), the Deployment (one replica, `Recreate`,
 non-root UID 10001, read-only root, no capabilities, credentials mounted as
 files), the Service, the Ingress and Certificate for `vms.yapplesauce.com`,
 and two CiliumNetworkPolicies. The first lets the dashboard receive from the

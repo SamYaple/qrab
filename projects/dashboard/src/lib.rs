@@ -9,6 +9,7 @@ mod bmc_page;
 pub mod cluster;
 pub mod config;
 pub mod console;
+pub mod image_page;
 pub mod images;
 pub mod kanidm;
 pub mod launch;
@@ -42,6 +43,8 @@ pub struct AppState {
     pub namespace: String,
     pub launcher_group: String,
     pub vm_users_group: String,
+    /// The image-admin group's UUID; empty admits nobody.
+    pub image_admin_group: String,
     pub storage_node: Option<String>,
     pub cluster: Arc<dyn cluster::Cluster>,
     pub kanidm: kanidm::Kanidm,
@@ -161,7 +164,8 @@ pub fn router(state: AppState) -> Router {
                 .post(launch)
                 .layer(DefaultBodyLimit::max(launch::LAUNCH_BODY_LIMIT)),
         )
-        .route("/images", get(images_page))
+        .route("/images", get(image_page::page).post(image_page::stage))
+        .route("/images/{name}/retire", post(image_page::retire))
         .route("/vpn", get(vpn_page::page).post(vpn_page::create))
         .route("/vpn/use", post(vpn_page::use_server))
         .route("/vpn/{name}", post(vpn_page::update))
@@ -303,6 +307,7 @@ fn user_view(app: &AppState, user: &auth::User) -> ui::UserView {
         name: user.name.clone(),
         csrf: user.csrf.clone(),
         launcher: access::can_launch(&user.groups, &app.launcher_group),
+        image_admin: access::can_admin_images(&user.groups, &app.image_admin_group),
     }
 }
 
@@ -418,7 +423,10 @@ async fn detail(
                 .await,
         )),
     };
-    let catalog = base_images(&app).await.unwrap_or_default();
+    let catalog = image_sources(&app)
+        .await
+        .map(|(resources, legacy)| images::catalog(&resources, legacy, false))
+        .unwrap_or_default();
     let mut detail = model::detail(&vm, role, &usage, pod.as_ref(), ip, &catalog);
     if detail.nics.iter().any(|n| n.tunnel_only) {
         match app.cluster.vpn_profiles().await {
@@ -565,25 +573,26 @@ async fn console_page(
         .into_response())
 }
 
-/// The base-image catalog, read on each request (it is small).
-pub(crate) async fn base_images(app: &AppState) -> anyhow::Result<Vec<images::BaseImage>> {
-    let raw = app
-        .cluster
-        .base_image_catalog()
-        .await
-        .inspect_err(|error| {
-            tracing::warn!(error=%cluster::describe(error), "base-image catalog unavailable");
-        })?;
-    Ok(raw.as_deref().map(images::parse).unwrap_or_default())
+/// The BaseImages and the legacy ConfigMap entries, read on each request
+/// (both are small). Either one unreadable makes the catalog unavailable.
+pub(crate) async fn image_sources(
+    app: &AppState,
+) -> anyhow::Result<(Vec<qrab_operator::image::BaseImage>, Vec<images::BaseImage>)> {
+    let warn = |error: &anyhow::Error| {
+        tracing::warn!(error=%cluster::describe(error), "base-image catalog unavailable");
+    };
+    let resources = app.cluster.list_base_images().await.inspect_err(warn)?;
+    let raw = app.cluster.base_image_catalog().await.inspect_err(warn)?;
+    Ok((
+        resources,
+        raw.as_deref().map(images::parse).unwrap_or_default(),
+    ))
 }
 
-async fn images_page(
-    State(app): State<AppState>,
-    session: Session,
-) -> Result<Html<String>, Failure> {
-    let user = auth::user(&session).await?;
-    let catalog = base_images(&app).await.map_err(|e| Failure::upstream(&e))?;
-    page(&app, &session, &user, ui::Body::Images(catalog)).await
+/// The launchable catalog ([`images::catalog`]).
+pub(crate) async fn base_images(app: &AppState) -> anyhow::Result<Vec<images::BaseImage>> {
+    let (resources, legacy) = image_sources(app).await?;
+    Ok(images::catalog(&resources, legacy, true))
 }
 
 /// The VpnProfiles a launch can attach, with any NIC already using each.

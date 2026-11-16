@@ -15,6 +15,8 @@ pub struct UserView {
     pub name: String,
     pub csrf: String,
     pub launcher: bool,
+    /// A member of the image-admin group: sees the stage and retire forms.
+    pub image_admin: bool,
 }
 
 #[derive(Clone)]
@@ -130,7 +132,7 @@ pub enum Body {
     Launch(LaunchPage),
     Launched(Launched),
     Console(ConsolePage),
-    Images(Vec<BaseImage>),
+    Images(Box<crate::image_page::ImagesPage>),
     Vpn(Box<crate::vpn_page::VpnPage>),
 }
 
@@ -178,6 +180,7 @@ pub fn render(page: Page) -> String {
             "Launch failed · qrab VMs".into()
         }
         Body::Launched(_) => "VM launched · qrab VMs".into(),
+        Body::Images(page) if !page.errors.is_empty() => "Check image form · qrab VMs".into(),
         Body::Images(_) => "Base images · qrab VMs".into(),
         Body::Vpn(_) => "VPN · qrab VMs".into(),
         Body::Error(error) => format!("{} · qrab VMs", error.title()),
@@ -1355,7 +1358,7 @@ fn cloud_init_fieldset(page: &LaunchPage) -> Element {
     }
 }
 
-fn mib(bytes: u64) -> String {
+pub(crate) fn mib(bytes: u64) -> String {
     format!("{} MiB", bytes.div_ceil(1024 * 1024))
 }
 
@@ -1398,44 +1401,6 @@ fn os_fieldset(page: &LaunchPage) -> Element {
                 }
             }
             p { id: "root-help", class: "muted", "Used only with an operating system. At least the image size rounded up to whole GiB; the clone can grow later but never shrink." }
-        }
-    }
-}
-
-fn images_page(images: &[BaseImage]) -> Element {
-    rsx! {
-        div { class: "heading", div { p { class: "eyebrow", "BASE IMAGES" } h1 { "Operating system images" }
-            p { class: "muted", "Sealed images a new VM can boot from. Choose one on the launch form." } }
-            span { class: "count", "{images.len()} staged" } }
-        section { class: "card wide directory image-directory",
-            if images.is_empty() { p { class: "empty", "No base images are staged yet. An administrator can stage an operating-system image." } }
-            else { div { class: "table-wrap", table {
-                caption { class: "visually-hidden", "Staged base images" }
-                thead { tr {
-                    th { scope: "col", "Image" } th { scope: "col", "Name" } th { scope: "col", "Generation" } th { scope: "col", "Size" }
-                    th { scope: "col", "Raw SHA-256" } th { scope: "col", "Source" } th { scope: "col", "Boot" }
-                } }
-                tbody { for image in images { tr {
-                    td { "data-label": "Image", div { strong { "{image.title}" } p { class: "muted", "{image.os} {image.version}" } } }
-                    td { "data-label": "Name", code { "{image.name}" } }
-                    td { "data-label": "Generation", "{image.generation}" }
-                    td { "data-label": "Size", {mib(image.size_bytes)} }
-                    td { "data-label": "Raw SHA-256", code { "{image.sha256}" } }
-                    td { "data-label": "Source", a { href: "{image.source_url}", rel: "noreferrer", "{image.source_url}" } }
-                    td { "data-label": "Boot", {image.boot.to_uppercase()} }
-                } } }
-            } } }
-        }
-        section { class: "card wide", aria_labelledby: "how-title",
-            h2 { id: "how-title", "A separate disk for each VM" }
-            p { class: "prose", "Launching from an image creates a writable root disk for that VM. Your changes stay with the VM; the image remains unchanged. A new image release is listed as a new generation." }
-            details { id: "image-staging", class: "inline-disclosure", summary { "Image verification and staging" }
-              ol { class: "prose",
-                li { "An administrator stages an image with " code { "contrib/images/stage-base-image.sh" } ": it downloads a known release, checks the upstream SHA-256 and converts it to a raw disk." }
-                li { "As root on the storage node, the import writes it to a ZFS volume and seals it as the read-only snapshot " code { "image-<name>-g<generation>@sealed" } ", checking the raw SHA-256. The script then records it here." }
-                li { "Each VM launched with it gets its own copy-on-write clone of that snapshot as its " code { "root" } " disk, exported over iSCSI and booted by UEFI. The image itself never changes; a new release is a new generation." }
-              }
-            }
         }
     }
 }
@@ -1606,7 +1571,7 @@ fn app() -> Element {
                     (Body::Launch(launch), Some(user)) => launch_form(launch, user),
                     (Body::Launched(result), Some(_)) => launched(result),
                     (Body::Console(console), Some(_)) => console_page(console),
-                    (Body::Images(images), Some(_)) => images_page(images),
+                    (Body::Images(images), Some(user)) => crate::image_page::view(images, user),
                     (Body::Vpn(vpn), Some(user)) => crate::vpn_page::view(vpn, user),
                     _ => rsx! { section { class: "welcome card", p { class: "eyebrow", "QRAB" } h1 { "Your virtual machines, in one place." }
                         p { "Launch VMs, check their state and usage, and open their consoles." }

@@ -22,7 +22,14 @@ rules:
 - apiGroups: ['']
   resources: [persistentvolumeclaims]
   verbs: [get, create]
-# The base-image catalog written by contrib/images/stage-base-image.sh.
+# The Images page and launch catalog: BaseImages, which image admins create
+# and retire (a uid-preconditioned patch of spec.retired; the CRD keeps
+# everything else immutable). No delete and no status: the importer owns both.
+- apiGroups: [qrab.yapplesauce.com]
+  resources: [baseimages]
+  verbs: [get, list, create, patch]
+# The legacy catalog written by contrib/images/stage-base-image.sh, read for
+# generations no BaseImage names yet.
 - apiGroups: ['']
   resources: [configmaps]
   resourceNames: [qrab-base-images]

@@ -86,6 +86,12 @@ pub fn can_launch(groups: &[String], launcher_group: &str) -> bool {
     !launcher_group.is_empty() && listed(groups, launcher_group)
 }
 
+/// Image admins are the members of the configured image-admin group (its
+/// UUID; empty when the group did not resolve, which admits nobody).
+pub fn can_admin_images(groups: &[String], image_admin_group: &str) -> bool {
+    !image_admin_group.is_empty() && listed(groups, image_admin_group)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -233,5 +239,8 @@ pub(crate) mod tests {
         assert!(!can_launch(&[VIEWERS.into()], ADMINS));
         assert!(!can_launch(&[], ADMINS));
         assert!(!can_launch(&[String::new()], ""));
+        assert!(can_admin_images(&[ADMINS.into()], ADMINS));
+        assert!(!can_admin_images(&[VIEWERS.into()], ADMINS));
+        assert!(!can_admin_images(&[String::new()], ""));
     }
 }

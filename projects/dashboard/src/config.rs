@@ -9,6 +9,8 @@ pub struct Config {
     pub client_secret: String,
     pub launcher_group: String,
     pub vm_users_group: String,
+    /// A group UUID, or a Kanidm group name resolved to its UUID at startup.
+    pub image_admin_group: String,
     pub kanidm_url: String,
     pub kanidm_token: String,
     pub namespace: String,
@@ -52,6 +54,38 @@ pub fn dns_label(value: &str) -> bool {
         && !value.ends_with('-')
 }
 
+/// The default image-admin group, by name.
+pub const IMAGE_ADMIN_GROUP: &str = "qrab_image_admins";
+
+/// `DASHBOARD_IMAGE_ADMIN_GROUP`: a group UUID (canonicalized), or a Kanidm
+/// group name to resolve at startup; unset or empty means
+/// [`IMAGE_ADMIN_GROUP`].
+///
+/// ```
+/// use qrab_dashboard::config::image_admin_group;
+/// assert_eq!(image_admin_group(None).unwrap(), "qrab_image_admins");
+/// assert_eq!(image_admin_group(Some(" ")).unwrap(), "qrab_image_admins");
+/// assert_eq!(
+///     image_admin_group(Some("7617E8D9-74CE-4525-A70B-80235206B06A")).unwrap(),
+///     "7617e8d9-74ce-4525-a70b-80235206b06a"
+/// );
+/// assert!(image_admin_group(Some("Image Admins")).is_err());
+/// ```
+pub fn image_admin_group(raw: Option<&str>) -> Result<String> {
+    let raw = raw
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(IMAGE_ADMIN_GROUP);
+    if let Some(id) = uuid(raw) {
+        return Ok(id);
+    }
+    ensure!(
+        crate::kanidm::group_name(raw),
+        "DASHBOARD_IMAGE_ADMIN_GROUP must be a group UUID or a Kanidm group name"
+    );
+    Ok(raw.into())
+}
+
 impl Config {
     pub fn from_env() -> Result<Self> {
         let allow_loopback_http =
@@ -82,6 +116,9 @@ impl Config {
             client_secret: secret_file("DASHBOARD_OIDC_CLIENT_SECRET_FILE")?,
             launcher_group: group("DASHBOARD_LAUNCHER_GROUP")?,
             vm_users_group: group("DASHBOARD_VM_USERS_GROUP")?,
+            image_admin_group: image_admin_group(
+                std::env::var("DASHBOARD_IMAGE_ADMIN_GROUP").ok().as_deref(),
+            )?,
             kanidm_url: required("DASHBOARD_KANIDM_URL")?,
             kanidm_token: secret_file("DASHBOARD_KANIDM_TOKEN_FILE")?,
             namespace,

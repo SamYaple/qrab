@@ -30,6 +30,18 @@ async fn main() -> anyhow::Result<()> {
         config.ca.as_deref(),
         config.allow_loopback_http,
     )?;
+    // A name resolves once; a group created later needs a restart (or its UUID).
+    let image_admin_group = match kanidm
+        .resolve_group(&config.image_admin_group)
+        .await
+        .context("resolve DASHBOARD_IMAGE_ADMIN_GROUP")?
+    {
+        Some(id) => id,
+        None => {
+            tracing::warn!(group=%config.image_admin_group, "image-admin group not found; image administration is disabled");
+            String::new()
+        }
+    };
     let oidc = Oidc::discover(
         config.issuer.clone(),
         config.client_id.clone(),
@@ -59,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
         namespace: config.namespace.clone(),
         launcher_group: config.launcher_group.clone(),
         vm_users_group: config.vm_users_group.clone(),
+        image_admin_group,
         storage_node: config.storage_node.clone(),
         cluster: Arc::new(Kube::new(client, &config.namespace)),
         kanidm,

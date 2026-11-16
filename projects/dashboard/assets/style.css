@@ -171,7 +171,7 @@ td .muted { margin: 3px 0 0; }
 .directory .table-wrap { border: 0; }
 .directory td { padding-top: 18px; padding-bottom: 18px; }
 .directory tbody tr:hover { background: var(--surface-raised); }
-.image-directory td[data-label=Boot] { white-space: nowrap; }
+.image-directory td[data-label=Generation], .image-directory td[data-label=Phase] .badge { white-space: nowrap; }
 .identity-link { font-size: 1rem; font-weight: 650; }
 .cell-detail { display: block; color: var(--muted); font-size: .8rem; margin-top: 3px; }
 .empty { padding: 24px; margin: 0; color: var(--muted); text-align: center; }

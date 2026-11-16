@@ -1485,7 +1485,7 @@ with sync_playwright() as playwright:
         for width in [1440, 768, 390, 320]:
             context = browser_context(browser, viewport={'width': width, 'height': 1000}, color_scheme=theme)
             page = context.new_page()
-            for name in ['list', 'list-long', 'list-storage', 'list-empty-launcher', 'list-empty-viewer', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'detail-paused', 'detail-powered-off', 'detail-powering-on', 'detail-unknown-power', 'images', 'images-empty', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
+            for name in ['list', 'list-long', 'list-storage', 'list-empty-launcher', 'list-empty-viewer', 'detail', 'detail-long', 'detail-viewer', 'detail-redfish-only', 'detail-no-power-actions', 'detail-needs-agent', 'detail-frozen-agent', 'detail-paused', 'detail-powered-off', 'detail-powering-on', 'detail-unknown-power', 'images', 'images-viewer', 'images-refresh', 'images-errors', 'images-empty', 'launch', 'launch-os', 'launch-options', 'launch-unavailable', 'launched',
                          'launch-failed-empty', 'launch-failed-left', 'error-session', 'error-denied', 'error-missing', 'error-service']:
                 page.goto((args.previews / f'{name}.html').resolve().as_uri())
                 if args.forced_colors:
@@ -1510,18 +1510,29 @@ with sync_playwright() as playwright:
                     assert page.locator('form.launch').count() == 0
                     expect(page.locator('h1')).to_have_text('Launching is unavailable')
                 if name == 'images':
-                    assert page.locator('td[data-label=Boot]').evaluate_all('''cells => cells.every(cell => {
+                    assert page.locator('td[data-label=Phase] .badge').evaluate_all('''badges => badges.every(badge => {
                         const text = document.createRange();
-                        text.selectNodeContents(cell);
+                        text.selectNodeContents(badge);
                         return text.getClientRects().length === 1;
-                    })'''), 'The UEFI boot label must stay on one line'
+                    })'''), 'Phase badges must stay on one line'
+                    assert page.locator('#stage form').count() == 1
+                    assert page.locator('form[action$="/retire"] input[name=confirm][required]').count() >= 1
                     staging = page.locator('#image-staging')
                     assert not staging.evaluate('(e) => e.open')
                     capture(page, args.output / f'images-collapsed-{theme}-{width}.png')
                     staging.locator('summary').focus()
                     page.keyboard.press('Enter')
                     assert staging.evaluate('(e) => e.open')
-                    expect(staging).to_contain_text('stage-base-image.sh')
+                    expect(staging).to_contain_text('BaseImage')
+                if name == 'images-viewer':
+                    assert page.locator('form[action^="/images"]').count() == 0
+                    assert page.locator('a[href*="refresh="]').count() == 0
+                if name == 'images-refresh':
+                    expect(page.locator('#stage-heading')).to_have_text('Refresh cirros')
+                    expect(page.locator('#stage-generation')).to_have_value('4')
+                if name == 'images-errors':
+                    page.locator('#form-errors a[href="#stage-url"]').click()
+                    expect(page.locator('#stage-url')).to_have_attribute('aria-invalid', 'true')
                 if name == 'list-long':
                     assert page.locator('.table-wrap').evaluate('(e) => e.scrollWidth <= e.clientWidth + 1')
                     expect(page.locator('td[data-label=Compute]')).to_contain_text('16 GiB (max 1 TiB)')

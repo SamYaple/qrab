@@ -87,6 +87,15 @@ impl Kanidm {
             .transpose()
     }
 
+    /// A group UUID as given (canonicalized), or the UUID of the group with
+    /// this name; `None` when no such group exists.
+    pub async fn resolve_group(&self, group: &str) -> Result<Option<String>> {
+        match crate::config::uuid(group) {
+            Some(id) => Ok(Some(id)),
+            None => self.group_uuid(group).await,
+        }
+    }
+
     /// `POST /v1/group` with `{"attrs":{"name":[..],"description":[..]}}`.
     /// The caller reads the UUID back by name.
     pub async fn create_group(&self, name: &str, description: &str) -> Result<()> {

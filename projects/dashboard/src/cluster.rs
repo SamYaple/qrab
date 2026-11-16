@@ -8,7 +8,7 @@ use kube::{
         Preconditions,
     },
 };
-use qrab_operator::api::VirtualMachine;
+use qrab_operator::{api::VirtualMachine, image::BaseImage};
 use qrab_proton::crd::{ProtonSpec, VpnProfile};
 use std::{collections::HashMap, net::IpAddr};
 
@@ -46,6 +46,22 @@ pub trait Cluster: Send + Sync {
     async fn patch_vpn_profile(&self, name: &str, uid: &str, proton: &ProtonSpec) -> Result<()>;
     /// Deletes exactly the profile with this UID.
     async fn delete_vpn_profile(&self, name: &str, uid: &str) -> Result<()>;
+    /// BaseImages (docs/dashboard.md, "Base images"), unreadable ones skipped.
+    async fn list_base_images(&self) -> Result<Vec<BaseImage>>;
+    async fn create_base_image(&self, image: &BaseImage) -> Result<()>;
+    /// Sets `spec.retired` on exactly the BaseImage with this UID, and nothing else.
+    async fn patch_base_image_retired(&self, name: &str, uid: &str, retired: bool) -> Result<()>;
+}
+
+/// The merge patch for [`Cluster::patch_base_image_retired`], refused by the
+/// API server for any object but the one with this UID.
+///
+/// ```
+/// let patch = qrab_dashboard::cluster::retire_patch("uid-a", true);
+/// assert_eq!(patch, serde_json::json!({"metadata": {"uid": "uid-a"}, "spec": {"retired": true}}));
+/// ```
+pub fn retire_patch(uid: &str, retired: bool) -> serde_json::Value {
+    serde_json::json!({"metadata": {"uid": uid}, "spec": {"retired": retired}})
 }
 
 /// The merge patch for [`Cluster::patch_vpn_profile`]: every optional
@@ -175,11 +191,13 @@ pub struct Kube {
     metrics: Api<DynamicObject>,
     configs: Api<ConfigMap>,
     vpn: Api<VpnProfile>,
+    images: Api<DynamicObject>,
 }
 
 impl Kube {
     pub fn new(client: Client, namespace: &str) -> Self {
         let vm = ApiResource::erase::<VirtualMachine>(&());
+        let image = ApiResource::erase::<BaseImage>(&());
         let metrics = ApiResource {
             group: "metrics.k8s.io".into(),
             version: "v1beta1".into(),
@@ -193,18 +211,24 @@ impl Kube {
             pvcs: Api::namespaced(client.clone(), namespace),
             metrics: Api::namespaced_with(client.clone(), namespace, &metrics),
             configs: Api::namespaced(client.clone(), namespace),
-            vpn: Api::namespaced(client, namespace),
+            vpn: Api::namespaced(client.clone(), namespace),
+            images: Api::namespaced_with(client, namespace, &image),
         }
     }
 }
 
-/// VMs are read untyped and converted one by one, so one VM the dashboard
-/// cannot parse is skipped rather than hiding every VM.
-fn typed(object: DynamicObject) -> Option<VirtualMachine> {
+/// VMs and BaseImages are read untyped and converted one by one, so one
+/// object the dashboard cannot parse is skipped rather than hiding them all.
+fn typed<T: serde::de::DeserializeOwned>(object: DynamicObject) -> Option<T> {
     let name = object.metadata.name.clone().unwrap_or_default();
+    let kind = object
+        .types
+        .as_ref()
+        .map(|t| t.kind.clone())
+        .unwrap_or_default();
     serde_json::to_value(object)
         .and_then(serde_json::from_value)
-        .map_err(|error| tracing::warn!(vm=%name, %error, "skipping unreadable VirtualMachine"))
+        .map_err(|error| tracing::warn!(%name, %kind, %error, "skipping unreadable object"))
         .ok()
 }
 
@@ -327,6 +351,35 @@ impl Cluster for Kube {
             ..Default::default()
         };
         self.vpn.delete(name, &params).await?;
+        Ok(())
+    }
+    async fn list_base_images(&self) -> Result<Vec<BaseImage>> {
+        Ok(self
+            .images
+            .list(&ListParams::default())
+            .await?
+            .items
+            .into_iter()
+            .filter_map(typed)
+            .collect())
+    }
+    async fn create_base_image(&self, image: &BaseImage) -> Result<()> {
+        let params = PostParams {
+            field_manager: Some(FIELD_MANAGER.into()),
+            ..Default::default()
+        };
+        let object: DynamicObject = serde_json::from_value(serde_json::to_value(image)?)?;
+        self.images.create(&params, &object).await?;
+        Ok(())
+    }
+    async fn patch_base_image_retired(&self, name: &str, uid: &str, retired: bool) -> Result<()> {
+        let params = PatchParams {
+            field_manager: Some(FIELD_MANAGER.into()),
+            ..Default::default()
+        };
+        self.images
+            .patch(name, &params, &Patch::Merge(retire_patch(uid, retired)))
+            .await?;
         Ok(())
     }
 }

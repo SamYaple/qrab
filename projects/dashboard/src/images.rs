@@ -1,6 +1,9 @@
-//! The base-image catalog: ConfigMap `qrab-base-images`, key `images.json`,
-//! written by `contrib/images/stage-base-image.sh`. Each entry names a sealed
-//! ZFS snapshot `image-<name>-g<generation>@sealed` that VM root disks clone.
+//! The base-image catalog. Each entry names a sealed ZFS snapshot
+//! `image-<name>-g<generation>@sealed` that VM root disks clone. It comes from
+//! the `BaseImage` resources the image importer seals ([`catalog`]), plus the
+//! legacy ConfigMap `qrab-base-images` (key `images.json`, written by
+//! `contrib/images/stage-base-image.sh`) for generations no BaseImage names.
+use qrab_operator::image::BaseImage as Resource;
 use serde::Deserialize;
 
 pub const CONFIGMAP: &str = "qrab-base-images";
@@ -34,18 +37,38 @@ pub fn image_name(name: &str) -> bool {
         && b[b.len() - 1] != b'-'
 }
 
-fn sha256(value: &str) -> bool {
+pub(crate) fn sha256(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn text(value: &str, max: usize) -> bool {
+pub(crate) fn text(value: &str, max: usize) -> bool {
     !value.trim().is_empty() && value.chars().count() <= max && !value.chars().any(char::is_control)
 }
 
 impl BaseImage {
+    /// The entry for a BaseImage resource: display text and source from its
+    /// spec, size (`sizeBytes`, else `capacityBytes`) and raw SHA-256 from its
+    /// status, which are empty until the importer has measured them.
+    pub fn from_resource(resource: &Resource) -> Self {
+        let status = resource.status.clone().unwrap_or_default();
+        let spec = &resource.spec;
+        Self {
+            name: spec.image.clone(),
+            generation: spec.generation,
+            title: spec.title.clone(),
+            os: spec.os.clone(),
+            version: spec.version.clone(),
+            size_bytes: status.size_bytes.or(status.capacity_bytes).unwrap_or(0),
+            sha256: status.sha256.unwrap_or_default(),
+            upstream_sha256: spec.source.sha256.clone(),
+            source_url: spec.source.url.clone(),
+            boot: "uefi".into(),
+        }
+    }
+
     fn check(&self) -> Result<(), String> {
         let problem = if !image_name(&self.name) {
             "name must be 1-32 lowercase letters, digits or '-'"
@@ -123,6 +146,54 @@ pub fn parse(json: &str) -> Vec<BaseImage> {
     images
 }
 
+/// Whether the resource is named `<image>-g<generation>`; the importer never
+/// stages any other.
+pub fn well_named(resource: &Resource) -> bool {
+    resource.metadata.name.as_deref() == Some(Resource::expected_name(&resource.spec).as_str())
+}
+
+/// Launchable: well named, sealed, not retired and measured (a valid size
+/// and raw SHA-256 in its status).
+pub fn launchable(resource: &Resource) -> bool {
+    well_named(resource)
+        && resource.launchable()
+        && BaseImage::from_resource(resource).check().is_ok()
+}
+
+/// The catalog from BaseImage resources and the legacy ConfigMap entries.
+/// A BaseImage for a `(name, generation)` always wins, so a legacy entry
+/// counts only while no BaseImage names its generation, launchable or not.
+/// With `launchable_only`, only [`launchable`] BaseImages count; otherwise
+/// every BaseImage is listed (for naming a VM's boot source). Sorted by name
+/// and generation.
+pub fn catalog(
+    resources: &[Resource],
+    legacy: Vec<BaseImage>,
+    launchable_only: bool,
+) -> Vec<BaseImage> {
+    let mut ordered: Vec<&Resource> = resources
+        .iter()
+        .filter(|r| !launchable_only || launchable(r))
+        .collect();
+    ordered.sort_by_key(|r| !well_named(r));
+    let mut images: Vec<BaseImage> = Vec::new();
+    for image in ordered.into_iter().map(BaseImage::from_resource) {
+        if !images.iter().any(|i| i.key() == image.key()) {
+            images.push(image);
+        }
+    }
+    for entry in legacy {
+        let shadowed = resources
+            .iter()
+            .any(|r| r.spec.image == entry.name && r.spec.generation == entry.generation);
+        if !shadowed && !images.iter().any(|i| i.key() == entry.key()) {
+            images.push(entry);
+        }
+    }
+    images.sort_by(|a, b| (&a.name, a.generation).cmp(&(&b.name, b.generation)));
+    images
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -176,6 +247,71 @@ pub(crate) mod tests {
         assert!(parse("not json").is_empty());
         assert!(parse(r#"{"images": []}"#).is_empty());
         assert!(parse("[]").is_empty());
+    }
+
+    /// A BaseImage resource `<image>-g<generation>` in `phase`.
+    pub fn resource(image: &str, generation: u32, phase: &str, retired: bool) -> Resource {
+        serde_json::from_value(serde_json::json!({
+            "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "BaseImage",
+            "metadata": {"name": format!("{image}-g{generation}"), "namespace": "qrab",
+                "uid": format!("uid-{image}-g{generation}")},
+            "spec": {"image": image, "generation": generation, "title": format!("CirrOS 0.6.{generation}"),
+                "os": "cirros", "version": format!("0.6.{generation}"), "retired": retired,
+                "source": {"url": "https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
+                    "sha256": "7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b", "format": "qcow2"}},
+            "status": {"phase": phase, "sizeBytes": 117440512u64, "capacityBytes": 117440512u64,
+                "sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn base_images_win_over_the_configmap_and_only_sealed_ones_launch() {
+        let keys = |images: Vec<BaseImage>| images.iter().map(BaseImage::key).collect::<Vec<_>>();
+        let mut alpine = cirros();
+        alpine.name = "alpine".into();
+        let legacy = vec![cirros(), alpine];
+        // cirros g1 has a BaseImage still writing: it hides the ConfigMap entry.
+        let resources = [
+            resource("cirros", 1, "Writing", false),
+            resource("cirros", 2, "Sealed", false),
+            resource("cirros", 3, "Sealed", true),
+            resource("cirros", 4, "Failed", false),
+        ];
+        assert_eq!(
+            keys(catalog(&resources, legacy.clone(), true)),
+            ["alpine:1", "cirros:2"]
+        );
+        let sealed = catalog(&resources, legacy.clone(), true);
+        assert_eq!(sealed[1].title, "CirrOS 0.6.2");
+        assert_eq!(sealed[1].size_bytes, 117440512);
+        assert_eq!(
+            sealed[1].sha256,
+            "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+        );
+        assert_eq!(sealed[1].upstream_sha256, cirros().upstream_sha256);
+        assert_eq!(sealed[1].boot, "uefi");
+        // Every generation is known for naming a boot source.
+        assert_eq!(
+            keys(catalog(&resources, legacy.clone(), false)),
+            ["alpine:1", "cirros:1", "cirros:2", "cirros:3", "cirros:4"]
+        );
+        // Without a BaseImage the ConfigMap entry stays launchable.
+        assert_eq!(
+            keys(catalog(&[], legacy.clone(), true)),
+            ["alpine:1", "cirros:1"]
+        );
+        // Sealed but unmeasured, or misnamed: not launchable.
+        let mut unmeasured = resource("cirros", 5, "Sealed", false);
+        unmeasured.status.as_mut().unwrap().sha256 = None;
+        let mut misnamed = resource("cirros", 6, "Sealed", false);
+        misnamed.metadata.name = Some("cirros-latest".into());
+        let mut capacity_only = resource("cirros", 7, "Sealed", false);
+        capacity_only.status.as_mut().unwrap().size_bytes = None;
+        capacity_only.status.as_mut().unwrap().capacity_bytes = Some(GIB + 1);
+        let images = catalog(&[unmeasured, misnamed, capacity_only], Vec::new(), true);
+        assert_eq!(keys(images.clone()), ["cirros:7"]);
+        assert_eq!(images[0].min_root_gib(), 2);
     }
 
     #[test]

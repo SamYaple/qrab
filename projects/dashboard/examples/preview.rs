@@ -6,14 +6,16 @@
 //!
 //! The first VM gets the detail page; every VM appears in the list. A
 //! built-in VM with NICs and cloud-init is always added and gets
-//! `detail-network.html`. A sample base-image catalog feeds the Images page
+//! `detail-network.html`. Sample BaseImages and a legacy base-image catalog
+//! feed the Images pages (image admin, viewer, empty, rejected stage form)
 //! and the launch forms.
 use k8s_openapi::{api::core::v1::Pod, apimachinery::pkg::api::resource::Quantity};
 use qrab_dashboard::{
     access::Role,
     cluster::Usage,
+    image_page::{self, ImagesPage},
     images,
-    launch::Report,
+    launch::{FormError, Report},
     model,
     redfish::{Panel, System},
     ui::{self, Body, ConsolePage, DetailPage, LaunchPage, Launched, Page, PanelState, UserView},
@@ -213,6 +215,29 @@ const CATALOG: &str = r#"[
   "source_url":"https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img","boot":"uefi"}
 ]"#;
 
+/// Sample BaseImages: a sealed refresh, one importing and one that failed.
+const BASE_IMAGES: &str = r#"[
+ {"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"BaseImage",
+  "metadata":{"name":"cirros-g3","namespace":"qrab","uid":"u3"},
+  "spec":{"image":"cirros","generation":3,"title":"CirrOS 0.6.3","os":"cirros","version":"0.6.3",
+   "source":{"url":"https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img",
+    "sha256":"7d6355852aeb6dbcd191bcda7cd74f1536cfe5cbf8a10495a7283a8396e4b75b","format":"qcow2"}},
+  "status":{"phase":"Sealed","sizeBytes":117440512,"capacityBytes":117440512,
+   "sha256":"809dc3e0e993cd8ec736e28d55b8356ccc4ee9051cad9ad1be66fad9a79470f1"}},
+ {"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"BaseImage",
+  "metadata":{"name":"debian-g1","namespace":"qrab","uid":"d1"},
+  "spec":{"image":"debian","generation":1,"title":"Debian 13 (trixie) generic cloud","os":"debian","version":"13",
+   "source":{"url":"https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2",
+    "sha256":"aa0f2bb5b61f9bd57f3e0b3d4e0a6c2b8a7e1f9c3d2b4a6e8f0a1c3e5b7d9f1a","format":"qcow2"}},
+  "status":{"phase":"Writing","message":"Converting onto the stage volume","attempts":1}},
+ {"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"BaseImage",
+  "metadata":{"name":"alpine-g1","namespace":"qrab","uid":"a1"},
+  "spec":{"image":"alpine","generation":1,"title":"Alpine 3.22","os":"alpine","version":"3.22","retired":true,
+   "source":{"url":"https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/cloud/generic_alpine-3.22.0-x86_64-uefi-cloudinit-r0.qcow2",
+    "sha256":"bb0f2bb5b61f9bd57f3e0b3d4e0a6c2b8a7e1f9c3d2b4a6e8f0a1c3e5b7d9f1a","format":"qcow2"}},
+  "status":{"phase":"Failed","message":"sha256-mismatch: the download does not match the given SHA-256","attempts":3}}
+]"#;
+
 fn write(dir: &str, name: &str, page: Page, css: &str) {
     let html = ui::render(page)
         .replace("/assets/style.css", css)
@@ -235,6 +260,7 @@ fn main() {
         name: "sam".into(),
         csrf: "csrf".into(),
         launcher: true,
+        image_admin: true,
     };
     let mut pairs: Vec<(VirtualMachine, Pod)> = args[1..]
         .chunks(2)
@@ -300,9 +326,73 @@ fn main() {
         },
         &css,
     );
-    let catalog = images::parse(CATALOG);
-    write(dir, "images", page(Body::Images(catalog.clone())), &css);
-    write(dir, "images-empty", page(Body::Images(Vec::new())), &css);
+    let legacy = images::parse(CATALOG);
+    let resources: Vec<qrab_operator::image::BaseImage> =
+        serde_json::from_str(BASE_IMAGES).expect("sample BaseImages");
+    let catalog = images::catalog(&resources, legacy.clone(), true);
+    let groups = image_page::groups(&resources, &legacy);
+    let images_page = |body: ImagesPage, image_admin: bool| Page {
+        user: Some(UserView {
+            image_admin,
+            ..user.clone()
+        }),
+        notice: None,
+        body: Body::Images(Box::new(body)),
+    };
+    let listed = ImagesPage {
+        groups: groups.clone(),
+        ..Default::default()
+    };
+    write(dir, "images", images_page(listed.clone(), true), &css);
+    write(dir, "images-viewer", images_page(listed, false), &css);
+    write(
+        dir,
+        "images-empty",
+        images_page(ImagesPage::default(), false),
+        &css,
+    );
+    let refresh = [("refresh".to_string(), "cirros".to_string())];
+    let (label, values) = image_page::prefill(&groups, &refresh).expect("cirros refresh");
+    write(
+        dir,
+        "images-refresh",
+        images_page(
+            ImagesPage {
+                groups: groups.clone(),
+                values,
+                prefill: Some(label),
+                ..Default::default()
+            },
+            true,
+        ),
+        &css,
+    );
+    write(
+        dir,
+        "images-errors",
+        images_page(
+            ImagesPage {
+                groups,
+                values: vec![
+                    ("image".into(), "Debian_13".into()),
+                    ("url".into(), "http://example.com/x.img".into()),
+                ],
+                errors: vec![
+                    FormError::at(
+                        "image",
+                        "The image name is 1-32 lowercase letters, digits or '-', starting and ending with a letter or digit.",
+                    ),
+                    FormError::at(
+                        "url",
+                        "The download URL is an https:// URL of at most 2048 characters, without spaces or credentials.",
+                    ),
+                ],
+                prefill: None,
+            },
+            true,
+        ),
+        &css,
+    );
     let (mut long_vm, mut long_pod) = network_vm();
     let long_name = format!("vm-{}", "a".repeat(60));
     long_vm.metadata.name = Some(long_name.clone());
