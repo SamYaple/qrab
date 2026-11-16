@@ -49,6 +49,7 @@ LOWER_FILE = NETWORK_DIR / "05-qrab-macsec-lower.network"
 UPPER_FILE = NETWORK_DIR / "06-qrab-macsec-upper.network"
 SYSCTL_FILE = Path("/etc/sysctl.d/80-qrab-macsec.conf")
 UNIT_DIR = Path("/etc/systemd/system")
+WAIT_ONLINE = Path("/usr/lib/systemd/systemd-networkd-wait-online")
 
 
 class DeployError(RuntimeError):
@@ -590,6 +591,8 @@ def inspect_host(state):
                     and item.get("max_mtu", 0) >= LOWER_MTU, "unexpected gateway tap topology")
             snapshot["taps"][name] = item["mtu"]
     else:
+        require(WAIT_ONLINE.is_file() and os.access(WAIT_ONLINE, os.X_OK),
+                "the node networkd wait-online helper is unavailable")
         snapshot["keepalived"] = snapshot_file("/etc/keepalived/keepalived.conf")
         require(snapshot["keepalived"] is not None, "keepalived config is missing")
         render_keepalived(base64.b64decode(snapshot["keepalived"]["data"]).decode())
@@ -644,6 +647,23 @@ def render_keepalived(text):
     require(interface_count == 1 and vip_count == 1,
             "keepalived does not match the reviewed single API VIP layout")
     return text
+
+
+def configure_wait_online(state, profile):
+    if profile["role"] == "gateway":
+        return
+    # Netplan's generated drop-in explicitly selects enp0s2. Marking the
+    # lower RequiredForOnline=no cannot override that command-line selection.
+    # Wait for the addressed upper, preserving routable IPv4 and DNS checks.
+    # Neither MKA startup nor this wait depends on Kubernetes/SPIRE readiness.
+    content = f"""[Unit]
+After=qrab-macsec.service systemd-resolved.service
+[Service]
+ExecStart=
+ExecStart={WAIT_ONLINE} --interface={UPPER}:routable --ipv4 --dns --timeout=120
+"""
+    remember_write(state, UNIT_DIR / "systemd-networkd-wait-online.service.d/80-qrab-macsec.conf",
+                   content.encode())
 
 
 def render_network(profile, before):
@@ -997,6 +1017,7 @@ def activate(state):
         kubelet = ("[Service]\nExecStart=\nExecStart=" + before["kubelet_start"]
                    + " --node-ip=" + profile["ip"] + "\n")
         remember_write(state, UNIT_DIR / "kubelet.service.d/80-qrab-macsec.conf", kubelet.encode())
+        configure_wait_online(state, profile)
     # Preserve the local IP continuously, then remove its clear lower binding.
     production_addresses(profile)
     run(["networkctl", "reload"])

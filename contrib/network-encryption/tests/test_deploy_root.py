@@ -264,6 +264,37 @@ class FileTransactions(unittest.TestCase):
 
 
 class BootAndIdentity(unittest.TestCase):
+    def test_node_wait_overrides_generated_netplan_lower_and_rolls_back(self):
+        netplan = """[Service]
+ExecStart=
+ExecStart=/lib/systemd/systemd-networkd-wait-online -i enp0s2:degraded
+ExecStart=/lib/systemd/systemd-networkd-wait-online --any --dns -o routable -i enp0s2
+"""
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root)/"state";state.mkdir()
+            units=Path(root)/"units"
+            path=units/"systemd-networkd-wait-online.service.d/80-qrab-macsec.conf"
+            path.parent.mkdir(parents=True)
+            original=b"# preserved administrator override\n";path.write_bytes(original)
+            with patch.object(D,"UNIT_DIR",units):
+                D.configure_wait_online(state,{"role":"kube02"})
+            effective=[]
+            for line in (netplan+path.read_text()).splitlines():
+                if line=="ExecStart=":effective.clear()
+                elif line.startswith("ExecStart="):effective.append(D.shlex.split(line[10:]))
+            self.assertEqual(len(effective),1)
+            self.assertIn("--interface=macsec0:routable",effective[0])
+            self.assertIn("--ipv4",effective[0]);self.assertIn("--dns",effective[0])
+            self.assertNotIn("enp0s2"," ".join(effective[0]))
+            self.assertIn("After=qrab-macsec.service systemd-resolved.service",path.read_text())
+            self.assertEqual(D.restore_files(state),[])
+            self.assertEqual(path.read_bytes(),original)
+
+    def test_gateway_keeps_its_existing_wait_online_policy(self):
+        with patch.object(D,"remember_write") as write:
+            D.configure_wait_online(Path("/unused"),{"role":"gateway"})
+        write.assert_not_called()
+
     def test_operator_default_does_not_follow_the_sudo_caller(self):
         for caller in ("root", "other-admin", "bob"):
             with self.subTest(caller=caller), patch.dict(os.environ, {"SUDO_USER": caller}):
