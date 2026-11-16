@@ -56,5 +56,31 @@
     "CAK possession authenticates link-group membership; no per-peer SPIFFE SVID",
     "Native bridge, boot, addresses, VIP, routes and Cilium upper attachment remain deployment work",
     "Physical gateway root access unresolved; production underlay unchanged"
-  ]
+  ],
+  "publishedTools": {
+    "reference": "zot.yapplesauce.com/qrab/link-tools@sha256:91129ff32d6d4e012ffe355a441481143cae27358894e31156a6ffbf74e88c6e",
+    "sourceRevision": "48d26c9d61282a7f7e7ba3f1c68928bd4ed6d90d",
+    "immutablePullVerified": true,
+    "binaryMatchesTestedBundle": true,
+    "stagedNodes": [
+      {
+        "node": "kube01",
+        "path": "/var/tmp/qrab-link-tools-release-91129ff32d6d",
+        "toolBinarySha256": "13b6a65f587fe57817d1aa4075c0459add5b93df384304547206e4a4bbd74ab8",
+        "version": "2.11"
+      },
+      {
+        "node": "kube02",
+        "path": "/var/tmp/qrab-link-tools-release-91129ff32d6d",
+        "toolBinarySha256": "13b6a65f587fe57817d1aa4075c0459add5b93df384304547206e4a4bbd74ab8",
+        "version": "2.11"
+      },
+      {
+        "node": "kube03",
+        "path": "/var/tmp/qrab-link-tools-release-91129ff32d6d",
+        "toolBinarySha256": "13b6a65f587fe57817d1aa4075c0459add5b93df384304547206e4a4bbd74ab8",
+        "version": "2.11"
+      }
+    ]
+  }
 }

@@ -548,8 +548,8 @@ zero matching plaintext TCP packets on either physical uplink.
 A UDP query to a CoreDNS Pod on kube02 from the kube01 client returned three
 successful answers. Paired captures saw six inner DNS packets and zero matching
 physical plaintext packets, also with zero kernel drops. No VPN profile was
-active during this run; the configured VPN path keeps its separate source and
-enrollment evidence.
+active during these captures. A later [VPN NIC lab run](../networking.md#vpn-nics)
+verified the deployed manager's tunnel, kill switch and migration separately.
 
 The repeated-migration inner captures span both moves with zero drops. Physical
 captures observed WireGuard records and no matching plaintext, but two reached

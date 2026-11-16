@@ -72,7 +72,8 @@ are either plain, local, or externally controlled.
 
 The [ingress transport implementation](ingress.md) adds exact-URI SPIRE mTLS
 for M2/M4/M5 and local exec probes for P11. Its Envoy enrollment, image rollout
-and live verification are a separate pending deployment from the snapshots above.
+and [live verification](connections/platform-evidence.md#ingress-backend-mtls-and-https-build-rollout-2026-11-16)
+are complete; the original audit snapshots above remain historical evidence.
 
 ## System map
 
@@ -322,7 +323,7 @@ They still move executable content or credentials and belong in a full inventory
 | ID | Initiator → endpoint | Data and protection |
 | --- | --- | --- |
 | A1 | Kubelet/container runtime → delegated image-pull identity services → Zot registry | Pod/ServiceAccount-bound pull authorization and OCI manifests/layers for digest-pinned images. Workload Pods need no registry password mount. Provider→shim SPIFFE mTLS, shim→Kubernetes TokenReview HTTPS and shim→Kanidm HTTPS are defined by [external source](connections/platform-evidence.md#storage-ingress-and-exchange-shim-s1s3-a1). Exact deployed policies/backend TLS still require platform evidence; `imagePullPolicy: Always` alone proves none of this. |
-| A2 | Release workstation → `towl tokens mint --audience zot` → Podman registry login/push/pull | Fresh scoped credential on stdin; registry HTTPS carries OCI images/manifests. `publish.sh` checks source revision and immutable digest; `images.lock.json` records pins. This session did not build, publish or roll out images. |
+| A2 | Release workstation → `towl tokens mint --audience zot` → Podman registry login/push/pull | Fresh scoped credential on stdin; registry HTTPS carries OCI images/manifests. `publish.sh` checks source revision and immutable digest; `images.lock.json` records runtime pins. The initial audit performed no publication; later dated rollout records verify published and deployed artifacts separately. |
 | A3 | Image build stages → Debian APT HTTPS mirrors (signed package indices and build/runtime dependencies) | **Verified HTTPS builds** with certificate/hostname verification and redirects disabled. Bootstrap CA store copied from immutable Rust image before the first fetch; APT signatures remain enabled. QEMU and Rust images were built/published and booted in the deployed release. |
 | A4 | Admin staging tool → HTTPS OS image URL (HTTPS redirects), then local raw conversion/import and Kubernetes catalog | Upstream checksum then raw SHA-256 rechecked by root import. `qrab-base-images` holds metadata; dashboard does not download its `source_url`. Media/firmware are pre-provisioned catalog mounts, not remote Redfish upload/download streams. |
 | A5 | Administrator `kubectl` → API → kubelet/CRI exec/log/port-forward | Kubernetes control/debug connection can reach processes, logs and private files when authorized. Client transport uses kubeconfig TLS/auth; API-to-node/CRI legs are **external**. Port-forward can expose an otherwise private listener and changes the observer's access boundary; it does not change that listener's application authentication. |

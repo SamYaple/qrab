@@ -32,6 +32,11 @@ namespaces/configurations afterward. Bundled libraries replace no host package.
 [Machine-readable evidence](../contrib/network-encryption/prototype-evidence.json)
 records hashes, versions, scope and limitations.
 
+The [immutable tool bundle](../contrib/network-encryption/tools.ref) was pulled
+back by digest and staged under `/var/tmp` on all three nodes. Its binary hash
+and version were checked on each node. It installs no service or native package
+and contains no CAK/configuration. Staging tools is separate from activation.
+
 ## Proposed transport
 
 ```mermaid

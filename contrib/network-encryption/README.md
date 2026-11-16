@@ -5,6 +5,13 @@ network-namespace experiments. It changes no production interface or service.
 The kernel supports MACsec on the three nodes and storage gateway; native MKA
 and Cilium integration still require verification before a production plan.
 
+The published [immutable bundle](tools.ref) was built from qrab `48d26c9` and
+pulled back by digest. Its binary hash matches the tested patched bundle.
+Extract it with `podman create "$(cat contrib/network-encryption/tools.ref)" /unused`
+and `podman cp` as below. No CAK or native service is included.
+The same bundle is staged at `/var/tmp/qrab-link-tools-release-91129ff32d6d`
+on kube01, kube02 and kube03; version and binary hash match on each node.
+
 Build from the pinned qrab QEMU runtime. Package retrieval uses verified HTTPS,
 package signatures and the existing strict APT helper. The bundle retains the
 package versions, runtime dependency list and license files. It carries its own
