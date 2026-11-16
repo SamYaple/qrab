@@ -181,6 +181,34 @@ guest boundary (what code in the VM may do) stay separate.
 7. **Deletion.** The operator removes the VM's ClusterStaticEntries. The guest
    agent's SVIDs lapse at their TTL, and the agent is evicted from SPIRE.
 
+### The qrab CAs (created 2026-11-16)
+
+| CA | Subject | SHA-256 fingerprint |
+| --- | --- | --- |
+| Endorsement | `CN=qrab-endorsement-ca-1,O=qrab` | `e9a9b4f57875c2e3822aef9c9e28af71c9253a68f3f8eaebc945e8c1bd4eee05` |
+| DevID | `CN=qrab-devid-ca-1,O=qrab` | `0cd4e428954c70e631d58d189760093c0496154e13d84fc46101bec486525022` |
+
+Both are ECDSA P-256, self-signed, `pathlen:0`, valid for ten years.
+
+- `contrib/qrab-tpm-ca-create.sh` made them. It generated the keys in tmpfs,
+  wrote Secret `qrab-tpm-issuer/qrab-tpm-issuer-ca` (`ek-ca.pem`, `ek-ca.key`,
+  `devid-ca.pem`, `devid-ca.key`) and ConfigMap `qrab-tpm-issuer-ca-certs`
+  (the two certificates only), then shredded the keys. It refuses to replace
+  an existing Secret: rotating a CA invalidates every guest DevID.
+- `contrib/spire-trust-qrab-cas.sh <ek sha256> <devid sha256>` appended both
+  certificates to `/etc/spire/ca/endorsement-ca.pem` and `devid-ca.pem` on
+  kube01–03.
+  - It verifies that the ConfigMap's certificates match these fingerprints.
+  - It restarts one server at a time, and only while the others are healthy.
+  - It keeps `*.before-qrab-<UTC>` backups.
+  - Re-running it is a no-op.
+- The workload selector for guests is therefore
+  `tpm_devid:issuer:cn:qrab-devid-ca-1`.
+- Cluster-wide Secret readers can read the CA keys: Flux, cert-manager,
+  cilium-operator, the kube-state-metrics and Grafana roles, and the Kanidm
+  `kubernetes:admin` group. This is the custody the in-cluster Secret was
+  chosen with.
+
 ### Rejected alternatives
 
 - **SPIRE Delegated Identity API from a node-level helper.** The agent returns
