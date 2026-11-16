@@ -670,16 +670,39 @@ async fn run_qemu(
                     let live = nics.live(config);
                     let config = &live;
                     let grown=state.resize.as_ref().is_some_and(|resize| resize.current!=resize.boot);
-                    let sent = tokio::select! {
-                        biased;
-                        _=&mut shutdown => {
-                            let _=qmp.execute_raw(serde_json::json!({"execute":"migrate_cancel"})).await;
-                            return Ok(Ended::Shutdown);
+                    let sent = {
+                        // Progress callbacks do not run while the target prepares
+                        // its storage, swtpm and NICs. Keep observing QMP during
+                        // every await, with the same probe freshness requirement.
+                        let shared = std::sync::Mutex::new(&mut *state);
+                        let sending=migration::send(config, &qmp, session, pending, retained.clone(), grown, |progress| {
+                            let published=shared.lock()
+                                .map_err(|_| Error::Spawn("migration status lock poisoned".into()))
+                                .and_then(|mut record| {
+                                    record.run_state=Some(format!("migrating:{progress}"));
+                                    publish(config,&mut record).map(|_| true)
+                                });
+                            std::future::ready(published)
+                        });
+                        tokio::pin!(sending);
+                        loop {
+                            tokio::select! {
+                                biased;
+                                _=&mut shutdown => {
+                                    let _=qmp.execute_raw(serde_json::json!({"execute":"migrate_cancel"})).await;
+                                    return Ok(Ended::Shutdown);
+                                }
+                                sent=&mut sending => break sent,
+                                _=heartbeat.tick() => {
+                                    let observed=qmp.execute(&QueryStatus {}).await?;
+                                    let mut record=shared.lock()
+                                        .map_err(|_| Error::Spawn("migration status lock poisoned".into()))?;
+                                    record.ready=observed.running;
+                                    record.run_state=Some(format!("migrating:{}",observed.status));
+                                    publish(config,&mut record)?;
+                                }
+                            }
                         }
-                        sent=migration::send(config, &qmp, session, pending, retained.clone(), grown, |progress| {
-                            state.run_state=Some(format!("migrating:{progress}"));
-                            std::future::ready(publish(config,state).map(|_| true))
-                        }) => sent,
                     };
                     match sent {
                         Sent::Completed => {

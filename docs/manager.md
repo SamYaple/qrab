@@ -243,7 +243,11 @@ containers. A private runtime session owns QMP, VNC and swtpm sockets. QEMU star
 paused, the manager verifies QMP, then resumes it. Serial output goes to stdout;
 manager/BMC lifecycle records go to stderr. No raw QMP/VNC TCP listener is opened.
 
-A one-second QMP heartbeat atomically writes `status.json`. Probes validate
+A one-second QMP heartbeat atomically writes `status.json`. An outgoing
+migration keeps this QMP-backed heartbeat running while an authenticated target
+prepares its storage, swtpm and NICs, as well as during the stream. Target startup
+may outlast the five-second probe freshness limit; that limit and the exact
+process identity checks remain in force. Probes validate
 freshness and process start times for manager, QEMU and swtpm. The CLI's `ready`
 requires QMP running; `live` permits paused guests. BMC HTTP `/readyz` uses live
 semantics so an operator can resume a paused VM. A powered-off VM (phase `off`)

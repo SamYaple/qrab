@@ -92,10 +92,13 @@ async fn mock_qemu_with(
     // Set by an injected FLOOD_NEXT_STOP: the next `stop` is slow and is
     // preceded by a burst far beyond QMP's client event queue.
     let mut flood = 0;
+    let mut observe_status = false;
     loop {
         tokio::select! {
             Some((name, data)) = inject.recv() => if name == "FLOOD_NEXT_STOP" {
                 flood = data["count"].as_u64().unwrap();
+            } else if name == "OBSERVE_QUERY_STATUS" {
+                observe_status = true;
             } else {
                 writer.send_event(&name, data).await.unwrap()
             },
@@ -118,9 +121,13 @@ async fn mock_qemu_with(
                             "flush_operations":99,"flush_total_time_ns":10,"rd_total_time_ns":20,"wr_total_time_ns":30,"wr_highest_offset":99999}))}
                     }]),
                     "query-status" => json!({"running":running,"status":if running {"running"} else {"paused"}}),
+                    "qom-get" if command.arguments["path"] == "/machine" && command.arguments["property"] == "type" => json!("pc-q35-11.1-machine"),
                     _ => json!({}),
                 };
                 writer.send_return_with_id(reply, command.id).await.unwrap();
+                if observe_status && command.name == "query-status" {
+                    writer.send_event("TEST_QUERY_STATUS_REPLY", json!({})).await.unwrap();
+                }
                 let event = match command.name.as_str() {
                     "cont" => { running = true; Some(("RESUME", json!({}))) }
                     "stop" => { running = false; Some(("STOP", json!({}))) }
@@ -1315,4 +1322,79 @@ async fn polling_a_hung_agent_never_exhausts_control_connections() {
     );
     drop(held);
     runner.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_authenticated_target_wait_does_not_starve_source_probes() {
+    const VM: &str = "spiffe://yapplesauce.com/kubernetes/qrab/vm/uid-1";
+    let ca = Authority::new();
+    let source = Workload::serve(vec![ca.svid(VM)]);
+    let target = Workload::serve(vec![ca.svid(VM)]);
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let (_dir, mut config) = fixture();
+    config.migration =
+        Some(serde_json::from_value(json!({"port":port,"workload_api":source.endpoint})).unwrap());
+    let (control, inject, runner) = start(&config);
+    wait_for_phase(&control, pod::Phase::Running).await;
+    inject
+        .send(("OBSERVE_QUERY_STATUS".into(), json!({})))
+        .await
+        .unwrap();
+    let identity = qrab_spiffe::Identity::connect(&target.endpoint)
+        .await
+        .unwrap();
+    let connector = identity.connector(&[qrab_spiffe::id(VM).unwrap()]).unwrap();
+    let tcp = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(socket) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                break socket;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut stream = connector.connect(tcp).await.unwrap();
+    let mut hello = serde_json::to_vec(&json!({
+        "version":1,"migration":"waiting-target","state_id":config.name
+    }))
+    .unwrap();
+    hello.push(b'\n');
+    stream.write_all(&hello).await.unwrap();
+    let mut target = BufReader::new(stream);
+    let mut offer = String::new();
+    tokio::time::timeout(Duration::from_secs(5), target.read_line(&mut offer))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(serde_json::from_str::<Value>(&offer).unwrap()["offer"].is_object());
+    // Swtpm, storage and NIC startup can take much longer than the five-second
+    // probe freshness limit. The source must keep observing its healthy QMP.
+    tokio::time::sleep(Duration::from_millis(6200)).await;
+    let liveness = pod::probe(&config, false);
+    let readiness = pod::probe(&config, true);
+    let observations = control
+        .events(None, pod::EVENT_PAGE_LIMIT)
+        .events
+        .into_iter()
+        .filter(|event| event.event == "TEST_QUERY_STATUS_REPLY")
+        .count();
+    // End the target's attempt without starting a QEMU migration stream.
+    target
+        .get_mut()
+        .write_all(b"{\"ready\":false}\n")
+        .await
+        .unwrap();
+    drop(target);
+    assert_eq!(runner.shutdown().await.reason, "shutdown-requested");
+    liveness.expect("a healthy source lost its liveness while waiting for ready");
+    readiness.expect("a still-running source lost its readiness while waiting for ready");
+    assert!(
+        observations >= 3,
+        "the source must observe actual QMP responses during the wait"
+    );
 }
