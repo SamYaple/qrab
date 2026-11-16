@@ -171,9 +171,6 @@ pub fn render(page: Page) -> String {
     let title = match &page.body {
         Body::Detail(d) => format!("{} · qrab VMs", d.detail.row.name),
         Body::Console(c) => format!("{} console · qrab VMs", c.name),
-        Body::Launch(form) if launch::max_name_length(&form.namespace) == 0 => {
-            "Launching is unavailable · qrab VMs".into()
-        }
         Body::Launch(form) if !form.errors.is_empty() => "Check launch form · qrab VMs".into(),
         Body::Launch(_) => "Launch a VM · qrab VMs".into(),
         Body::Launched(result) if result.report.failed.is_some() => {
@@ -1150,16 +1147,7 @@ fn field_error(page: &LaunchPage, field: &str) -> Element {
 }
 
 fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
-    let name_limit = launch::max_name_length(&page.namespace);
-    if name_limit == 0 {
-        return rsx! {
-            a { class: "back", href: "/", "← All VMs" }
-            section { class: "card error-card", h1 { "Launching is unavailable" }
-                p { "The namespace name leaves no room for VM access-group names. Ask an administrator to configure a shorter launcher namespace." }
-                a { class: "button", href: "/", "All VMs" }
-            }
-        };
-    }
+    let name_limit = launch::MAX_NAME;
     let v = |key: &str, default: &str| input_value(&page.values, key, default);
     let kvm = v("accelerator", "kvm") == "kvm";
     let node = page
@@ -1205,7 +1193,7 @@ fn launch_form(page: &LaunchPage, user: &UserView) -> Element {
             fieldset { legend { "Machine" }
                 label { r#for: "name", "Name" }
                 input { id: "name", name: "name", aria_invalid: page.invalid("name"), required: true, autocomplete: "off", autocapitalize: "none", spellcheck: "false", maxlength: "{name_limit}", pattern: r"[a-z0-9]([a-z0-9\-]*[a-z0-9])?", value: v("name", ""), aria_describedby: page.described_by("name", "name-help") }
-                p { id: "name-help", class: "muted", "Up to {name_limit} characters in this namespace. Use lowercase letters, digits and hyphens; start and end with a letter or digit." }
+                p { id: "name-help", class: "muted", "Up to {name_limit} characters. Use lowercase letters, digits and hyphens; start and end with a letter or digit." }
                 {field_error(page, "name")}
                 div { class: "pair",
                     div { label { r#for: "cpus", "vCPUs" } input { id: "cpus", name: "cpus", aria_invalid: page.invalid("cpus"), aria_describedby: page.described_by("cpus", ""), r#type: "number", min: "1", max: "256", required: true, value: v("cpus", "1") } {field_error(page, "cpus")} }

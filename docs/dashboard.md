@@ -368,8 +368,7 @@ outside those sections retain native validation too.
 The form takes an operating system (see [Base images](#base-images)): "None:
 demo ESP only" or one catalog image, with a root disk size in GiB (default 1,
 at least the image size rounded up to whole GiB, at most 1024). It also takes a
-name (DNS label, at most 50 characters, and
-`qrab_vm_<namespace>_<name>_viewers` at most 64), vCPUs and an optional
+name (DNS label, at most 50 characters), vCPUs and an optional
 maximum, memory and an optional maximum, the accelerator (KVM or TCG) and
 up to four data disks (ID, GiB, optional base image name
 and generation; they use `DASHBOARD_STORAGE_NODE`), a network interface and
@@ -380,13 +379,17 @@ image, or an image without a configured storage node is a 400 and creates
 nothing. On submit:
 
 1. Preflight: the VirtualMachine, the PVC `<name>-state` and both Kanidm
-   groups must not exist. An existing group is never adopted, because its
-   members would gain access. A `<name>-state` PVC is reused only if the
+   groups must not exist. The groups are named from a fresh launch ID (128
+   random bits as 32 lowercase hex digits), never from the VM name, so a
+   group left by a deleted VM of the same name cannot block a launch. An
+   existing group is still never adopted, because its members would gain
+   access. A `<name>-state` PVC is reused only if the
    dashboard created it and it is still `Pending` (never bound, so it holds
    no TPM identity); this is checked again just before step 3.
 2. Kanidm, with the service-account token: create
-   `qrab_vm_<ns>_<name>_admins` and `_viewers`, nest both in `qrab_vm_users`,
-   and add the launcher's subject to `_admins`.
+   `qrab_vm_<launch-id>_admins` and `_viewers` (described as
+   "qrab VM <ns>/<name> admins|viewers, launched by …"), nest both in
+   `qrab_vm_users`, and add the launcher's subject to `_admins`.
 3. Create the PVC `<name>-state` (`zfs-block`, `ReadWriteOncePod`,
    `Filesystem`, 1Gi).
 4. Create the VirtualMachine with `bootDisk: /opt/qrab/demo/boot.img`,
@@ -395,8 +398,9 @@ nothing. On submit:
    `storageNode` and `disks` when disks are requested (an OS image adds
    `{id: root, sizeBytes, baseImage: {name, generation}, bootIndex: 0}`
    first, so OVMF boots the clone and falls back to the demo ESP at boot
-   index 1), the creator annotation
-   set to the launcher and the label `app.kubernetes.io/managed-by:
+   index 1), the creator annotation set to the launcher, the annotations
+   `qrab.yapplesauce.com/launch-id`, `qrab.yapplesauce.com/admins-group` and
+   `qrab.yapplesauce.com/viewers-group` (the two group UUIDs), and the label `app.kubernetes.io/managed-by:
    qrab-dashboard`. The form has no Redfish options: the Redfish sidecar that
    comes with the BMC serves the dashboard, and the launcher is its admin
    through the console lists.

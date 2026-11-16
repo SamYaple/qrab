@@ -137,45 +137,66 @@ pub struct Request {
     pub cloud_init: Option<CloudInit>,
 }
 
+/// The launch ID, recorded on the VM; its Kanidm groups are named from it.
+pub const LAUNCH_ID: &str = "qrab.yapplesauce.com/launch-id";
+/// The UUIDs of the admins and viewers groups this dashboard created for the VM.
+pub const ADMINS_GROUP: &str = "qrab.yapplesauce.com/admins-group";
+pub const VIEWERS_GROUP: &str = "qrab.yapplesauce.com/viewers-group";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Names {
     pub vm: String,
     pub pvc: String,
+    pub launch_id: String,
     pub admins: String,
     pub viewers: String,
 }
 
-/// The namespace-specific VM name limit, including generated access groups.
-pub fn max_name_length(namespace: &str) -> usize {
-    MAX_NAME.min(64usize.saturating_sub(format!("qrab_vm_{namespace}__viewers").len()))
-}
-
-/// The names one launch creates. Kanidm names are at most 64 characters.
-///
-/// ```
-/// let n = qrab_dashboard::launch::names("qrab", "web").unwrap();
-/// assert_eq!(n.pvc, "web-state");
-/// assert_eq!(n.admins, "qrab_vm_qrab_web_admins");
-/// assert_eq!(n.viewers, "qrab_vm_qrab_web_viewers");
-/// ```
-pub fn names(namespace: &str, name: &str) -> Result<Names, String> {
+/// A VM name the launch form accepts.
+pub fn check_name(name: &str) -> Result<(), String> {
     if !crate::config::dns_label(name) || name.len() > MAX_NAME {
         return Err(format!(
             "Name must be a DNS label of at most {MAX_NAME} characters: lowercase letters, digits and '-', starting and ending with a letter or digit."
         ));
     }
-    let viewers = format!("qrab_vm_{namespace}_{name}_viewers");
-    if viewers.len() > 64 {
-        return Err(format!(
-            "Name is too long for its Kanidm group {viewers} (at most 64 characters; {} available for the name).",
-            64usize.saturating_sub(viewers.len() - name.len())
-        ));
+    Ok(())
+}
+
+/// A fresh launch ID: 128 random bits as 32 lowercase hex digits.
+pub fn new_launch_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+fn launch_id(id: &str) -> bool {
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The names one launch creates. The access groups are named from the
+/// launch ID, never from the VM name, so a group left by a deleted VM cannot
+/// block a new VM with the same name, and the namespace does not limit names.
+///
+/// ```
+/// let id = "0123456789abcdef0123456789abcdef";
+/// let n = qrab_dashboard::launch::names("web", id).unwrap();
+/// assert_eq!(n.pvc, "web-state");
+/// assert_eq!(n.admins, "qrab_vm_0123456789abcdef0123456789abcdef_admins");
+/// assert_eq!(n.viewers, "qrab_vm_0123456789abcdef0123456789abcdef_viewers");
+/// assert!(qrab_dashboard::launch::names("web", "not-hex").is_err());
+/// ```
+pub fn names(name: &str, launch_id_hex: &str) -> Result<Names, String> {
+    check_name(name)?;
+    if !launch_id(launch_id_hex) {
+        return Err("invalid launch ID".into());
     }
     Ok(Names {
         vm: name.into(),
         pvc: format!("{name}-state"),
-        admins: format!("qrab_vm_{namespace}_{name}_admins"),
-        viewers,
+        launch_id: launch_id_hex.into(),
+        admins: format!("qrab_vm_{launch_id_hex}_admins"),
+        viewers: format!("qrab_vm_{launch_id_hex}_viewers"),
     })
 }
 
@@ -266,26 +287,24 @@ pub fn user_data(fields: &[(String, String)]) -> Option<String> {
 /// Errors never quote user-data.
 pub fn parse(
     fields: &[(String, String)],
-    namespace: &str,
     storage_node: Option<&str>,
     catalog: &[BaseImage],
     vpn: &[VpnChoice],
 ) -> Result<Request, Vec<String>> {
-    parse_form(fields, namespace, storage_node, catalog, vpn)
+    parse_form(fields, storage_node, catalog, vpn)
         .map_err(|errors| errors.into_iter().map(|error| error.message).collect())
 }
 
 /// The same validation with stable field targets for the browser form.
 pub fn parse_form(
     fields: &[(String, String)],
-    namespace: &str,
     storage_node: Option<&str>,
     catalog: &[BaseImage],
     vpn: &[VpnChoice],
 ) -> Result<Request, Vec<FormError>> {
     let mut errors = Vec::new();
     let name = field(fields, "name").to_owned();
-    if let Err(e) = names(namespace, &name) {
+    if let Err(e) = check_name(&name) {
         errors.push(FormError::at("name", e));
     }
     // The choice must still be in the catalog at submit time.
@@ -662,7 +681,12 @@ pub fn render_vm(
             "name": names.vm,
             "namespace": namespace,
             "labels": {MANAGED_BY: "qrab-dashboard"},
-            "annotations": {CREATOR: creator},
+            "annotations": {
+                CREATOR: creator,
+                LAUNCH_ID: names.launch_id,
+                ADMINS_GROUP: groups.admins,
+                VIEWERS_GROUP: groups.viewers,
+            },
         },
         "spec": spec,
     })
@@ -702,7 +726,7 @@ impl Launcher<'_> {
     /// fails; groups created here are deleted again if a later step fails.
     pub async fn run(&self, request: &Request, subject: &str, username: &str) -> Report {
         let mut report = Report::default();
-        let names = match names(self.namespace, &request.name) {
+        let names = match names(&request.name, &new_launch_id()) {
             Ok(n) => n,
             Err(e) => {
                 report.failed = Some(("Validate".into(), e));
@@ -903,6 +927,7 @@ impl Launcher<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const ID: &str = "0123456789abcdef0123456789abcdef";
     fn form(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs
             .iter()
@@ -920,7 +945,7 @@ mod tests {
             ("disk0_id", "data"),
             ("disk0_size_gib", "oops"),
         ]);
-        let errors = parse_form(&fields, "qrab", Some("kube03"), &[], &[]).unwrap_err();
+        let errors = parse_form(&fields, Some("kube03"), &[], &[]).unwrap_err();
         assert!(
             errors
                 .iter()
@@ -932,39 +957,46 @@ mod tests {
                 .any(|e| e.field.as_deref() == Some("disk0_size_gib"))
         );
         assert_eq!(
-            parse(&fields, "qrab", Some("kube03"), &[], &[]).unwrap_err(),
+            parse(&fields, Some("kube03"), &[], &[]).unwrap_err(),
             errors.into_iter().map(|e| e.message).collect::<Vec<_>>()
         );
     }
 
     #[test]
-    fn names_follow_the_kanidm_convention_and_limits() {
-        let n = names("qrab", "web-1").unwrap();
+    fn names_come_from_the_launch_id_not_the_vm_name() {
+        let n = names("web-1", ID).unwrap();
         assert_eq!(
             n,
             Names {
                 vm: "web-1".into(),
                 pvc: "web-1-state".into(),
-                admins: "qrab_vm_qrab_web-1_admins".into(),
-                viewers: "qrab_vm_qrab_web-1_viewers".into(),
+                launch_id: ID.into(),
+                admins: format!("qrab_vm_{ID}_admins"),
+                viewers: format!("qrab_vm_{ID}_viewers"),
             }
         );
-        // 8 + 4 + 1 + name + 8 <= 64 → name <= 43 in namespace "qrab".
-        assert_eq!(max_name_length("qrab"), 43);
-        assert_eq!(max_name_length("q"), 46);
-        assert_eq!(max_name_length(&"a".repeat(63)), 0);
-        assert!(names("qrab", &"a".repeat(43)).is_ok());
-        assert!(names("qrab", &"a".repeat(44)).unwrap_err().contains("64"));
-        assert!(names("q", &"a".repeat(46)).is_ok());
-        assert!(names("q", &"a".repeat(47)).is_err());
+        // Kanidm names are at most 64 characters, whatever the VM name.
+        let longest = names(&"a".repeat(MAX_NAME), ID).unwrap();
+        assert!(longest.viewers.len() <= 64 && crate::kanidm::group_name(&longest.viewers));
         assert!(
-            names("q", &"a".repeat(51))
+            names(&"a".repeat(MAX_NAME + 1), ID)
                 .unwrap_err()
                 .contains("at most 50")
         );
         for bad in ["", "Web", "web_1", "-web", "web-", "a.b", "web/x"] {
-            assert!(names("qrab", bad).is_err(), "{bad}");
+            assert!(names(bad, ID).is_err(), "{bad}");
         }
+        for bad in [
+            "",
+            "0123",
+            &ID.to_uppercase(),
+            &format!("{ID}0"),
+            "g123456789abcdef0123456789abcdef",
+        ] {
+            assert!(names("web", bad).is_err(), "{bad}");
+        }
+        let (a, b) = (new_launch_id(), new_launch_id());
+        assert!(names("web", &a).is_ok() && a != b);
     }
 
     #[test]
@@ -987,7 +1019,6 @@ mod tests {
                 ("disk2_id", ""),
                 ("disk2_size_gib", ""),
             ]),
-            "qrab",
             Some("kube03"),
             &[],
             &[],
@@ -1081,7 +1112,7 @@ mod tests {
                 "DNS label",
             ),
         ] {
-            let errors = parse(&form(&pairs), "qrab", Some("kube03"), &[], &[]).unwrap_err();
+            let errors = parse(&form(&pairs), Some("kube03"), &[], &[]).unwrap_err();
             assert!(
                 errors.iter().any(|e| e.contains(needle)),
                 "{needle}: {errors:?}"
@@ -1095,7 +1126,6 @@ mod tests {
                 ("disk0_id", "a"),
                 ("disk0_size_gib", "1"),
             ]),
-            "qrab",
             None,
             &[],
             &[],
@@ -1119,13 +1149,12 @@ mod tests {
                 ("disk0_base_image", "debian"),
                 ("disk0_base_generation", "1"),
             ]),
-            "qrab",
             Some("kube03"),
             &[],
             &[],
         )
         .unwrap();
-        let n = names("qrab", "web").unwrap();
+        let n = names("web", ID).unwrap();
         let vm = render_vm(
             &request,
             &n,
@@ -1144,7 +1173,10 @@ mod tests {
                 "kind": "VirtualMachine",
                 "metadata": {"name": "web", "namespace": "qrab",
                     "labels": {"app.kubernetes.io/managed-by": "qrab-dashboard"},
-                    "annotations": {"qrab.yapplesauce.com/creator-subject": "sub-1"}},
+                    "annotations": {"qrab.yapplesauce.com/creator-subject": "sub-1",
+                        "qrab.yapplesauce.com/launch-id": ID,
+                        "qrab.yapplesauce.com/admins-group": "ga",
+                        "qrab.yapplesauce.com/viewers-group": "gv"}},
                 "spec": {
                     "stateVolumeClaim": "web-state", "memoryMiB": 1024, "maxMemoryMiB": 4096, "cpus": 2,
                     "running": true, "bootDisk": "/opt/qrab/demo/boot.img",
@@ -1197,7 +1229,7 @@ mod tests {
         use crate::images::tests::cirros;
         let catalog = [cirros()];
         let parsed = |extra: &[(&str, &str)], node: Option<&str>| {
-            parse(&os_form(extra), "qrab", node, &catalog, &[])
+            parse(&os_form(extra), node, &catalog, &[])
         };
         // None keeps the demo-ESP launch.
         for none in [&[][..], &[("os", "none")][..], &[("os", "")][..]] {
@@ -1247,23 +1279,16 @@ mod tests {
         big.size_bytes = 5 * 1024 * 1024 * 1024 + 1;
         let errors = parse(
             &os_form(&[("os", "cirros:1"), ("root_size_gib", "5")]),
-            "qrab",
             Some("kube03"),
             &[big.clone()],
             &[],
         )
         .unwrap_err();
         assert!(errors[0].contains("from 6 to 1024"), "{errors:?}");
-        let os = parse(
-            &os_form(&[("os", "cirros:1")]),
-            "qrab",
-            Some("kube03"),
-            &[big],
-            &[],
-        )
-        .unwrap()
-        .os
-        .unwrap();
+        let os = parse(&os_form(&[("os", "cirros:1")]), Some("kube03"), &[big], &[])
+            .unwrap()
+            .os
+            .unwrap();
         assert_eq!(os.root_gib, 6);
         // Without an OS, a data disk may be called root.
         assert!(
@@ -1287,13 +1312,12 @@ mod tests {
                 ("disk0_id", "data"),
                 ("disk0_size_gib", "3"),
             ]),
-            "qrab",
             Some("kube03"),
             &[cirros()],
             &[],
         )
         .unwrap();
-        let n = names("qrab", "web").unwrap();
+        let n = names("web", ID).unwrap();
         let vm = render_vm(
             &request,
             &n,
@@ -1325,10 +1349,10 @@ mod tests {
     }
 
     fn rendered(extra: &[(&str, &str)], catalog: &[BaseImage]) -> serde_json::Value {
-        let request = parse(&os_form(extra), "qrab", Some("kube03"), catalog, &[]).unwrap();
+        let request = parse(&os_form(extra), Some("kube03"), catalog, &[]).unwrap();
         render_vm(
             &request,
-            &names("qrab", "web").unwrap(),
+            &names("web", ID).unwrap(),
             "qrab",
             "sub-1",
             &Groups {
@@ -1400,7 +1424,6 @@ mod tests {
                 ("nic1_enabled", "on"),
                 ("nic1_network", "direct"),
             ]),
-            "qrab",
             Some("kube03"),
             &[],
             &vpn,
@@ -1409,7 +1432,7 @@ mod tests {
         assert_eq!(request.nics.len(), 2);
         let vm = render_vm(
             &request,
-            &names("qrab", "web").unwrap(),
+            &names("web", ID).unwrap(),
             "qrab",
             "subject",
             &Groups {
@@ -1434,7 +1457,6 @@ mod tests {
                 ("nic0_network", "vpn:ch-p2p"),
                 ("nic0_security_groups", "vpn-egress"),
             ]),
-            "qrab",
             Some("kube03"),
             &[],
             &vpn,
@@ -1477,8 +1499,7 @@ mod tests {
                 "attach eth1 or clear",
             ),
         ] {
-            let errors =
-                parse_form(&os_form(&extra), "qrab", Some("kube03"), &[], &vpn).unwrap_err();
+            let errors = parse_form(&os_form(&extra), Some("kube03"), &[], &vpn).unwrap_err();
             assert!(
                 errors
                     .iter()
@@ -1518,7 +1539,7 @@ mod tests {
             (vec![("hostname", long_host.as_str())], "Hostname"),
             (vec![("user_data", too_big.as_str())], "at most 32768 bytes"),
         ] {
-            let errors = parse(&os_form(&extra), "qrab", Some("kube03"), &[], &[]).unwrap_err();
+            let errors = parse(&os_form(&extra), Some("kube03"), &[], &[]).unwrap_err();
             assert!(
                 errors.iter().any(|e| e.contains(needle)),
                 "{needle}: {errors:?}"
@@ -1534,7 +1555,6 @@ mod tests {
                 ("nic0_security_groups", groups),
                 ("user_data", &limit),
             ]),
-            "qrab",
             Some("kube03"),
             &[],
             &[],
@@ -1542,14 +1562,7 @@ mod tests {
         .unwrap();
         assert_eq!(request.nics[0].security_groups.len(), 8);
         // Debug output, which a log line could carry, shows only the size.
-        let request = parse(
-            &os_form(&[("user_data", secret)]),
-            "qrab",
-            Some("kube03"),
-            &[],
-            &[],
-        )
-        .unwrap();
+        let request = parse(&os_form(&[("user_data", secret)]), Some("kube03"), &[], &[]).unwrap();
         let debug = format!("{request:?}");
         assert!(!debug.contains("hunter2") && debug.contains("user_data_bytes: Some(39)"));
     }
@@ -1558,7 +1571,7 @@ mod tests {
     fn only_unbound_dashboard_pvcs_are_reused() {
         let pvc = |labelled: bool, phase: &str| -> PersistentVolumeClaim {
             let mut v =
-                serde_json::to_value(render_pvc(&names("qrab", "web").unwrap(), "qrab")).unwrap();
+                serde_json::to_value(render_pvc(&names("web", ID).unwrap(), "qrab")).unwrap();
             if !labelled {
                 v["metadata"]["labels"] = json!({});
             }

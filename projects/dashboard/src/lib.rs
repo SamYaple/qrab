@@ -714,13 +714,7 @@ async fn launch(
         Err(e) if wants_vpn => return Err(Failure::upstream(&e)),
         Err(_) => Vec::new(),
     };
-    let request = match launch::parse_form(
-        &fields,
-        &app.namespace,
-        app.storage_node.as_deref(),
-        &catalog,
-        &vpn,
-    ) {
+    let request = match launch::parse_form(&fields, app.storage_node.as_deref(), &catalog, &vpn) {
         Ok(r) => r,
         Err(errors) => {
             let mut html = page(
