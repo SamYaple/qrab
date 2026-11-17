@@ -306,6 +306,80 @@
       "followUp": "work/migration-return-anchor-authorization-cache"
     },
     "logSha256": "ee76bef10b730d7163c659cb812687db56dde68f92eb24a2f3435e98860b4588",
-    "scope": "Successful first established-flow migration; the full round trip did not pass. Sandbox/policy not relaxed."
+    "scope": "Successful first established-flow migration; the full round trip did not pass. Sandbox/policy not relaxed.",
+    "result": {
+      "vm": "native-ct-roundtrip-20261117",
+      "startedUtc": "2026-11-17T00:36:50.214607+00:00",
+      "targets": [
+        "kube01",
+        "kube03"
+      ],
+      "controlApi": "https://10.203.0.11:6443",
+      "reason": "Separate round trip after kube02 QEMU permission denial; the original failure is retained.",
+      "exit": 1,
+      "finishedUtc": "2026-11-17T00:44:08.387702+00:00"
+    }
+  },
+  "cleanup": {
+    "initialCheck": {
+      "native-ct-20261117": [
+        {
+          "kind": "virtualmachine",
+          "name": "native-ct-20261117",
+          "absent": true
+        },
+        {
+          "kind": "pvc",
+          "name": "native-ct-20261117-state",
+          "absent": true
+        },
+        {
+          "kind": "ciliumnetworkpolicy",
+          "name": "sg-native-ct-20261117",
+          "absent": true
+        }
+      ],
+      "native-vpn-20261117": [
+        {
+          "kind": "virtualmachine",
+          "name": "native-vpn-20261117",
+          "absent": true
+        },
+        {
+          "kind": "pvc",
+          "name": "native-vpn-20261117-state",
+          "absent": true
+        },
+        {
+          "kind": "ciliumnetworkpolicy",
+          "name": "sg-native-vpn-20261117",
+          "absent": false
+        }
+      ],
+      "native-ct-roundtrip-20261117": [
+        {
+          "kind": "virtualmachine",
+          "name": "native-ct-roundtrip-20261117",
+          "absent": true
+        },
+        {
+          "kind": "pvc",
+          "name": "native-ct-roundtrip-20261117-state",
+          "absent": true
+        },
+        {
+          "kind": "ciliumnetworkpolicy",
+          "name": "sg-native-ct-roundtrip-20261117",
+          "absent": true
+        }
+      ],
+      "vpnProviderAbsent": false
+    },
+    "finalOwnedVpnObjects": {
+      "vpn-provider-native-vpn-20261117": true,
+      "sg-native-vpn-20261117": true,
+      "vpn-native-vpn-20261117": true
+    },
+    "note": "Residual provider, policy and credential removed after ownership checks through direct kube01 API; no credential values read. All test VMs/state PVCs absent; retained disk data preserved."
   }
 }

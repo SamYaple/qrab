@@ -781,7 +781,10 @@ from manager files and netd logs. Bringing the provider down stopped traffic
 without a leak for 15 seconds; restoring it resumed reports after two seconds.
 Migration kube03 → kube01 retained the same guest boot and restored the tunnel.
 The largest overall report gap, including the deliberate outage, was 18.1
-seconds. The oracle exited successfully through its normal cleanup.
+seconds. The oracle exited successfully. API errors left its provider, policy
+and credential behind; those exact test-owned objects were removed after
+metadata/ownership checks through kube01's direct API. The VM and state PVC
+were absent and the local listener was closed. Retained disk data was preserved.
 
 The separate persistent-TCP oracle targeting kube02 failed when the target QEMU
 exited with `cpus_kick_thread: Permission denied` and OS error13. It used manager
