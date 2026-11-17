@@ -17,7 +17,7 @@ deliberately; the caption says which boundary or flow each one explains.
 
 The simplest presentation view: cloud services run in Pods, libvirt still owns host-cgroup guests, and OVN owns their fabric. Text labels identify what the qrab target keeps, replaces and still needs to finish. Arrows are selected control and guest paths, not a complete service call graph.
 
-![OpenStack: simple boundary overview](diagrams/rendered/light/00-openstack-overview.svg)
+![OpenStack: simple boundary overview](diagrams/rendered/dark/00-openstack-overview.svg)
 
 [Editable source](diagrams/00-openstack-overview.json) · [Light SVG](diagrams/rendered/light/00-openstack-overview.svg) · [Dark SVG](diagrams/rendered/dark/00-openstack-overview.svg) · [Print SVG](diagrams/rendered/print/00-openstack-overview.svg) · [PNG](diagrams/rendered/png/00-openstack-overview.png)
 
@@ -27,7 +27,7 @@ The simplest presentation view: cloud services run in Pods, libvirt still owns h
 
 The matching presentation view: Kubernetes owns intent, manager owns QEMU inside its container, and a separate anchor gives each NIC a Cilium identity. The shared platform remains. The overview omits detailed storage/control paths and does not claim all replacement capabilities are complete.
 
-![qrab: simple target boundary overview](diagrams/rendered/light/00-qrab-overview.svg)
+![qrab: simple target boundary overview](diagrams/rendered/dark/00-qrab-overview.svg)
 
 [Editable source](diagrams/00-qrab-overview.json) · [Light SVG](diagrams/rendered/light/00-qrab-overview.svg) · [Dark SVG](diagrams/rendered/dark/00-qrab-overview.svg) · [Print SVG](diagrams/rendered/print/00-qrab-overview.svg) · [PNG](diagrams/rendered/png/00-qrab-overview.png)
 
@@ -37,7 +37,7 @@ The matching presentation view: Kubernetes owns intent, manager owns QEMU inside
 
 A slide-sized view of VM-state, switch-control and node-conntrack boundaries. Source and target managers represent the same immutable VM; node peers have separate node identities. This omits detailed preparation, route forwarding and cleanup; use the sequence/state diagrams for those.
 
-![Migration: simple ownership and stream overview](diagrams/rendered/light/00-migration-overview.svg)
+![Migration: simple ownership and stream overview](diagrams/rendered/dark/00-migration-overview.svg)
 
 [Editable source](diagrams/00-migration-overview.json) · [Light SVG](diagrams/rendered/light/00-migration-overview.svg) · [Dark SVG](diagrams/rendered/dark/00-migration-overview.svg) · [Print SVG](diagrams/rendered/print/00-migration-overview.svg) · [PNG](diagrams/rendered/png/00-migration-overview.png)
 
@@ -47,7 +47,7 @@ A slide-sized view of VM-state, switch-control and node-conntrack boundaries. So
 
 A slide-sized split of scoped provisioning and native guest disk I/O. The root helper owns exports/fences; guest block bytes flow directly through QEMU libiscsi. UEFI/vTPM state remains a separate filesystem volume.
 
-![Storage: simple control and I/O overview](diagrams/rendered/light/00-storage-overview.svg)
+![Storage: simple control and I/O overview](diagrams/rendered/dark/00-storage-overview.svg)
 
 [Editable source](diagrams/00-storage-overview.json) · [Light SVG](diagrams/rendered/light/00-storage-overview.svg) · [Dark SVG](diagrams/rendered/dark/00-storage-overview.svg) · [Print SVG](diagrams/rendered/print/00-storage-overview.svg) · [PNG](diagrams/rendered/png/00-storage-overview.png)
 
@@ -57,7 +57,7 @@ A slide-sized split of scoped provisioning and native guest disk I/O. The root h
 
 The operator-supplied model: Kubernetes hosts the services; libvirt still owns host-cgroup VMs, and OVN owns guest networking. Cilium and FRR are shared platform foundations.
 
-![OpenStack: current deployment boundaries](diagrams/rendered/light/01-openstack-boundaries.svg)
+![OpenStack: current deployment boundaries](diagrams/rendered/dark/01-openstack-boundaries.svg)
 
 [Editable source](diagrams/01-openstack-boundaries.mmd) · [Light SVG](diagrams/rendered/light/01-openstack-boundaries.svg) · [Dark SVG](diagrams/rendered/dark/01-openstack-boundaries.svg) · [Print SVG](diagrams/rendered/print/01-openstack-boundaries.svg) · [PNG](diagrams/rendered/png/01-openstack-boundaries.png)
 
@@ -67,7 +67,7 @@ The operator-supplied model: Kubernetes hosts the services; libvirt still owns h
 
 Kubernetes owns declarative intent; a manager owns QEMU inside its container, and separate NIC anchors connect guests to Cilium. Storage provisioning and guest I/O are different paths.
 
-![qrab: target ownership on the current source](diagrams/rendered/light/02-qrab-boundaries.svg)
+![qrab: target ownership on the current source](diagrams/rendered/dark/02-qrab-boundaries.svg)
 
 [Editable source](diagrams/02-qrab-boundaries.mmd) · [Light SVG](diagrams/rendered/light/02-qrab-boundaries.svg) · [Dark SVG](diagrams/rendered/dark/02-qrab-boundaries.svg) · [Print SVG](diagrams/rendered/print/02-qrab-boundaries.svg) · [PNG](diagrams/rendered/png/02-qrab-boundaries.png)
 
@@ -77,7 +77,7 @@ Kubernetes owns declarative intent; a manager owns QEMU inside its container, an
 
 Replace the service control planes, preserve their required work. Image and volume replacements are constrained foundations with remaining scope.
 
-![Where OpenStack responsibilities move](diagrams/rendered/light/03-service-replacements.svg)
+![Where OpenStack responsibilities move](diagrams/rendered/dark/03-service-replacements.svg)
 
 [Editable source](diagrams/03-service-replacements.mmd) · [Light SVG](diagrams/rendered/light/03-service-replacements.svg) · [Dark SVG](diagrams/rendered/dark/03-service-replacements.svg) · [Print SVG](diagrams/rendered/print/03-service-replacements.svg) · [PNG](diagrams/rendered/png/03-service-replacements.png)
 
@@ -87,7 +87,7 @@ Replace the service control planes, preserve their required work. Image and volu
 
 QEMU and swtpm are manager children. Restricted VM/anchor Pods rely on separate privileged device and network helpers; privilege does not disappear.
 
-![Processes, containers and privileged helpers](diagrams/rendered/light/04-process-containment.svg)
+![Processes, containers and privileged helpers](diagrams/rendered/dark/04-process-containment.svg)
 
 [Editable source](diagrams/04-process-containment.mmd) · [Light SVG](diagrams/rendered/light/04-process-containment.svg) · [Dark SVG](diagrams/rendered/dark/04-process-containment.svg) · [Print SVG](diagrams/rendered/print/04-process-containment.svg) · [PNG](diagrams/rendered/png/04-process-containment.png)
 
@@ -97,7 +97,7 @@ QEMU and swtpm are manager children. Restricted VM/anchor Pods rely on separate 
 
 The OpenStack side is the supplied deployment model. The qrab side shows direct QEMU supervision within the manager container cgroup.
 
-![Containerized libvirt versus a container-owned VM](diagrams/rendered/light/05-cgroup-comparison.svg)
+![Containerized libvirt versus a container-owned VM](diagrams/rendered/dark/05-cgroup-comparison.svg)
 
 [Editable source](diagrams/05-cgroup-comparison.mmd) · [Light SVG](diagrams/rendered/light/05-cgroup-comparison.svg) · [Dark SVG](diagrams/rendered/dark/05-cgroup-comparison.svg) · [Print SVG](diagrams/rendered/print/05-cgroup-comparison.svg) · [PNG](diagrams/rendered/png/05-cgroup-comparison.png)
 
@@ -107,7 +107,7 @@ The OpenStack side is the supplied deployment model. The qrab side shows direct 
 
 Reusing Cilium removes the OVN guest fabric while preserving distinct endpoint identities for management and every guest NIC.
 
-![Two network planes become one Cilium fabric](diagrams/rendered/light/06-two-networks-to-one.svg)
+![Two network planes become one Cilium fabric](diagrams/rendered/dark/06-two-networks-to-one.svg)
 
 [Editable source](diagrams/06-two-networks-to-one.mmd) · [Light SVG](diagrams/rendered/light/06-two-networks-to-one.svg) · [Dark SVG](diagrams/rendered/dark/06-two-networks-to-one.svg) · [Print SVG](diagrams/rendered/print/06-two-networks-to-one.svg) · [PNG](diagrams/rendered/png/06-two-networks-to-one.png)
 
@@ -117,7 +117,7 @@ Reusing Cilium removes the OVN guest fabric while preserving distinct endpoint i
 
 Kubernetes config and private QMP control the VM. Packets and block I/O do not pass through the operator; VM migration has its own payload tunnel.
 
-![Control messages and guest payloads](diagrams/rendered/light/07-control-vs-data.svg)
+![Control messages and guest payloads](diagrams/rendered/dark/07-control-vs-data.svg)
 
 [Editable source](diagrams/07-control-vs-data.mmd) · [Light SVG](diagrams/rendered/light/07-control-vs-data.svg) · [Dark SVG](diagrams/rendered/dark/07-control-vs-data.svg) · [Print SVG](diagrams/rendered/print/07-control-vs-data.svg) · [PNG](diagrams/rendered/png/07-control-vs-data.png)
 
@@ -127,7 +127,7 @@ Kubernetes config and private QMP control the VM. Packets and block I/O do not p
 
 A human subject, an action grant, a service SVID, a guest workload and a CHAP export are different scopes. None is a universal credential.
 
-![Five identity questions with different answers](diagrams/rendered/light/08-identity-questions.svg)
+![Five identity questions with different answers](diagrams/rendered/dark/08-identity-questions.svg)
 
 [Editable source](diagrams/08-identity-questions.mmd) · [Light SVG](diagrams/rendered/light/08-identity-questions.svg) · [Dark SVG](diagrams/rendered/dark/08-identity-questions.svg) · [Print SVG](diagrams/rendered/print/08-identity-questions.svg) · [PNG](diagrams/rendered/png/08-identity-questions.png)
 
@@ -137,7 +137,7 @@ A human subject, an action grant, a service SVID, a guest workload and a CHAP ex
 
 A conditional storage owner gate protects native disks. The kubelet starts the manager; the manager requests local NIC descriptors and publishes no API updates itself.
 
-![A VM launch crosses explicit owners](diagrams/rendered/light/09-launch-sequence.svg)
+![A VM launch crosses explicit owners](diagrams/rendered/dark/09-launch-sequence.svg)
 
 [Editable source](diagrams/09-launch-sequence.mmd) · [Light SVG](diagrams/rendered/light/09-launch-sequence.svg) · [Dark SVG](diagrams/rendered/dark/09-launch-sequence.svg) · [Print SVG](diagrams/rendered/print/09-launch-sequence.svg) · [PNG](diagrams/rendered/png/09-launch-sequence.png)
 
@@ -147,7 +147,7 @@ A conditional storage owner gate protects native disks. The kubelet starts the m
 
 The manager survives an in-place power off. A fresh power-on cycle starts new QEMU/swtpm children while retaining the intended VM identity.
 
-![Power off is not Pod deletion](diagrams/rendered/light/10-power-state.svg)
+![Power off is not Pod deletion](diagrams/rendered/dark/10-power-state.svg)
 
 [Editable source](diagrams/10-power-state.mmd) · [Light SVG](diagrams/rendered/light/10-power-state.svg) · [Dark SVG](diagrams/rendered/dark/10-power-state.svg) · [Print SVG](diagrams/rendered/print/10-power-state.svg) · [PNG](diagrams/rendered/png/10-power-state.png)
 
@@ -157,7 +157,7 @@ The manager survives an in-place power off. A fresh power-on cycle starts new QE
 
 Kernel TAP/vhost queues carry packets through the anchor netns. netd grants descriptors and plumbs resources; its Unix control stream does not relay packets.
 
-![A guest packet through its NIC identity](diagrams/rendered/light/11-guest-packet-path.svg)
+![A guest packet through its NIC identity](diagrams/rendered/dark/11-guest-packet-path.svg)
 
 [Editable source](diagrams/11-guest-packet-path.mmd) · [Light SVG](diagrams/rendered/light/11-guest-packet-path.svg) · [Dark SVG](diagrams/rendered/dark/11-guest-packet-path.svg) · [Print SVG](diagrams/rendered/print/11-guest-packet-path.svg) · [PNG](diagrams/rendered/png/11-guest-packet-path.png)
 
@@ -167,7 +167,7 @@ Kernel TAP/vhost queues carry packets through the anchor netns. netd grants desc
 
 Delegated API authorization reaches narrow root storage verbs. QEMU independently opens its CHAP-authorized LIO session for guest block I/O.
 
-![Storage provisioning versus disk I/O](diagrams/rendered/light/12-storage-control-data.svg)
+![Storage provisioning versus disk I/O](diagrams/rendered/dark/12-storage-control-data.svg)
 
 [Editable source](diagrams/12-storage-control-data.mmd) · [Light SVG](diagrams/rendered/light/12-storage-control-data.svg) · [Dark SVG](diagrams/rendered/dark/12-storage-control-data.svg) · [Print SVG](diagrams/rendered/print/12-storage-control-data.svg) · [PNG](diagrams/rendered/png/12-storage-control-data.png)
 
@@ -177,7 +177,7 @@ Delegated API authorization reaches narrow root storage verbs. QEMU independentl
 
 The image controller orchestrates token-free inspect/write Jobs and separately authorized storage stages. Retirement prevents new clones; it does not erase existing guest disks.
 
-![From verified source to a sealed clone origin](diagrams/rendered/light/13-image-import.svg)
+![From verified source to a sealed clone origin](diagrams/rendered/dark/13-image-import.svg)
 
 [Editable source](diagrams/13-image-import.mmd) · [Light SVG](diagrams/rendered/light/13-image-import.svg) · [Dark SVG](diagrams/rendered/dark/13-image-import.svg) · [Print SVG](diagrams/rendered/print/13-image-import.svg) · [PNG](diagrams/rendered/png/13-image-import.png)
 
@@ -187,7 +187,7 @@ The image controller orchestrates token-free inspect/write Jobs and separately a
 
 Conceptual lifecycle, not a verbatim enumeration of API phases. Fencing is complete only after backend barriers; irreversible destruction has separate authority.
 
-![Disk export ownership and hard fencing](diagrams/rendered/light/14-disk-fencing.svg)
+![Disk export ownership and hard fencing](diagrams/rendered/dark/14-disk-fencing.svg)
 
 [Editable source](diagrams/14-disk-fencing.mmd) · [Light SVG](diagrams/rendered/light/14-disk-fencing.svg) · [Dark SVG](diagrams/rendered/dark/14-disk-fencing.svg) · [Print SVG](diagrams/rendered/print/14-disk-fencing.svg) · [PNG](diagrams/rendered/png/14-disk-fencing.png)
 
@@ -197,7 +197,7 @@ Conceptual lifecycle, not a verbatim enumeration of API phases. Fencing is compl
 
 VM state, switchover control, node conntrack and forwarded guest packets are separate streams. Shared guest disk blocks are not copied through the manager tunnel.
 
-![Migration moves more than RAM](diagrams/rendered/light/15-migration-streams.svg)
+![Migration moves more than RAM](diagrams/rendered/dark/15-migration-streams.svg)
 
 [Editable source](diagrams/15-migration-streams.mmd) · [Light SVG](diagrams/rendered/light/15-migration-streams.svg) · [Dark SVG](diagrams/rendered/dark/15-migration-streams.svg) · [Print SVG](diagrams/rendered/print/15-migration-streams.svg) · [PNG](diagrams/rendered/png/15-migration-streams.png)
 
@@ -207,7 +207,7 @@ VM state, switchover control, node conntrack and forwarded guest packets are sep
 
 Target anchors are prepared as fenced standbys. The final pause transfers endpoint authority; operator adoption follows the documented migrated source outcome.
 
-![Prepare, transfer, switch and adopt](diagrams/rendered/light/16-migration-sequence.svg)
+![Prepare, transfer, switch and adopt](diagrams/rendered/dark/16-migration-sequence.svg)
 
 [Editable source](diagrams/16-migration-sequence.mmd) · [Light SVG](diagrams/rendered/light/16-migration-sequence.svg) · [Dark SVG](diagrams/rendered/dark/16-migration-sequence.svg) · [Print SVG](diagrams/rendered/print/16-migration-sequence.svg) · [PNG](diagrams/rendered/png/16-migration-sequence.png)
 
@@ -217,7 +217,7 @@ Target anchors are prepared as fenced standbys. The final pause transfers endpoi
 
 Unsupported claims or a powered-off source refuse admission. Failure cleanup must preserve safe ownership; success adopts the exact target.
 
-![A single-use migration lifecycle](diagrams/rendered/light/17-migration-state.svg)
+![A single-use migration lifecycle](diagrams/rendered/dark/17-migration-state.svg)
 
 [Editable source](diagrams/17-migration-state.mmd) · [Light SVG](diagrams/rendered/light/17-migration-state.svg) · [Dark SVG](diagrams/rendered/dark/17-migration-state.svg) · [Print SVG](diagrams/rendered/print/17-migration-state.svg) · [PNG](diagrams/rendered/png/17-migration-state.png)
 
@@ -227,7 +227,7 @@ Unsupported claims or a powered-off source refuse admission. Failure cleanup mus
 
 Workload mTLS identifies service peers; the stored user token and VM role authorize the action. Manager then controls private QMP through a bounded local API.
 
-![A user action across two authorization layers](diagrams/rendered/light/18-management-request.svg)
+![A user action across two authorization layers](diagrams/rendered/dark/18-management-request.svg)
 
 [Editable source](diagrams/18-management-request.mmd) · [Light SVG](diagrams/rendered/light/18-management-request.svg) · [Dark SVG](diagrams/rendered/dark/18-management-request.svg) · [Print SVG](diagrams/rendered/print/18-management-request.svg) · [PNG](diagrams/rendered/png/18-management-request.png)
 
@@ -237,7 +237,7 @@ Workload mTLS identifies service peers; the stored user token and VM role author
 
 Console access is admin-scoped. Private VNC is reached through the manager control socket, BMC admission and exact-VM authenticated proxy hops.
 
-![The authenticated graphical console chain](diagrams/rendered/light/19-console-request.svg)
+![The authenticated graphical console chain](diagrams/rendered/dark/19-console-request.svg)
 
 [Editable source](diagrams/19-console-request.mmd) · [Light SVG](diagrams/rendered/light/19-console-request.svg) · [Dark SVG](diagrams/rendered/dark/19-console-request.svg) · [Print SVG](diagrams/rendered/print/19-console-request.svg) · [PNG](diagrams/rendered/png/19-console-request.png)
 
@@ -247,7 +247,7 @@ Console access is admin-scoped. Private VNC is reached through the manager contr
 
 The optional guest SPIRE agent uses VM-bound software-TPM credentials. The relay carries opaque agent/server TLS bytes and does not issue identities.
 
-![A guest identity is not the manager identity](diagrams/rendered/light/20-guest-identity.svg)
+![A guest identity is not the manager identity](diagrams/rendered/dark/20-guest-identity.svg)
 
 [Editable source](diagrams/20-guest-identity.mmd) · [Light SVG](diagrams/rendered/light/20-guest-identity.svg) · [Dark SVG](diagrams/rendered/dark/20-guest-identity.svg) · [Print SVG](diagrams/rendered/print/20-guest-identity.svg) · [PNG](diagrams/rendered/png/20-guest-identity.png)
 
@@ -257,7 +257,7 @@ The optional guest SPIRE agent uses VM-bound software-TPM credentials. The relay
 
 A VM may collect only its proven owned resources. Manual/foreign/unproven state stays retained, and backing bytes follow a separate storage reclaim contract.
 
-![Deletion, retention and destruction have different owners](diagrams/rendered/light/21-deletion-ownership.svg)
+![Deletion, retention and destruction have different owners](diagrams/rendered/dark/21-deletion-ownership.svg)
 
 [Editable source](diagrams/21-deletion-ownership.mmd) · [Light SVG](diagrams/rendered/light/21-deletion-ownership.svg) · [Dark SVG](diagrams/rendered/dark/21-deletion-ownership.svg) · [Print SVG](diagrams/rendered/print/21-deletion-ownership.svg) · [PNG](diagrams/rendered/png/21-deletion-ownership.png)
 
@@ -267,7 +267,7 @@ A VM may collect only its proven owned resources. Manual/foreign/unproven state 
 
 Kubelet Applied describes container resources; manager checks effective cgroups before QMP growth. Guest CPU/memory onlining remains a separate step.
 
-![Admit capacity before QEMU hotplug](diagrams/rendered/light/22-resource-resize.svg)
+![Admit capacity before QEMU hotplug](diagrams/rendered/dark/22-resource-resize.svg)
 
 [Editable source](diagrams/22-resource-resize.mmd) · [Light SVG](diagrams/rendered/light/22-resource-resize.svg) · [Dark SVG](diagrams/rendered/dark/22-resource-resize.svg) · [Print SVG](diagrams/rendered/print/22-resource-resize.svg) · [PNG](diagrams/rendered/png/22-resource-resize.png)
 
@@ -277,7 +277,7 @@ Kubelet Applied describes container resources; manager checks effective cgroups 
 
 These are architectural expectations, not availability guarantees. Established kernel resources can outlive their daemon; new changes still need their control-plane owners.
 
-![Which outage affects which operation](diagrams/rendered/light/23-failure-domains.svg)
+![Which outage affects which operation](diagrams/rendered/dark/23-failure-domains.svg)
 
 [Editable source](diagrams/23-failure-domains.mmd) · [Light SVG](diagrams/rendered/light/23-failure-domains.svg) · [Dark SVG](diagrams/rendered/dark/23-failure-domains.svg) · [Print SVG](diagrams/rendered/print/23-failure-domains.svg) · [PNG](diagrams/rendered/png/23-failure-domains.png)
 
@@ -287,7 +287,7 @@ These are architectural expectations, not availability guarantees. Established k
 
 A validated source merge does not publish images or deploy a cluster. Release and live verification remain separately authorized steps.
 
-![Source, images and rollout are separate operations](diagrams/rendered/light/24-release-boundaries.svg)
+![Source, images and rollout are separate operations](diagrams/rendered/dark/24-release-boundaries.svg)
 
 [Editable source](diagrams/24-release-boundaries.mmd) · [Light SVG](diagrams/rendered/light/24-release-boundaries.svg) · [Dark SVG](diagrams/rendered/dark/24-release-boundaries.svg) · [Print SVG](diagrams/rendered/print/24-release-boundaries.svg) · [PNG](diagrams/rendered/png/24-release-boundaries.png)
 
@@ -297,7 +297,7 @@ A validated source merge does not publish images or deploy a cluster. Release an
 
 The image source digest covers one downloaded file. Backing-file and external-data declarations must be refused before parsing/conversion can select extra inputs. QEMU still owns full image-format validation.
 
-![A digest does not authenticate extra image dependencies](diagrams/rendered/light/25-image-single-file.svg)
+![A digest does not authenticate extra image dependencies](diagrams/rendered/dark/25-image-single-file.svg)
 
 [Editable source](diagrams/25-image-single-file.mmd) · [Light SVG](diagrams/rendered/light/25-image-single-file.svg) · [Dark SVG](diagrams/rendered/dark/25-image-single-file.svg) · [Print SVG](diagrams/rendered/print/25-image-single-file.svg) · [PNG](diagrams/rendered/png/25-image-single-file.png)
 
@@ -307,7 +307,7 @@ The image source digest covers one downloaded file. Backing-file and external-da
 
 A spec change is reconciled through Kubernetes. A bounded Redfish action reaches local QMP/QGA through the manager; powering off in place is not equivalent to deleting the Pod.
 
-![Desired state and a VM action are different paths](diagrams/rendered/light/26-declarative-vs-action.svg)
+![Desired state and a VM action are different paths](diagrams/rendered/dark/26-declarative-vs-action.svg)
 
 [Editable source](diagrams/26-declarative-vs-action.mmd) · [Light SVG](diagrams/rendered/light/26-declarative-vs-action.svg) · [Dark SVG](diagrams/rendered/dark/26-declarative-vs-action.svg) · [Print SVG](diagrams/rendered/print/26-declarative-vs-action.svg) · [PNG](diagrams/rendered/png/26-declarative-vs-action.png)
 
@@ -317,7 +317,7 @@ A spec change is reconciled through Kubernetes. A bounded Redfish action reaches
 
 The target is prepared but fenced. Activation/source standby occurs in the final pause, followed by adoption and a routing/forwarding grace period. This is a conceptual ownership model, not a new API enum or guarantee for every failure.
 
-![Endpoint authority during a live move](diagrams/rendered/light/27-network-handoff-state.svg)
+![Endpoint authority during a live move](diagrams/rendered/dark/27-network-handoff-state.svg)
 
 [Editable source](diagrams/27-network-handoff-state.mmd) · [Light SVG](diagrams/rendered/light/27-network-handoff-state.svg) · [Dark SVG](diagrams/rendered/dark/27-network-handoff-state.svg) · [Print SVG](diagrams/rendered/print/27-network-handoff-state.svg) · [PNG](diagrams/rendered/png/27-network-handoff-state.png)
 
@@ -327,7 +327,7 @@ The target is prepared but fenced. Activation/source standby occurs in the final
 
 Exact workload identity admits the calling service. The user credential and VM role independently authorize management. This diagram excludes standalone development/alternative native credential entrypoints.
 
-![Service admission and user authorization are both required](diagrams/rendered/light/28-auth-is-not-a-role.svg)
+![Service admission and user authorization are both required](diagrams/rendered/dark/28-auth-is-not-a-role.svg)
 
 [Editable source](diagrams/28-auth-is-not-a-role.mmd) · [Light SVG](diagrams/rendered/light/28-auth-is-not-a-role.svg) · [Dark SVG](diagrams/rendered/dark/28-auth-is-not-a-role.svg) · [Print SVG](diagrams/rendered/print/28-auth-is-not-a-role.svg) · [PNG](diagrams/rendered/png/28-auth-is-not-a-role.png)
 
@@ -337,7 +337,7 @@ Exact workload identity admits the calling service. The user credential and VM r
 
 A kernel peer PID is mapped through a validated host unified cgroup and the API-owned Pod to its own VM/NIC. An arbitrary host scope with a Pod-looking UUID does not establish authority. This omits process-lifetime and FD-transfer implementation details.
 
-![Local attachment authority starts with a real Pod hierarchy](diagrams/rendered/light/29-local-pod-authority.svg)
+![Local attachment authority starts with a real Pod hierarchy](diagrams/rendered/dark/29-local-pod-authority.svg)
 
 [Editable source](diagrams/29-local-pod-authority.mmd) · [Light SVG](diagrams/rendered/light/29-local-pod-authority.svg) · [Dark SVG](diagrams/rendered/dark/29-local-pod-authority.svg) · [Print SVG](diagrams/rendered/print/29-local-pod-authority.svg) · [PNG](diagrams/rendered/png/29-local-pod-authority.png)
 
@@ -347,7 +347,7 @@ A kernel peer PID is mapped through a validated host unified cgroup and the API-
 
 Socket-caller identity and anchor-resource selection are separate checks. The original connector pidfd, held proc directories and opened namespace/file descriptors prevent a later numeric PID/path from substituting another resource. API ownership and own-NIC authorization remain required.
 
-![Bind process authority through resource use](diagrams/rendered/light/30-process-resource-handles.svg)
+![Bind process authority through resource use](diagrams/rendered/dark/30-process-resource-handles.svg)
 
 [Editable source](diagrams/30-process-resource-handles.mmd) · [Light SVG](diagrams/rendered/light/30-process-resource-handles.svg) · [Dark SVG](diagrams/rendered/dark/30-process-resource-handles.svg) · [Print SVG](diagrams/rendered/print/30-process-resource-handles.svg) · [PNG](diagrams/rendered/png/30-process-resource-handles.png)
 
@@ -357,7 +357,7 @@ Socket-caller identity and anchor-resource selection are separate checks. The or
 
 The node helper prepares a new namespace generation and manager releases the old backend before requesting fresh queues. Recovery requires guest hot-unplug cooperation; a netd restart observing the same namespace retains its token.
 
-![Same Pod UID, new network namespace](diagrams/rendered/light/31-namespace-incarnation.svg)
+![Same Pod UID, new network namespace](diagrams/rendered/dark/31-namespace-incarnation.svg)
 
 [Editable source](diagrams/31-namespace-incarnation.mmd) · [Light SVG](diagrams/rendered/light/31-namespace-incarnation.svg) · [Dark SVG](diagrams/rendered/dark/31-namespace-incarnation.svg) · [Print SVG](diagrams/rendered/print/31-namespace-incarnation.svg) · [PNG](diagrams/rendered/png/31-namespace-incarnation.png)
 
@@ -367,7 +367,7 @@ The node helper prepares a new namespace generation and manager releases the old
 
 Unix stream fragmentation and SCM_RIGHTS ownership are independent. Every installed descriptor is owned before parse or truncation refusal. The stream grants queues; it does not relay guest packets.
 
-![A bounded control frame carries kernel resources](diagrams/rendered/light/32-descriptor-frame.svg)
+![A bounded control frame carries kernel resources](diagrams/rendered/dark/32-descriptor-frame.svg)
 
 [Editable source](diagrams/32-descriptor-frame.mmd) · [Light SVG](diagrams/rendered/light/32-descriptor-frame.svg) · [Dark SVG](diagrams/rendered/dark/32-descriptor-frame.svg) · [Print SVG](diagrams/rendered/print/32-descriptor-frame.svg) · [PNG](diagrams/rendered/png/32-descriptor-frame.png)
 
@@ -377,7 +377,7 @@ Unix stream fragmentation and SCM_RIGHTS ownership are independent. Every instal
 
 Selected dependency and runtime relationships. A shared Rust control type is not another service and does not grant a management service ownership of private QMP. This is not a complete dependency/deployment graph.
 
-![Linked code and runtime ownership are different maps](diagrams/rendered/light/33-library-runtime-views.svg)
+![Linked code and runtime ownership are different maps](diagrams/rendered/dark/33-library-runtime-views.svg)
 
 [Editable source](diagrams/33-library-runtime-views.mmd) · [Light SVG](diagrams/rendered/light/33-library-runtime-views.svg) · [Dark SVG](diagrams/rendered/dark/33-library-runtime-views.svg) · [Print SVG](diagrams/rendered/print/33-library-runtime-views.svg) · [PNG](diagrams/rendered/png/33-library-runtime-views.png)
 
@@ -387,7 +387,7 @@ Selected dependency and runtime relationships. A shared Rust control type is not
 
 Source, manifest, local real-peer fixture and named live observation answer different questions. Desired state and the user-supplied OpenStack baseline remain separately labeled. No progression to deployed acceptance is implied.
 
-![Four different kinds of evidence](diagrams/rendered/light/34-evidence-classes.svg)
+![Four different kinds of evidence](diagrams/rendered/dark/34-evidence-classes.svg)
 
 [Editable source](diagrams/34-evidence-classes.json) · [Light SVG](diagrams/rendered/light/34-evidence-classes.svg) · [Dark SVG](diagrams/rendered/dark/34-evidence-classes.svg) · [Print SVG](diagrams/rendered/print/34-evidence-classes.svg) · [PNG](diagrams/rendered/png/34-evidence-classes.png)
 
@@ -397,7 +397,7 @@ Source, manifest, local real-peer fixture and named live observation answer diff
 
 A still-live older same-UID process is not the current anchor container. The API-observed running container, trusted direct cgroup and held process/namespace resources must agree. Same-namespace process refresh preserves the attachment token; unresolved startup waits.
 
-![Current container identity selects the held resource](diagrams/rendered/light/35-current-container-authority.svg)
+![Current container identity selects the held resource](diagrams/rendered/dark/35-current-container-authority.svg)
 
 [Editable source](diagrams/35-current-container-authority.json) · [Light SVG](diagrams/rendered/light/35-current-container-authority.svg) · [Dark SVG](diagrams/rendered/dark/35-current-container-authority.svg) · [Print SVG](diagrams/rendered/print/35-current-container-authority.svg) · [PNG](diagrams/rendered/png/35-current-container-authority.png)
 
@@ -407,7 +407,7 @@ A still-live older same-UID process is not the current anchor container. The API
 
 A captured byte snapshot supplies both parsed plan and fingerprint. Dependent renewal uses the successful applied generation, and late results cannot replace another local generation. This does not imply a transaction across kernel, provider and API, or make the digest a credential.
 
-![Desired input, applied generation and late completion](diagrams/rendered/light/36-applied-snapshot.svg)
+![Desired input, applied generation and late completion](diagrams/rendered/dark/36-applied-snapshot.svg)
 
 [Editable source](diagrams/36-applied-snapshot.mmd) · [Light SVG](diagrams/rendered/light/36-applied-snapshot.svg) · [Dark SVG](diagrams/rendered/dark/36-applied-snapshot.svg) · [Print SVG](diagrams/rendered/print/36-applied-snapshot.svg) · [PNG](diagrams/rendered/png/36-applied-snapshot.png)
 
@@ -417,7 +417,7 @@ A captured byte snapshot supplies both parsed plan and fingerprint. Dependent re
 
 Network peer admission does not authenticate a local tool namespace. The protected Cilium socket original peer and held resource handles select that provider. Private fixtures exercise the binding and namespace transition without changing live BPF maps.
 
-![Authenticate requester and local tool provider separately](diagrams/rendered/light/37-provider-authority.svg)
+![Authenticate requester and local tool provider separately](diagrams/rendered/dark/37-provider-authority.svg)
 
 [Editable source](diagrams/37-provider-authority.mmd) · [Light SVG](diagrams/rendered/light/37-provider-authority.svg) · [Dark SVG](diagrams/rendered/dark/37-provider-authority.svg) · [Print SVG](diagrams/rendered/print/37-provider-authority.svg) · [PNG](diagrams/rendered/png/37-provider-authority.png)
 
@@ -427,7 +427,7 @@ Network peer admission does not authenticate a local tool namespace. The protect
 
 The name locates a resource, exact labels establish own-VM/NIC ownership, and unique CNI attachment identity selects the effect. Name rebinding cannot retarget the PATCH. This is a local API contract, not a live migration/traffic outcome.
 
-![Verify the owner and pin the endpoint attachment](diagrams/rendered/light/38-endpoint-attachment.svg)
+![Verify the owner and pin the endpoint attachment](diagrams/rendered/dark/38-endpoint-attachment.svg)
 
 [Editable source](diagrams/38-endpoint-attachment.mmd) · [Light SVG](diagrams/rendered/light/38-endpoint-attachment.svg) · [Dark SVG](diagrams/rendered/dark/38-endpoint-attachment.svg) · [Print SVG](diagrams/rendered/print/38-endpoint-attachment.svg) · [PNG](diagrams/rendered/png/38-endpoint-attachment.png)
 
@@ -437,7 +437,7 @@ The name locates a resource, exact labels establish own-VM/NIC ownership, and un
 
 Three daily tasks mapped to their narrower target owners and observable outcomes. The mapping does not imply OpenStack API compatibility or a general automatic evacuation product.
 
-![Translate the task, owner and outcome](diagrams/rendered/light/39-operator-task-translator.svg)
+![Translate the task, owner and outcome](diagrams/rendered/dark/39-operator-task-translator.svg)
 
 [Editable source](diagrams/39-operator-task-translator.json) · [Light SVG](diagrams/rendered/light/39-operator-task-translator.svg) · [Dark SVG](diagrams/rendered/dark/39-operator-task-translator.svg) · [Print SVG](diagrams/rendered/print/39-operator-task-translator.svg) · [PNG](diagrams/rendered/png/39-operator-task-translator.png)
 
@@ -447,7 +447,7 @@ Three daily tasks mapped to their narrower target owners and observable outcomes
 
 A workload-specific cold cutover story: isolated rehearsal, consistency, one writer, final transfer, network authority and acceptance. No OpenStack-to-qrab live migration or storage backend is assumed.
 
-![One workload moves between two clusters](diagrams/rendered/light/40-cross-cluster-cutover.svg)
+![One workload moves between two clusters](diagrams/rendered/dark/40-cross-cluster-cutover.svg)
 
 [Editable source](diagrams/40-cross-cluster-cutover.mmd) · [Light SVG](diagrams/rendered/light/40-cross-cluster-cutover.svg) · [Dark SVG](diagrams/rendered/dark/40-cross-cluster-cutover.svg) · [Print SVG](diagrams/rendered/print/40-cross-cluster-cutover.svg) · [PNG](diagrams/rendered/png/40-cross-cluster-cutover.png)
 
@@ -457,7 +457,7 @@ A workload-specific cold cutover story: isolated rehearsal, consistency, one wri
 
 The retained source becomes stale after the target accepts writes. Later failback must reconcile data and authority; restarting the old VM alone is not a sufficient procedure.
 
-![Rollback changes after target writes](diagrams/rendered/light/41-cutover-rollback.svg)
+![Rollback changes after target writes](diagrams/rendered/dark/41-cutover-rollback.svg)
 
 [Editable source](diagrams/41-cutover-rollback.mmd) · [Light SVG](diagrams/rendered/light/41-cutover-rollback.svg) · [Dark SVG](diagrams/rendered/dark/41-cutover-rollback.svg) · [Print SVG](diagrams/rendered/print/41-cutover-rollback.svg) · [PNG](diagrams/rendered/png/41-cutover-rollback.png)
 
@@ -467,7 +467,7 @@ The retained source becomes stale after the target accepts writes. Later failbac
 
 The guest-identity finalizer removes owned entries, optionally stops Pods and calls the scoped evictor, and can release with a Warning after 600 seconds. Other finalizers and previously issued credential lifetimes remain separate.
 
-![Guest identity cleanup has a bounded wait](diagrams/rendered/light/42-guest-identity-deletion.svg)
+![Guest identity cleanup has a bounded wait](diagrams/rendered/dark/42-guest-identity-deletion.svg)
 
 [Editable source](diagrams/42-guest-identity-deletion.mmd) · [Light SVG](diagrams/rendered/light/42-guest-identity-deletion.svg) · [Dark SVG](diagrams/rendered/dark/42-guest-identity-deletion.svg) · [Print SVG](diagrams/rendered/print/42-guest-identity-deletion.svg) · [PNG](diagrams/rendered/png/42-guest-identity-deletion.png)
 
@@ -477,7 +477,7 @@ The guest-identity finalizer removes owned entries, optionally stops Pods and ca
 
 A complete workload recovery procedure coordinates data, boot identity, VM intent, network authority, credentials and ownership. Individual primitives exist; the full backup/restore product and measured RTO/RPO are not established.
 
-![A restore needs more than disk bytes](diagrams/rendered/light/43-recovery-bundle.svg)
+![A restore needs more than disk bytes](diagrams/rendered/dark/43-recovery-bundle.svg)
 
 [Editable source](diagrams/43-recovery-bundle.json) · [Light SVG](diagrams/rendered/light/43-recovery-bundle.svg) · [Dark SVG](diagrams/rendered/dark/43-recovery-bundle.svg) · [Print SVG](diagrams/rendered/print/43-recovery-bundle.svg) · [PNG](diagrams/rendered/png/43-recovery-bundle.png)
 
@@ -487,7 +487,7 @@ A complete workload recovery procedure coordinates data, boot identity, VM inten
 
 A slide-sized desired cutover: isolated rehearsal, final consistent data, one target/network authority and explicit retention/failback. The accepted-write boundary changes rollback; no performed transfer is implied.
 
-![Move one workload, then retire its old owner](diagrams/rendered/light/44-cutover-overview.svg)
+![Move one workload, then retire its old owner](diagrams/rendered/dark/44-cutover-overview.svg)
 
 [Editable source](diagrams/44-cutover-overview.json) · [Light SVG](diagrams/rendered/light/44-cutover-overview.svg) · [Dark SVG](diagrams/rendered/dark/44-cutover-overview.svg) · [Print SVG](diagrams/rendered/print/44-cutover-overview.svg) · [PNG](diagrams/rendered/png/44-cutover-overview.png)
 
@@ -497,7 +497,7 @@ A slide-sized desired cutover: isolated rehearsal, final consistent data, one ta
 
 A slide-sized continuity view separates human sessions, workload/guest SVIDs, disk writer authority and retained copies. Each needs its own validation, expiry, fencing or destruction evidence.
 
-![Different authorities have different revocation clocks](diagrams/rendered/light/45-revocation-clocks.svg)
+![Different authorities have different revocation clocks](diagrams/rendered/dark/45-revocation-clocks.svg)
 
 [Editable source](diagrams/45-revocation-clocks.json) · [Light SVG](diagrams/rendered/light/45-revocation-clocks.svg) · [Dark SVG](diagrams/rendered/dark/45-revocation-clocks.svg) · [Print SVG](diagrams/rendered/print/45-revocation-clocks.svg) · [PNG](diagrams/rendered/png/45-revocation-clocks.png)
 
@@ -507,7 +507,7 @@ A slide-sized continuity view separates human sessions, workload/guest SVIDs, di
 
 A test-only metadata patch checks the intended VM/disk without reading Secret data. Conditional deletion carries the checked object UID/version, so a colliding name, replacement or rotation cannot authorize the wrong cleanup.
 
-![Credential cleanup binds the intended VM and Secret](diagrams/rendered/light/46-secret-cleanup-authority.svg)
+![Credential cleanup binds the intended VM and Secret](diagrams/rendered/dark/46-secret-cleanup-authority.svg)
 
 [Editable source](diagrams/46-secret-cleanup-authority.mmd) · [Light SVG](diagrams/rendered/light/46-secret-cleanup-authority.svg) · [Dark SVG](diagrams/rendered/dark/46-secret-cleanup-authority.svg) · [Print SVG](diagrams/rendered/print/46-secret-cleanup-authority.svg) · [PNG](diagrams/rendered/png/46-secret-cleanup-authority.png)
 
@@ -517,7 +517,7 @@ A test-only metadata patch checks the intended VM/disk without reading Secret da
 
 An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. It does not establish Kubernetes placement, guest networking or storage-backend acceptance.
 
-![Observed local KVM/container boundary](diagrams/rendered/light/47-container-kvm-proof.svg)
+![Observed local KVM/container boundary](diagrams/rendered/dark/47-container-kvm-proof.svg)
 
 [Editable source](diagrams/47-container-kvm-proof.json) · [Light SVG](diagrams/rendered/light/47-container-kvm-proof.svg) · [Dark SVG](diagrams/rendered/dark/47-container-kvm-proof.svg) · [Print SVG](diagrams/rendered/print/47-container-kvm-proof.svg) · [PNG](diagrams/rendered/png/47-container-kvm-proof.png)
 
@@ -527,7 +527,7 @@ An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in 
 
 A one-MiB residual budget cannot authorize a two-MiB device block. The manager now budgets actual whole blocks and reports the true requested size; exact unrepresentable increments use controlled restart. Values illustrate the regression, rather than deployed workload sizing.
 
-![Budget whole memory-device blocks before QMP](diagrams/rendered/light/48-memory-block-budget.svg)
+![Budget whole memory-device blocks before QMP](diagrams/rendered/dark/48-memory-block-budget.svg)
 
 [Editable source](diagrams/48-memory-block-budget.json) · [Light SVG](diagrams/rendered/light/48-memory-block-budget.svg) · [Dark SVG](diagrams/rendered/dark/48-memory-block-budget.svg) · [Print SVG](diagrams/rendered/print/48-memory-block-budget.svg) · [PNG](diagrams/rendered/png/48-memory-block-budget.png)
 
@@ -537,7 +537,7 @@ A one-MiB residual budget cannot authorize a two-MiB device block. The manager n
 
 A disposable CLI check demonstrates how conflicting roots validated a namesake instead of the actual boot path. The repaired check requires a matching canonical image path. Standard operator roots already match; immutable trusted publication remains part of the contract.
 
-![Bind boot-media validation to the actual path](diagrams/rendered/light/49-boot-media-path.svg)
+![Bind boot-media validation to the actual path](diagrams/rendered/dark/49-boot-media-path.svg)
 
 [Editable source](diagrams/49-boot-media-path.json) · [Light SVG](diagrams/rendered/light/49-boot-media-path.svg) · [Dark SVG](diagrams/rendered/dark/49-boot-media-path.svg) · [Print SVG](diagrams/rendered/print/49-boot-media-path.svg) · [PNG](diagrams/rendered/png/49-boot-media-path.png)
 
@@ -547,7 +547,7 @@ A disposable CLI check demonstrates how conflicting roots validated a namesake i
 
 Four actors use different entrypoints and grants. The dashboard backend is an API actor under its ServiceAccount; an end-user VM role, a workload SVID and platform administration do not collapse into one credential.
 
-![Separate VM, API, workload and platform authority](diagrams/rendered/light/50-authority-entrypoints.svg)
+![Separate VM, API, workload and platform authority](diagrams/rendered/dark/50-authority-entrypoints.svg)
 
 [Editable source](diagrams/50-authority-entrypoints.json) · [Light SVG](diagrams/rendered/light/50-authority-entrypoints.svg) · [Dark SVG](diagrams/rendered/dark/50-authority-entrypoints.svg) · [Print SVG](diagrams/rendered/print/50-authority-entrypoints.svg) · [PNG](diagrams/rendered/png/50-authority-entrypoints.png)
 
@@ -557,7 +557,7 @@ Four actors use different entrypoints and grants. The dashboard backend is an AP
 
 The current protected-platform foundation differs from a complete tenant-facing VM API and from arbitrary hostile Pod writers. The latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.
 
-![Current and possible tenancy models](diagrams/rendered/light/51-tenancy-models.svg)
+![Current and possible tenancy models](diagrams/rendered/dark/51-tenancy-models.svg)
 
 [Editable source](diagrams/51-tenancy-models.json) · [Light SVG](diagrams/rendered/light/51-tenancy-models.svg) · [Dark SVG](diagrams/rendered/dark/51-tenancy-models.svg) · [Print SVG](diagrams/rendered/print/51-tenancy-models.svg) · [PNG](diagrams/rendered/png/51-tenancy-models.png)
 
@@ -567,7 +567,7 @@ The current protected-platform foundation differs from a complete tenant-facing 
 
 A fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. The explicit kernel fixture preserves a replacement, then expires it under its own age. No live Cilium/BGP route outcome is implied.
 
-![Forwarding grace follows the latest handoff](diagrams/rendered/light/52-forwarding-grace.svg)
+![Forwarding grace follows the latest handoff](diagrams/rendered/dark/52-forwarding-grace.svg)
 
 [Editable source](diagrams/52-forwarding-grace.mmd) · [Light SVG](diagrams/rendered/light/52-forwarding-grace.svg) · [Dark SVG](diagrams/rendered/dark/52-forwarding-grace.svg) · [Print SVG](diagrams/rendered/print/52-forwarding-grace.svg) · [PNG](diagrams/rendered/png/52-forwarding-grace.png)
 
@@ -577,7 +577,7 @@ A fresh forwarding change resets previous orphan age and shares the sweep lock t
 
 Provider work can outlive a profile name or version. The result is published only with the observed UID/resourceVersion, preserving current status on conflict. Secret ownership and kernel application remain separate operations.
 
-![Delayed status belongs to its observed object](diagrams/rendered/light/53-status-snapshot.svg)
+![Delayed status belongs to its observed object](diagrams/rendered/dark/53-status-snapshot.svg)
 
 [Editable source](diagrams/53-status-snapshot.mmd) · [Light SVG](diagrams/rendered/light/53-status-snapshot.svg) · [Dark SVG](diagrams/rendered/dark/53-status-snapshot.svg) · [Print SVG](diagrams/rendered/print/53-status-snapshot.svg) · [PNG](diagrams/rendered/png/53-status-snapshot.png)
 
@@ -587,7 +587,7 @@ Provider work can outlive a profile name or version. The result is published onl
 
 The BaseImage UID/generation scopes Job ownership, report Pods, conditional cleanup and status/finalizer progress. Stage Secret ownership is tested without credential readback. Durable backend adoption remains separate from Kubernetes object ownership.
 
-![Image import: names are lookup keys](diagrams/rendered/light/54-image-owner-chain.svg)
+![Image import: names are lookup keys](diagrams/rendered/dark/54-image-owner-chain.svg)
 
 [Editable source](diagrams/54-image-owner-chain.json) · [Light SVG](diagrams/rendered/light/54-image-owner-chain.svg) · [Dark SVG](diagrams/rendered/dark/54-image-owner-chain.svg) · [Print SVG](diagrams/rendered/print/54-image-owner-chain.svg) · [PNG](diagrams/rendered/png/54-image-owner-chain.png)
 
@@ -597,7 +597,7 @@ The BaseImage UID/generation scopes Job ownership, report Pods, conditional clea
 
 Direct QEMU management separates protocol libraries, manager supervision, Kubernetes/operator workflow and separately owned network/storage/identity capabilities. Their responsibility boundaries remain explicit when libvirt/Nova leave the target.
 
-![Direct QEMU management has four contracts](diagrams/rendered/light/55-runtime-contracts.svg)
+![Direct QEMU management has four contracts](diagrams/rendered/dark/55-runtime-contracts.svg)
 
 [Editable source](diagrams/55-runtime-contracts.json) · [Light SVG](diagrams/rendered/light/55-runtime-contracts.svg) · [Dark SVG](diagrams/rendered/dark/55-runtime-contracts.svg) · [Print SVG](diagrams/rendered/print/55-runtime-contracts.svg) · [PNG](diagrams/rendered/png/55-runtime-contracts.png)
 
@@ -607,7 +607,7 @@ Direct QEMU management separates protocol libraries, manager supervision, Kubern
 
 Local refusal before dispatch means this request was not sent. A deadline or connection loss after dispatch may leave the remote outcome unknown; the transport does not transparently replay mutations. Wider lifecycle observation and operation-specific retry belong to runtime logic.
 
-![Three command outcomes, three next steps](diagrams/rendered/light/56-command-outcomes.svg)
+![Three command outcomes, three next steps](diagrams/rendered/dark/56-command-outcomes.svg)
 
 [Editable source](diagrams/56-command-outcomes.json) · [Light SVG](diagrams/rendered/light/56-command-outcomes.svg) · [Dark SVG](diagrams/rendered/dark/56-command-outcomes.svg) · [Print SVG](diagrams/rendered/print/56-command-outcomes.svg) · [PNG](diagrams/rendered/png/56-command-outcomes.png)
 
@@ -617,7 +617,7 @@ Local refusal before dispatch means this request was not sent. A deadline or con
 
 VM status records the exact adopted target before a separate Migration completion write. Retry finishes that receipt and retains current Pod/anchors/state/config; owner checks and conditional child effects also apply to refusal and cleanup. This is operator API evidence, not a runtime/storage transaction.
 
-![A published target remains the current owner](diagrams/rendered/light/57-migration-adoption-receipt.svg)
+![A published target remains the current owner](diagrams/rendered/dark/57-migration-adoption-receipt.svg)
 
 [Editable source](diagrams/57-migration-adoption-receipt.json) · [Light SVG](diagrams/rendered/light/57-migration-adoption-receipt.svg) · [Dark SVG](diagrams/rendered/dark/57-migration-adoption-receipt.svg) · [Print SVG](diagrams/rendered/print/57-migration-adoption-receipt.svg) · [PNG](diagrams/rendered/png/57-migration-adoption-receipt.png)
 
@@ -627,6 +627,6 @@ VM status records the exact adopted target before a separate Migration completio
 
 Current Pod UID scopes historical selectors and scrape descriptors. Native samples use a trusted pod_uid target label; cAdvisor matches the whole Pod cgroup UID. Missing identity/legacy samples have no unscoped fallback. Real engine tests use synthetic data, not production metrics.
 
-![A reused name does not grant its old history](diagrams/rendered/light/58-history-incarnation.svg)
+![A reused name does not grant its old history](diagrams/rendered/dark/58-history-incarnation.svg)
 
 [Editable source](diagrams/58-history-incarnation.json) · [Light SVG](diagrams/rendered/light/58-history-incarnation.svg) · [Dark SVG](diagrams/rendered/dark/58-history-incarnation.svg) · [Print SVG](diagrams/rendered/print/58-history-incarnation.svg) · [PNG](diagrams/rendered/png/58-history-incarnation.png)

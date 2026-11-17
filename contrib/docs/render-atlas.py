@@ -54,7 +54,7 @@ def catalog_markdown(catalog: dict) -> str:
     for d in catalog["diagrams"]:
         i = d["id"]
         lines += [f"## {i}: {d['title']}", "", f"**Scope:** {d['status']}. **Evidence:** {', '.join(d['evidence'])}.", "", d["caption"], "",
-                  f"![{d['title']}](diagrams/rendered/light/{i}.svg)", "",
+                  f"![{d['title']}](diagrams/rendered/dark/{i}.svg)", "",
                   f"[Editable source](diagrams/{d.get('source', i + '.mmd')}) · [Light SVG](diagrams/rendered/light/{i}.svg) · "
                   f"[Dark SVG](diagrams/rendered/dark/{i}.svg) · [Print SVG](diagrams/rendered/print/{i}.svg) · "
                   f"[PNG](diagrams/rendered/png/{i}.png)", ""]
