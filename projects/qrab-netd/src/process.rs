@@ -300,6 +300,7 @@ mod tests {
     #[test]
     #[ignore = "explicit Linux 6.5+ SO_PEERPIDFD fixture; private Unix socket/child only"]
     fn original_socket_peer_exit_cannot_become_a_replacement_process() {
+        use std::os::unix::fs::MetadataExt;
         const CHILD_SOCKET: &str = "QRAB_NETD_PEER_FIXTURE_SOCKET";
         if let Some(path) = std::env::var_os(CHILD_SOCKET) {
             let mut stream = UnixStream::connect(path).unwrap();
@@ -355,12 +356,26 @@ mod tests {
         assert_eq!(&ready, b"ready\n");
         let peer = SocketPeer::capture(&stream).unwrap();
         assert_eq!(peer.pid, child.0.id() as i32);
+        let actual = Process::open(Path::new("/proc"), peer.pid).unwrap();
+        assert!(!actual
+            .read_text(Path::new("cgroup"), 16 * 1024)
+            .unwrap()
+            .is_empty());
+        let actual_namespace = actual.network_namespace().unwrap();
+        let metadata = actual_namespace.metadata().unwrap();
+        let namespace_key = (metadata.dev(), metadata.ino());
         fixture(root.path(), peer.pid, FIRST, "original");
         let (process, uid) = peer.process(root.path()).unwrap();
         assert_eq!(uid, FIRST);
         assert_eq!(process.pid(), peer.pid);
         child.0.kill().unwrap();
         child.0.wait().unwrap();
+        let metadata = actual_namespace.metadata().unwrap();
+        assert_eq!((metadata.dev(), metadata.ino()), namespace_key);
+        if let Ok(namespace) = actual.network_namespace() {
+            let metadata = namespace.metadata().unwrap();
+            assert_eq!((metadata.dev(), metadata.ino()), namespace_key);
+        }
         fixture(root.path(), peer.pid, SECOND, "replacement");
         assert_eq!(
             Process::open(root.path(), peer.pid)
