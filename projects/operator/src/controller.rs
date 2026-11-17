@@ -1,6 +1,9 @@
 #[path = "storage_guard.rs"]
 pub(crate) mod storage_guard;
 
+#[cfg(test)]
+mod retirement_tests;
+
 use crate::{
     address,
     api::{NicStatus, VirtualMachine, VirtualMachineStatus},
@@ -507,10 +510,11 @@ async fn retire_other_anchors<'a>(
             Some(_) => {}
             None => {
                 let at = (now + nic::RETIRE_DELAY_SECS).to_string();
+                let identity = pod_preconditions(anchor)?;
                 pods.patch(
                     &anchor.name_any(),
                     &PatchParams::default(),
-                    &Patch::Merge(json!({"metadata":{"annotations":{nic::RETIRE_ANNOTATION: at}}})),
+                    &Patch::Merge(json!({"metadata":{"uid":identity.uid,"resourceVersion":identity.resource_version,"annotations":{nic::RETIRE_ANNOTATION: at}}})),
                 )
                 .await?;
             }
@@ -635,14 +639,30 @@ pub(crate) async fn publish(
     Ok(())
 }
 
+fn pod_preconditions(pod: &Pod) -> Result<Preconditions> {
+    if pod.metadata.uid.as_deref().is_none_or(str::is_empty)
+        || pod
+            .metadata
+            .resource_version
+            .as_deref()
+            .is_none_or(str::is_empty)
+    {
+        return Err(Error::Ownership(format!(
+            "Pod {} lacks UID/resourceVersion for a conditional mutation",
+            pod.name_any()
+        )));
+    }
+    Ok(Preconditions {
+        uid: pod.uid(),
+        resource_version: pod.resource_version(),
+    })
+}
+
 async fn delete(pods: &Api<Pod>, pod: &Pod) -> Result<()> {
     pods.delete(
         &pod.name_any(),
         &DeleteParams {
-            preconditions: Some(Preconditions {
-                uid: pod.uid(),
-                ..Default::default()
-            }),
+            preconditions: Some(pod_preconditions(pod)?),
             ..Default::default()
         },
     )
