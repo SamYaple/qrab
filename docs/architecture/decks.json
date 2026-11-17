@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "28c1e6040a7b86da516d28c67f2667af1239857a",
+  "reviewed_through": "225b4aa0892cee0c375898804723df3266e1c00f",
   "decks": [
     {
       "id": "leadership",
@@ -814,6 +814,16 @@
             "M02",
             "T01",
             "L01"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "58-history-incarnation",
+          "notes": "A current namespace/Pod name can refer to a new VM while Prometheus retains earlier series. The repaired history path carries Pod UID through downward metadata, discovery, scrape descriptors/labels and fixed selectors. Actual PromQL over synthetic data proves the isolation cases; no production TSDB query or rollout was done. Label/config release requirements remain explicit.",
+          "evidence": [
+            "S19",
+            "S26",
+            "T21"
           ]
         },
         {

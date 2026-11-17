@@ -732,7 +732,20 @@
         "S11",
         "T19"
       ]
+    },
+    {
+      "id": "58-history-incarnation",
+      "source": "58-history-incarnation.json",
+      "title": "A reused name does not grant its old history",
+      "status": "implemented repair / real synthetic PromQL proof",
+      "caption": "Current Pod UID scopes historical selectors and scrape descriptors. Native samples use a trusted pod_uid target label; cAdvisor matches the whole Pod cgroup UID. Missing identity/legacy samples have no unscoped fallback. Real engine tests use synthetic data, not production metrics.",
+      "evidence": [
+        "S19",
+        "S26",
+        "T21",
+        "U16"
+      ]
     }
   ],
-  "reviewed_through": "28c1e6040a7b86da516d28c67f2667af1239857a"
+  "reviewed_through": "225b4aa0892cee0c375898804723df3266e1c00f"
 }

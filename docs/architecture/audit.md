@@ -14,7 +14,7 @@ these repairs.
 | Local process and provider authority | A05, A06, A11, A14 | A name or numeric PID cannot replace the authorized current resource |
 | Attachment and applied-state lifetime | A07, A10, A12, A13, A19 | Namespace, lease, config, endpoint and route changes retain their own incarnation |
 | Stream/descriptor ownership | A08 | Bound the whole frame and own every delivered descriptor through refusal/cleanup |
-| Delayed API observations | A09, A20, A21, A22 | Status belongs to the observed object UID/version |
+| Delayed API observations | A09, A20, A21, A22, A24 | Status belongs to the observed object UID/version |
 | Image/media inputs | A04, A17 | Validate the actual self-contained input selected for use |
 | Resource budget and reporting scope | A16, A18 | Actual device blocks and reported counters stay within the checked boundary |
 
@@ -811,6 +811,50 @@ No kernel route, cluster object or guest was changed by the private fixtures.
 
 **Merged source:** `28c1e6040a7b86da516d28c67f2667af1239857a`.
 **Tracking:** qrab `work/anchor-retirement-object-incarnation`.
+
+## A24 — current names could select a previous Pod's metric history
+
+**Location:** Redfish history templates, observability inventory/admission,
+operator downward metadata and monitoring target relabeling.
+**Repair baseline:** `bf0f949`.
+
+The current API inventory bound a certificate's VM to owned Pod names/IPs,
+but historical selectors used namespace/name alone. A new Pod or VM can reuse
+those names while Prometheus retains predecessor data. Actual templates,
+evaluated by official promtool 3.16.0 over synthetic series, returned old data
+before the current Pod existed and mixed unlabelled legacy/native samples.
+The initial real-engine fixture failed all six metric isolation expectations.
+
+![History stays with its Pod incarnation](diagrams/rendered/light/58-history-incarnation.svg)
+
+Templates now carry current Pod UID. Native series require `pod_uid` from
+trusted discovery target labels; cAdvisor requires a whole UID component in
+its cgroup `id`, including cgroupfs and systemd forms. API inventory retains
+UID and admits only matching templates. Scrape descriptors include UID too,
+so stale discovery cannot relabel a replacement response under an old UID.
+A private regression reproduced acceptance of an old descriptor before that
+additional check. The operator supplies UID through downward metadata, and
+the maintained diagnostic resolves it without exporting service credentials.
+
+Missing downward UID disables history while keeping management alive.
+Missing sample identity has no name-only fallback. The renderer/client,
+bridge and PodMonitor label contract require coordinated release; this
+investigation does not apply manifests or publish/deploy images. Existing
+unlabelled data is excluded rather than retroactively attributed.
+
+The maintained explicit fixture evaluates actual query strings with real
+PromQL: predecessor times return no samples, current times return exact
+expected values, both cgroup forms work, and UID-prefix lookalikes/legacy
+samples are excluded. Default scope/TLS cases additionally cover current UID
+replacement, missing metadata and old/unscoped query refusal. The explicit real PromQL fixture, focused component tests, shell syntax,
+full runtime gate, generated-resource comparisons and strict Clippy pass.
+
+No live Prometheus data or other cluster was queried. This repair scopes
+current-Pod history; a VM-wide history product across former incarnations
+would need its own proven provenance and authorization contract.
+
+**Merged source:** `225b4aa0892cee0c375898804723df3266e1c00f`.
+**Tracking:** qrab `work/metric-history-pod-incarnation`.
 
 ## Validation repair: the HTTP power fixture depended on test order
 

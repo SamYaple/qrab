@@ -1,0 +1,19 @@
+{
+  "title": "A reused name does not grant its old history",
+  "subtitle": "Current API ownership authorizes a Pod UID; retained samples keep their original incarnation",
+  "note": "Actual templates tested with real PromQL over synthetic series. No production metrics or monitoring rollout was used.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":210,"w":440,"h":210,"kind":"foundation","kicker":"PREDECESSOR / RETAINED DATA","lines":["Namespace qrab / Pod vm-a","Pod UID P1 / earlier samples","Retained in Prometheus"]},
+    {"x":60,"y":545,"w":440,"h":210,"kind":"foundation","kicker":"CURRENT / VERIFIED OWNER","lines":["Same namespace and Pod name","Pod UID P2 / current samples","Current VM service admission"]},
+    {"x":580,"y":335,"w":440,"h":240,"kind":"qrab","kicker":"QUERY / CURRENT UID PREDICATE","lines":["Authenticate the VM service","Verify current API Pod UID","Native series: pod_uid = P2","cAdvisor: whole Pod UID in id"]},
+    {"x":1100,"y":210,"w":440,"h":210,"kind":"replace","kicker":"EXCLUDE / P1 DOES NOT BECOME P2","lines":["Predecessor samples excluded","No name-only or legacy fallback","Retention has a separate owner"]},
+    {"x":1100,"y":545,"w":440,"h":210,"kind":"qrab","kicker":"ALLOW / P2 SAMPLE HISTORY","lines":["Return only current-UID history","Fixed metrics, fields and bounds","No general PromQL access"]}
+  ],
+  "arrows": [
+    {"points":[[500,315],[540,315],[540,405],[580,405]]},
+    {"points":[[500,650],[540,650],[540,505],[580,505]]},
+    {"points":[[1020,405],[1060,405],[1060,315],[1100,315]]},
+    {"points":[[1020,505],[1060,505],[1060,650],[1100,650]]}
+  ]
+}

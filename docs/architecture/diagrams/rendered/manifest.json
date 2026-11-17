@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "645b8c46dbcba1a5f32c91671c14b0309723a45f5215deab2e52731087946093",
+  "catalog_sha256": "6446f02eec93df478959d363d5cad51ce714e822f4cbaa9aa1f4dc033079f916",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -731,6 +731,18 @@
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "318a39264284af8472e910e17df9315c67970067ca2614db4823ac695eebc210",
+      "width": 1600
+    },
+    "58-history-incarnation": {
+      "height": 900,
+      "outputs": {
+        "dark/58-history-incarnation.svg": "0c1b019200141b7c078946c714444ab870751176213a3bd9e0fdd80211f1ddb4",
+        "light/58-history-incarnation.svg": "84075e84dc3a603138e7a2f9ad6d335c94581521090de793a5521206aa9788dd",
+        "png/58-history-incarnation.png": "4dfb63715d1bf9cc4a50ed4fbc2880f619d8de0e9783ae5253124ea3aeef0609",
+        "print/58-history-incarnation.svg": "9c3acb33d60280651429d0deab564cca611c6be1da404225d225ab5ec13e80d4"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "80ff1646ebc6660344cadea08f5e933f6060ddbacfc7e56ce75d1d1bd95ff47c",
       "width": 1600
     }
   },

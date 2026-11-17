@@ -26,6 +26,7 @@ different evidence classes throughout the atlas.
 | Architecture review | [Current structure](current-state.md), [desired state](desired-state.md) | What the code does versus what we intend |
 | Rust developer | [Code map](code-map.md), [boundary contracts](boundaries.md) | Which crate owns an operation and where to change it |
 | Runtime / libvirt engineer | [Direct QEMU management](runtime.md) | Typed protocol, process supervision, declarative workflow and external capabilities |
+| SRE / metrics reviewer | [Observability](observability.md) | Current state, retained history, Pod incarnation and monitoring authority |
 | Network engineer | [Network comparison](network.md) | OVN/Cilium separation versus per-NIC Cilium endpoints |
 | Storage engineer | [Images and volumes](storage.md) | Existing image/disk work, fencing, and remaining scope |
 | Identity / security reviewer | [Identity and trust](identity.md), [threat model](security.md) | Human, workload, guest and storage authority |

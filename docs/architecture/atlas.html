@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 28c1e6040a7b · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-runtime" data-doc="runtime">Runtime engineer&#x27;s view: what replaces libvirt</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>32 document views · 61 unique diagrams · 8 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a> <a href="exports/runtime.html">Direct QEMU management slides</a> · <a href="exports/runtime.pptx">PPTX</a> · <a href="exports/runtime.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 225b4aa0892c · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-runtime" data-doc="runtime">Runtime engineer&#x27;s view: what replaces libvirt</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-observability" data-doc="observability">SRE view: current state, retained history and authority</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>33 document views · 62 unique diagrams · 8 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a> <a href="exports/runtime.html">Direct QEMU management slides</a> · <a href="exports/runtime.pptx">PPTX</a> · <a href="exports/runtime.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -41,6 +41,7 @@ different evidence classes throughout the atlas.
 | architecture review | [current structure](current-state.md), [desired state](desired-state.md) | what the code does versus what we intend |
 | rust developer | [code map](code-map.md), [boundary contracts](boundaries.md) | which crate owns an operation and where to change it |
 | runtime / libvirt engineer | [direct qemu management](runtime.md) | typed protocol, process supervision, declarative workflow and external capabilities |
+| sre / metrics reviewer | [observability](observability.md) | current state, retained history, pod incarnation and monitoring authority |
 | network engineer | [network comparison](network.md) | ovn/cilium separation versus per-nic cilium endpoints |
 | storage engineer | [images and volumes](storage.md) | existing image/disk work, fencing, and remaining scope |
 | identity / security reviewer | [identity and trust](identity.md), [threat model](security.md) | human, workload, guest and storage authority |
@@ -144,6 +145,11 @@ different evidence classes throughout the atlas.</p>
 <td>Runtime / libvirt engineer</td>
 <td><a href="#doc-runtime">Direct QEMU management</a></td>
 <td>Typed protocol, process supervision, declarative workflow and external capabilities</td>
+</tr>
+<tr>
+<td>SRE / metrics reviewer</td>
+<td><a href="#doc-observability">Observability</a></td>
+<td>Current state, retained history, Pod incarnation and monitoring authority</td>
 </tr>
 <tr>
 <td>Network engineer</td>
@@ -3032,6 +3038,7 @@ this is a useful architecture-review perspective alongside the service map.
 | image-import job name | current baseimage uid, exact observed job uid/version and job-owned report pod | name reuse cannot supply another report or retarget cleanup |
 | image-stage secret name | atomic owner tests, metadata-only response and uid/version delete conditions | cleanup keeps credentials write-only and preserves a replacement/rotation |
 | event sequence | manager epoch plus sequence/gap/drop information | bounded observations have restart/retention limits |
+| historical namespace/pod name | current api pod uid, uid-bound scrape descriptor and retained series identity | a current name cannot grant predecessor data; missing identity has no fallback |
 
 the references here are not all credentials. a launch id is public provenance;
 a namespace descriptor is an os capability; a storage generation participates
@@ -3233,6 +3240,11 @@ This is a useful architecture-review perspective alongside the service map.</p>
 <td>Event sequence</td>
 <td>Manager epoch plus sequence/gap/drop information</td>
 <td>Bounded observations have restart/retention limits</td>
+</tr>
+<tr>
+<td>Historical namespace/Pod name</td>
+<td>Current API Pod UID, UID-bound scrape descriptor and retained series identity</td>
+<td>A current name cannot grant predecessor data; missing identity has no fallback</td>
 </tr>
 </tbody>
 </table>
@@ -3506,6 +3518,170 @@ configuration, policy or performance in the two clusters.</p>
 measurement is implied by these maps. The <a href="#doc-transition">transition plan</a>
 lists the evidence needed before retiring a component for a particular
 workload.</p>
+</article><article class="doc" id="doc-observability" data-search="# sre view: current state, retained history and authority
+
+the manager&#x27;s current state, redfish&#x27;s bounded observations and prometheus&#x27;s
+retained series answer different questions. a successful scrape is not a
+complete audit trail, and current ownership of a reused name does not grant
+the previous incarnation&#x27;s history.
+
+![history stays with its pod incarnation](diagrams/rendered/light/58-history-incarnation.svg)
+
+## follow each observation to its owner
+
+| observation | owner / source | identity and lifetime |
+| --- | --- | --- |
+| qemu/process/guest state | manager, private qmp/qga and local kernel counters | current execution and sample timestamp; guest cooperation is separate |
+| redfish inventory, events and live metrics | authenticated management surface and bounded manager api | vm role checks, manager epoch/sequence, bounded buffers and explicit gaps |
+| native metric scrape | pod-local telemetry adapter to exact vm redfish svid | fresh api vm ownership, pod uid and address; fixed port/path |
+| historical container metrics | prometheus cadvisor series | namespace/name plus the complete pod-uid cgroup component |
+| historical guest block/nic metrics | prometheus native vm series | namespace/name plus `pod_uid` from trusted discovery metadata |
+| history request | redfish fixed templates through workload-authenticated adapter | current certificate vm&#x27;s api-owned pod uids; no general promql access |
+
+the adapter refreshes api discovery every five seconds and expires authority
+after fifteen seconds without a successful refresh. this bounds a discovery
+lease; it does not make api, tls and monitoring one transaction. human vm
+roles and service-peer admission remain separate checks. configuration,
+limits and transport details remain in [the observability guide](../observability.md).
+
+## a reused name creates a historical boundary
+
+a new vm can reuse `namespace/pod-name` while prometheus still retains the old
+series. name-only selectors then read or aggregate predecessor data, even
+when today&#x27;s api inventory proves that the new pod belongs to the caller.
+a24 reproduced that behavior with the real promql engine and synthetic data.
+
+the repaired templates require the current pod uid. native samples carry
+the `pod_uid` target label. cadvisor selectors match a whole uid component in
+`id`, including cgroupfs and systemd&#x27;s underscore form. the scrape descriptor
+also carries uid, so stale discovery cannot retag a replacement under an old
+label. the bridge rejects old/unscoped templates after inventory changes.
+
+missing metadata disables history without disabling management. missing
+sample identity produces no authorized data; legacy unlabelled samples are
+not attributed to the current pod. a vm-wide history product spanning former
+incarnations would need its own proven provenance/authorization model.
+existing retained data remains available to appropriately authorized
+monitoring administrators under their separate policy.
+
+## distinguish a query result from its evidence
+
+the maintained fixture evaluates all six actual templates with official
+prometheus `promtool`. it requires no predecessor samples before the current
+pod existed, exact current values afterward, both cgroup naming forms and
+refusal of uid-prefix lookalikes/unlabelled native series. this is real
+synthetic promql evaluation, not a query against production data.
+
+private api/tls cases separately verify current inventory, fixed-query
+admission, identity rotation and denial of other scopes. the default runtime
+gate remains independent of a prometheus installation. reproduction and the
+confirmed repair are in [verification](verification.md) and [a24](audit.md).
+
+## release the label contract deliberately
+
+the rendered redfish environment, client/bridge and podmonitor must agree on
+uid. cadvisor ingestion must retain its `id` label. these are coordinated
+source/configuration requirements; this audit does not apply a monitoring
+manifest or deploy new images. missing labels fail closed rather than
+reverting to a reusable-name selector.
+
+for the openstack presentation, retain the monitoring responsibilities even
+when control services leave the target. the supplied openstack description
+does not identify its telemetry stack. container metrics cover qrab&#x27;s qemu
+child through the manager container boundary; the supplied libvirt vms live
+in host cgroups. that is an ownership/accounting distinction, not a measured
+performance or monitoring-product parity claim.
+"><h1 id="observability--sre-view-current-state-retained-history-and-authority">SRE view: current state, retained history and authority</h1>
+<p>The manager's current state, Redfish's bounded observations and Prometheus's
+retained series answer different questions. A successful scrape is not a
+complete audit trail, and current ownership of a reused name does not grant
+the previous incarnation's history.</p>
+<p><img src="diagrams/rendered/light/58-history-incarnation.svg" alt="History stays with its Pod incarnation" /></p>
+<h2 id="observability--follow-each-observation-to-its-owner">Follow each observation to its owner</h2>
+<table>
+<thead>
+<tr>
+<th>Observation</th>
+<th>Owner / source</th>
+<th>Identity and lifetime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>QEMU/process/guest state</td>
+<td>Manager, private QMP/QGA and local kernel counters</td>
+<td>Current execution and sample timestamp; guest cooperation is separate</td>
+</tr>
+<tr>
+<td>Redfish inventory, events and live metrics</td>
+<td>Authenticated management surface and bounded manager API</td>
+<td>VM role checks, manager epoch/sequence, bounded buffers and explicit gaps</td>
+</tr>
+<tr>
+<td>Native metric scrape</td>
+<td>Pod-local telemetry adapter to exact VM Redfish SVID</td>
+<td>Fresh API VM ownership, Pod UID and address; fixed port/path</td>
+</tr>
+<tr>
+<td>Historical container metrics</td>
+<td>Prometheus cAdvisor series</td>
+<td>Namespace/name plus the complete Pod-UID cgroup component</td>
+</tr>
+<tr>
+<td>Historical guest block/NIC metrics</td>
+<td>Prometheus native VM series</td>
+<td>Namespace/name plus <code>pod_uid</code> from trusted discovery metadata</td>
+</tr>
+<tr>
+<td>History request</td>
+<td>Redfish fixed templates through workload-authenticated adapter</td>
+<td>Current certificate VM's API-owned Pod UIDs; no general PromQL access</td>
+</tr>
+</tbody>
+</table>
+<p>The adapter refreshes API discovery every five seconds and expires authority
+after fifteen seconds without a successful refresh. This bounds a discovery
+lease; it does not make API, TLS and monitoring one transaction. Human VM
+roles and service-peer admission remain separate checks. Configuration,
+limits and transport details remain in <a href="../observability.md">the observability guide</a>.</p>
+<h2 id="observability--a-reused-name-creates-a-historical-boundary">A reused name creates a historical boundary</h2>
+<p>A new VM can reuse <code>namespace/Pod-name</code> while Prometheus still retains the old
+series. Name-only selectors then read or aggregate predecessor data, even
+when today's API inventory proves that the new Pod belongs to the caller.
+A24 reproduced that behavior with the real PromQL engine and synthetic data.</p>
+<p>The repaired templates require the current Pod UID. Native samples carry
+the <code>pod_uid</code> target label. cAdvisor selectors match a whole UID component in
+<code>id</code>, including cgroupfs and systemd's underscore form. The scrape descriptor
+also carries UID, so stale discovery cannot retag a replacement under an old
+label. The bridge rejects old/unscoped templates after inventory changes.</p>
+<p>Missing metadata disables history without disabling management. Missing
+sample identity produces no authorized data; legacy unlabelled samples are
+not attributed to the current Pod. A VM-wide history product spanning former
+incarnations would need its own proven provenance/authorization model.
+Existing retained data remains available to appropriately authorized
+monitoring administrators under their separate policy.</p>
+<h2 id="observability--distinguish-a-query-result-from-its-evidence">Distinguish a query result from its evidence</h2>
+<p>The maintained fixture evaluates all six actual templates with official
+Prometheus <code>promtool</code>. It requires no predecessor samples before the current
+Pod existed, exact current values afterward, both cgroup naming forms and
+refusal of UID-prefix lookalikes/unlabelled native series. This is real
+synthetic PromQL evaluation, not a query against production data.</p>
+<p>Private API/TLS cases separately verify current inventory, fixed-query
+admission, identity rotation and denial of other scopes. The default runtime
+gate remains independent of a Prometheus installation. Reproduction and the
+confirmed repair are in <a href="#doc-verification">verification</a> and <a href="#doc-audit">A24</a>.</p>
+<h2 id="observability--release-the-label-contract-deliberately">Release the label contract deliberately</h2>
+<p>The rendered Redfish environment, client/bridge and PodMonitor must agree on
+UID. cAdvisor ingestion must retain its <code>id</code> label. These are coordinated
+source/configuration requirements; this audit does not apply a monitoring
+manifest or deploy new images. Missing labels fail closed rather than
+reverting to a reusable-name selector.</p>
+<p>For the OpenStack presentation, retain the monitoring responsibilities even
+when control services leave the target. The supplied OpenStack description
+does not identify its telemetry stack. Container metrics cover qrab's QEMU
+child through the manager container boundary; the supplied libvirt VMs live
+in host cgroups. That is an ownership/accounting distinction, not a measured
+performance or monitoring-product parity claim.</p>
 </article><article class="doc" id="doc-recovery" data-search="# recovery: follow the owner, resource and incarnation
 
 the useful recovery question is which owner can still act on which resource.
@@ -4070,6 +4246,7 @@ them together does not automatically establish a live workload outcome.
 | local kvm resource growth | same isolated model, projected-limit stand-ins and actual container cgroup updates | intent waits for admission; odd capacity never rounds allocation up; cpu/memory grow in the same qemu and guest onlines both | no real kubelet/api resize, broad guest compatibility, live shrink or sizing/performance recommendation |
 | forward-route lifetime | actual netd control/sweep and kernel routes under enforced private user/network namespaces | replacement survives an earlier expired orphan age and later retires under its own age; default test verifies effect serialization | no host route mutation, live migration traffic or cilium/bgp acceptance |
 | migration controller ownership/retry | actual operator reconciliation and private versioned api, with replacement/failure injection | foreign child refusal, conditional mutations, durable target adoption and current-resource retention hold in exercised cases | no qemu handover, mounted pvc, kernel/cilium traffic or backend fence was exercised by this fixture |
+| historical metric isolation | actual templates evaluated by official promtool 3.16.0 against synthetic predecessor/current/legacy series | all six metrics exclude prior incarnations and return the expected current values; cadvisor handles both cgroup naming forms | no production tsdb query, scrape rollout, retention migration or workload measurement |
 | original socket-peer fixture | private child process and unix connection on a supporting local kernel | peer authority does not become a replacement numeric process after exit | no live vm grant or node rollout |
 | kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp lease updates/bind failures and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplinks replace cilium; the later t05 run also exercises wireguard/nat-pmp |
 | manager nic fixture | stand-in netd and qmp peers, actual manager reconciliation | namespace token change causes ordered nic-only detach/attach with the same mac/root port | guest hot-unplug and traffic continuity require their own acceptance |
@@ -4330,6 +4507,12 @@ them together does not automatically establish a live workload outcome.</p>
 <td>Actual operator reconciliation and private versioned API, with replacement/failure injection</td>
 <td>Foreign child refusal, conditional mutations, durable target adoption and current-resource retention hold in exercised cases</td>
 <td>No QEMU handover, mounted PVC, kernel/Cilium traffic or backend fence was exercised by this fixture</td>
+</tr>
+<tr>
+<td>Historical metric isolation</td>
+<td>Actual templates evaluated by official promtool 3.16.0 against synthetic predecessor/current/legacy series</td>
+<td>All six metrics exclude prior incarnations and return the expected current values; cAdvisor handles both cgroup naming forms</td>
+<td>No production TSDB query, scrape rollout, retention migration or workload measurement</td>
 </tr>
 <tr>
 <td>Original socket-peer fixture</td>
@@ -7408,7 +7591,7 @@ these repairs.
 | local process and provider authority | a05, a06, a11, a14 | a name or numeric pid cannot replace the authorized current resource |
 | attachment and applied-state lifetime | a07, a10, a12, a13, a19 | namespace, lease, config, endpoint and route changes retain their own incarnation |
 | stream/descriptor ownership | a08 | bound the whole frame and own every delivered descriptor through refusal/cleanup |
-| delayed api observations | a09, a20, a21, a22 | status belongs to the observed object uid/version |
+| delayed api observations | a09, a20, a21, a22, a24 | status belongs to the observed object uid/version |
 | image/media inputs | a04, a17 | validate the actual self-contained input selected for use |
 | resource budget and reporting scope | a16, a18 | actual device blocks and reported counters stay within the checked boundary |
 
@@ -8206,6 +8389,50 @@ no kernel route, cluster object or guest was changed by the private fixtures.
 **merged source:** `28c1e6040a7b86da516d28c67f2667af1239857a`.
 **tracking:** qrab `work/anchor-retirement-object-incarnation`.
 
+## a24 — current names could select a previous pod&#x27;s metric history
+
+**location:** redfish history templates, observability inventory/admission,
+operator downward metadata and monitoring target relabeling.
+**repair baseline:** `bf0f949`.
+
+the current api inventory bound a certificate&#x27;s vm to owned pod names/ips,
+but historical selectors used namespace/name alone. a new pod or vm can reuse
+those names while prometheus retains predecessor data. actual templates,
+evaluated by official promtool 3.16.0 over synthetic series, returned old data
+before the current pod existed and mixed unlabelled legacy/native samples.
+the initial real-engine fixture failed all six metric isolation expectations.
+
+![history stays with its pod incarnation](diagrams/rendered/light/58-history-incarnation.svg)
+
+templates now carry current pod uid. native series require `pod_uid` from
+trusted discovery target labels; cadvisor requires a whole uid component in
+its cgroup `id`, including cgroupfs and systemd forms. api inventory retains
+uid and admits only matching templates. scrape descriptors include uid too,
+so stale discovery cannot relabel a replacement response under an old uid.
+a private regression reproduced acceptance of an old descriptor before that
+additional check. the operator supplies uid through downward metadata, and
+the maintained diagnostic resolves it without exporting service credentials.
+
+missing downward uid disables history while keeping management alive.
+missing sample identity has no name-only fallback. the renderer/client,
+bridge and podmonitor label contract require coordinated release; this
+investigation does not apply manifests or publish/deploy images. existing
+unlabelled data is excluded rather than retroactively attributed.
+
+the maintained explicit fixture evaluates actual query strings with real
+promql: predecessor times return no samples, current times return exact
+expected values, both cgroup forms work, and uid-prefix lookalikes/legacy
+samples are excluded. default scope/tls cases additionally cover current uid
+replacement, missing metadata and old/unscoped query refusal. the explicit real promql fixture, focused component tests, shell syntax,
+full runtime gate, generated-resource comparisons and strict clippy pass.
+
+no live prometheus data or other cluster was queried. this repair scopes
+current-pod history; a vm-wide history product across former incarnations
+would need its own proven provenance and authorization contract.
+
+**merged source:** `225b4aa0892cee0c375898804723df3266e1c00f`.
+**tracking:** qrab `work/metric-history-pod-incarnation`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -8312,7 +8539,7 @@ these repairs.</p>
 </tr>
 <tr>
 <td>Delayed API observations</td>
-<td>A09, A20, A21, A22</td>
+<td>A09, A20, A21, A22, A24</td>
 <td>Status belongs to the observed object UID/version</td>
 </tr>
 <tr>
@@ -8958,6 +9185,41 @@ that does not establish BGP convergence or make them one lifetime contract.
 No kernel route, cluster object or guest was changed by the private fixtures.</p>
 <p><strong>Merged source:</strong> <code>28c1e6040a7b86da516d28c67f2667af1239857a</code>.
 <strong>Tracking:</strong> qrab <code>work/anchor-retirement-object-incarnation</code>.</p>
+<h2 id="audit--a24--current-names-could-select-a-previous-pods-metric-history">A24 — current names could select a previous Pod's metric history</h2>
+<p><strong>Location:</strong> Redfish history templates, observability inventory/admission,
+operator downward metadata and monitoring target relabeling.
+<strong>Repair baseline:</strong> <code>bf0f949</code>.</p>
+<p>The current API inventory bound a certificate's VM to owned Pod names/IPs,
+but historical selectors used namespace/name alone. A new Pod or VM can reuse
+those names while Prometheus retains predecessor data. Actual templates,
+evaluated by official promtool 3.16.0 over synthetic series, returned old data
+before the current Pod existed and mixed unlabelled legacy/native samples.
+The initial real-engine fixture failed all six metric isolation expectations.</p>
+<p><img src="diagrams/rendered/light/58-history-incarnation.svg" alt="History stays with its Pod incarnation" /></p>
+<p>Templates now carry current Pod UID. Native series require <code>pod_uid</code> from
+trusted discovery target labels; cAdvisor requires a whole UID component in
+its cgroup <code>id</code>, including cgroupfs and systemd forms. API inventory retains
+UID and admits only matching templates. Scrape descriptors include UID too,
+so stale discovery cannot relabel a replacement response under an old UID.
+A private regression reproduced acceptance of an old descriptor before that
+additional check. The operator supplies UID through downward metadata, and
+the maintained diagnostic resolves it without exporting service credentials.</p>
+<p>Missing downward UID disables history while keeping management alive.
+Missing sample identity has no name-only fallback. The renderer/client,
+bridge and PodMonitor label contract require coordinated release; this
+investigation does not apply manifests or publish/deploy images. Existing
+unlabelled data is excluded rather than retroactively attributed.</p>
+<p>The maintained explicit fixture evaluates actual query strings with real
+PromQL: predecessor times return no samples, current times return exact
+expected values, both cgroup forms work, and UID-prefix lookalikes/legacy
+samples are excluded. Default scope/TLS cases additionally cover current UID
+replacement, missing metadata and old/unscoped query refusal. The explicit real PromQL fixture, focused component tests, shell syntax,
+full runtime gate, generated-resource comparisons and strict Clippy pass.</p>
+<p>No live Prometheus data or other cluster was queried. This repair scopes
+current-Pod history; a VM-wide history product across former incarnations
+would need its own proven provenance and authorization contract.</p>
+<p><strong>Merged source:</strong> <code>225b4aa0892cee0c375898804723df3266e1c00f</code>.
+<strong>Tracking:</strong> qrab <code>work/metric-history-pod-incarnation</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -9088,6 +9350,7 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 | t18 | [image importer](../../projects/operator/src/image_import.rs), [kubernetes adapter](../../projects/operator/src/image_import/cluster.rs), [private api regressions](../../projects/operator/src/image_import/tests/kube.rs) | parent/job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | live image import, zfs/lio acceptance or a cross-system transaction |
 | t19 | [migration controller](../../projects/operator/src/migration.rs), [refusal status](../../projects/operator/src/controller.rs), [private api ownership/retry regressions](../../projects/operator/tests/migration/ownership.rs) | current owner/intent checks, conditional effects, adoption receipt recovery and retained execution bindings across exercised failures | a kubernetes/runtime/storage transaction, real guest handover or live cilium traffic |
 | t20 | [controller retirement/deletion](../../projects/operator/src/controller.rs), [private conditional api regressions](../../projects/operator/src/controller/retirement_tests.rs) | nonempty uid/version bind timer writes and pod deletes; replacements, ownership updates and renewed timers survive stale observations | kernel route withdrawal, bgp convergence, live guest continuity or a rollout |
+| t21 | [history templates/identity](../../projects/redfish/src/history.rs), [inventory/template admission](../../projects/qrab-observability/src/lib.rs), [actual promql fixture](../../projects/redfish/tests/history_promql.rs), [podmonitor](../../contrib/kubernetes/monitoring/podmonitor.yaml) | uid-scoped history and synthetic real-promql isolation for all six metrics, with current metadata admission | a live tsdb audit, rollout, backend retention migration or historical vm-wide authorization product |
 
 ## external sources
 
@@ -9113,6 +9376,7 @@ tree. the date of the evidence check does not make every diagram a new design.
 | u13 | [keystone token scopes](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html) | openstack api authorization context; distinct target identity questions |
 | u14 | [kubernetes multi-tenancy](https://kubernetes.io/docs/concepts/security/multi-tenancy/) | separate application customers, api actors, namespace policy and data-plane isolation requirements |
 | u15 | [linux cgroup-v2 core interfaces](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) | `cgroup.type` is non-root-only; a private namespace root must be distinguished from the real hierarchy root |
+| u16 | [prometheus rule/expression testing](https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/), [official downloads](https://prometheus.io/download/) | real engine evaluation of synthetic series and verified explicit test tooling | which prometheus release or labels either cluster currently runs |
 
 ## rules for a defensible comparison
 
@@ -9353,7 +9617,8 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T17 | <a href="../../projects/proton/src/broker/runner.rs">Broker status writer</a>, <a href="../../projects/proton/src/broker/runner/tests.rs">private API snapshot regressions</a> | Delayed profile results carry exact UID/version and cannot overwrite replacements/newer snapshots | A provider/Secret/kernel/API transaction or live account verification |
 | T18 | <a href="../../projects/operator/src/image_import.rs">Image importer</a>, <a href="../../projects/operator/src/image_import/cluster.rs">Kubernetes adapter</a>, <a href="../../projects/operator/src/image_import/tests/kube.rs">private API regressions</a> | Parent/Job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | Live image import, ZFS/LIO acceptance or a cross-system transaction |
 | T19 | <a href="../../projects/operator/src/migration.rs">Migration controller</a>, <a href="../../projects/operator/src/controller.rs">refusal status</a>, <a href="../../projects/operator/tests/migration/ownership.rs">private API ownership/retry regressions</a> | Current owner/intent checks, conditional effects, adoption receipt recovery and retained execution bindings across exercised failures | A Kubernetes/runtime/storage transaction, real guest handover or live Cilium traffic |
-| T20 | <a href="../../projects/operator/src/controller.rs">Controller retirement/deletion</a>, <a href="../../projects/operator/src/controller/retirement_tests.rs">private conditional API regressions</a> | Nonempty UID/version bind timer writes and Pod deletes; replacements, ownership updates and renewed timers survive stale observations | Kernel route withdrawal, BGP convergence, live guest continuity or a rollout |</p>
+| T20 | <a href="../../projects/operator/src/controller.rs">Controller retirement/deletion</a>, <a href="../../projects/operator/src/controller/retirement_tests.rs">private conditional API regressions</a> | Nonempty UID/version bind timer writes and Pod deletes; replacements, ownership updates and renewed timers survive stale observations | Kernel route withdrawal, BGP convergence, live guest continuity or a rollout |
+| T21 | <a href="../../projects/redfish/src/history.rs">History templates/identity</a>, <a href="../../projects/qrab-observability/src/lib.rs">inventory/template admission</a>, <a href="../../projects/redfish/tests/history_promql.rs">actual PromQL fixture</a>, <a href="../../contrib/kubernetes/monitoring/podmonitor.yaml">PodMonitor</a> | UID-scoped history and synthetic real-PromQL isolation for all six metrics, with current metadata admission | A live TSDB audit, rollout, backend retention migration or historical VM-wide authorization product |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.
@@ -9442,6 +9707,11 @@ tree. The date of the evidence check does not make every diagram a new design.</
 <td>U15</td>
 <td><a href="https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html">Linux cgroup-v2 core interfaces</a></td>
 <td><code>cgroup.type</code> is non-root-only; a private namespace root must be distinguished from the real hierarchy root</td>
+</tr>
+<tr>
+<td>U16</td>
+<td><a href="https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/">Prometheus rule/expression testing</a>, <a href="https://prometheus.io/download/">official downloads</a></td>
+<td>Real engine evaluation of synthetic series and verified explicit test tooling</td>
 </tr>
 </tbody>
 </table>
@@ -9638,7 +9908,10 @@ boundary, not an authenticated public management service.</p>
 <p>Local refusal before dispatch means this request was not sent. A deadline or connection loss after dispatch may leave the remote outcome unknown; the transport does not transparently replay mutations. Wider lifecycle observation and operation-specific retry belong to runtime logic.</p><a href="diagrams/56-command-outcomes.json">Editable source</a> · <a href="diagrams/rendered/png/56-command-outcomes.png">PNG</a></section><section class="diagram-card" data-filter="57-migration-adoption-receipt a published target remains the current owner implemented repair / private controller api proof vm status records the exact adopted target before a separate migration completion write. retry finishes that receipt and retains current pod/anchors/state/config; owner checks and conditional child effects also apply to refusal and cleanup. this is operator api evidence, not a runtime/storage transaction.">
 <h3>A published target remains the current owner</h3><div class="scope">implemented repair / private controller API proof · S03, S11, T19</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/57-migration-adoption-receipt.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="57-migration-adoption-receipt" src="diagrams/rendered/light/57-migration-adoption-receipt.svg" alt="A published target remains the current owner"></a>
-<p>VM status records the exact adopted target before a separate Migration completion write. Retry finishes that receipt and retains current Pod/anchors/state/config; owner checks and conditional child effects also apply to refusal and cleanup. This is operator API evidence, not a runtime/storage transaction.</p><a href="diagrams/57-migration-adoption-receipt.json">Editable source</a> · <a href="diagrams/rendered/png/57-migration-adoption-receipt.png">PNG</a></section></div></article></main></div><script>
+<p>VM status records the exact adopted target before a separate Migration completion write. Retry finishes that receipt and retains current Pod/anchors/state/config; owner checks and conditional child effects also apply to refusal and cleanup. This is operator API evidence, not a runtime/storage transaction.</p><a href="diagrams/57-migration-adoption-receipt.json">Editable source</a> · <a href="diagrams/rendered/png/57-migration-adoption-receipt.png">PNG</a></section><section class="diagram-card" data-filter="58-history-incarnation a reused name does not grant its old history implemented repair / real synthetic promql proof current pod uid scopes historical selectors and scrape descriptors. native samples use a trusted pod_uid target label; cadvisor matches the whole pod cgroup uid. missing identity/legacy samples have no unscoped fallback. real engine tests use synthetic data, not production metrics.">
+<h3>A reused name does not grant its old history</h3><div class="scope">implemented repair / real synthetic PromQL proof · S19, S26, T21, U16</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/58-history-incarnation.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="58-history-incarnation" src="diagrams/rendered/light/58-history-incarnation.svg" alt="A reused name does not grant its old history"></a>
+<p>Current Pod UID scopes historical selectors and scrape descriptors. Native samples use a trusted pod_uid target label; cAdvisor matches the whole Pod cgroup UID. Missing identity/legacy samples have no unscoped fallback. Real engine tests use synthetic data, not production metrics.</p><a href="diagrams/58-history-incarnation.json">Editable source</a> · <a href="diagrams/rendered/png/58-history-incarnation.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

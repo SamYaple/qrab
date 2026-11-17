@@ -19,7 +19,7 @@ ATLAS = ROOT / "docs/architecture"
 EXPORTS = ATLAS / "exports"
 DIAGRAMS = ATLAS / "diagrams"
 ORDER = ["README", "executive", "replacement-map", "current-state", "desired-state", "code-map", "boundaries",
-         "runtime", "network", "storage", "identity", "tenancy", "authority", "operating-model", "recovery", "continuity", "verification", "lifecycle", "security", "operations", "operator-translation", "capabilities", "transition", "cutover-story",
+         "runtime", "network", "storage", "identity", "tenancy", "authority", "operating-model", "observability", "recovery", "continuity", "verification", "lifecycle", "security", "operations", "operator-translation", "capabilities", "transition", "cutover-story",
          "decisions", "questions", "field-guide", "glossary", "presentations", "upstream-diagrams", "audit", "evidence"]
 ESC = html.escape
 

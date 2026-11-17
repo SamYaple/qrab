@@ -620,3 +620,13 @@ VM status records the exact adopted target before a separate Migration completio
 ![A published target remains the current owner](diagrams/rendered/light/57-migration-adoption-receipt.svg)
 
 [Editable source](diagrams/57-migration-adoption-receipt.json) · [Light SVG](diagrams/rendered/light/57-migration-adoption-receipt.svg) · [Dark SVG](diagrams/rendered/dark/57-migration-adoption-receipt.svg) · [Print SVG](diagrams/rendered/print/57-migration-adoption-receipt.svg) · [PNG](diagrams/rendered/png/57-migration-adoption-receipt.png)
+
+## 58-history-incarnation: A reused name does not grant its old history
+
+**Scope:** implemented repair / real synthetic PromQL proof. **Evidence:** S19, S26, T21, U16.
+
+Current Pod UID scopes historical selectors and scrape descriptors. Native samples use a trusted pod_uid target label; cAdvisor matches the whole Pod cgroup UID. Missing identity/legacy samples have no unscoped fallback. Real engine tests use synthetic data, not production metrics.
+
+![A reused name does not grant its old history](diagrams/rendered/light/58-history-incarnation.svg)
+
+[Editable source](diagrams/58-history-incarnation.json) · [Light SVG](diagrams/rendered/light/58-history-incarnation.svg) · [Dark SVG](diagrams/rendered/dark/58-history-incarnation.svg) · [Print SVG](diagrams/rendered/print/58-history-incarnation.svg) · [PNG](diagrams/rendered/png/58-history-incarnation.png)

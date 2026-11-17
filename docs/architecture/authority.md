@@ -29,6 +29,7 @@ This is a useful architecture-review perspective alongside the service map.
 | Image-import Job name | Current BaseImage UID, exact observed Job UID/version and Job-owned report Pod | Name reuse cannot supply another report or retarget cleanup |
 | Image-stage Secret name | Atomic owner tests, metadata-only response and UID/version delete conditions | Cleanup keeps credentials write-only and preserves a replacement/rotation |
 | Event sequence | Manager epoch plus sequence/gap/drop information | Bounded observations have restart/retention limits |
+| Historical namespace/Pod name | Current API Pod UID, UID-bound scrape descriptor and retained series identity | A current name cannot grant predecessor data; missing identity has no fallback |
 
 The references here are not all credentials. A launch ID is public provenance;
 a namespace descriptor is an OS capability; a storage generation participates

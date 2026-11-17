@@ -75,6 +75,7 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 | T18 | [Image importer](../../projects/operator/src/image_import.rs), [Kubernetes adapter](../../projects/operator/src/image_import/cluster.rs), [private API regressions](../../projects/operator/src/image_import/tests/kube.rs) | Parent/Job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | Live image import, ZFS/LIO acceptance or a cross-system transaction |
 | T19 | [Migration controller](../../projects/operator/src/migration.rs), [refusal status](../../projects/operator/src/controller.rs), [private API ownership/retry regressions](../../projects/operator/tests/migration/ownership.rs) | Current owner/intent checks, conditional effects, adoption receipt recovery and retained execution bindings across exercised failures | A Kubernetes/runtime/storage transaction, real guest handover or live Cilium traffic |
 | T20 | [Controller retirement/deletion](../../projects/operator/src/controller.rs), [private conditional API regressions](../../projects/operator/src/controller/retirement_tests.rs) | Nonempty UID/version bind timer writes and Pod deletes; replacements, ownership updates and renewed timers survive stale observations | Kernel route withdrawal, BGP convergence, live guest continuity or a rollout |
+| T21 | [History templates/identity](../../projects/redfish/src/history.rs), [inventory/template admission](../../projects/qrab-observability/src/lib.rs), [actual PromQL fixture](../../projects/redfish/tests/history_promql.rs), [PodMonitor](../../contrib/kubernetes/monitoring/podmonitor.yaml) | UID-scoped history and synthetic real-PromQL isolation for all six metrics, with current metadata admission | A live TSDB audit, rollout, backend retention migration or historical VM-wide authorization product |
 
 ## External sources
 
@@ -100,6 +101,7 @@ tree. The date of the evidence check does not make every diagram a new design.
 | U13 | [Keystone token scopes](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html) | OpenStack API authorization context; distinct target identity questions |
 | U14 | [Kubernetes multi-tenancy](https://kubernetes.io/docs/concepts/security/multi-tenancy/) | Separate application customers, API actors, namespace policy and data-plane isolation requirements |
 | U15 | [Linux cgroup-v2 core interfaces](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) | `cgroup.type` is non-root-only; a private namespace root must be distinguished from the real hierarchy root |
+| U16 | [Prometheus rule/expression testing](https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/), [official downloads](https://prometheus.io/download/) | Real engine evaluation of synthetic series and verified explicit test tooling | Which Prometheus release or labels either cluster currently runs |
 
 ## Rules for a defensible comparison
 
