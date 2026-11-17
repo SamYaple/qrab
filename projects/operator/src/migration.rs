@@ -32,9 +32,12 @@ use crate::{
     resources::{self, Desired, GuestSize, Incarnation, KVM_RESOURCE, MIGRATION_PORT, POD_LABEL},
     Error, Result,
 };
-use k8s_openapi::api::core::v1::{ConfigMap, Node, PersistentVolumeClaim, Pod};
+use k8s_openapi::{
+    api::core::v1::{ConfigMap, Node, PersistentVolumeClaim, Pod},
+    apimachinery::pkg::apis::meta::v1::ObjectMeta,
+};
 use kube::{
-    api::{DeleteParams, DynamicObject, ListParams, Patch, PatchParams, PostParams},
+    api::{DeleteParams, DynamicObject, ListParams, Patch, PatchParams, PostParams, Preconditions},
     core::{ApiResource, GroupVersionKind},
     runtime::controller::Action,
     Api, Resource, ResourceExt,
@@ -412,12 +415,50 @@ async fn fail_because(
     Ok(Some(Action::requeue(Duration::from_secs(1))))
 }
 
-async fn delete_pod(pods: &Api<Pod>, name: &str) -> Result<bool> {
+fn child_identity(metadata: &ObjectMeta, vm: &VirtualMachine) -> Result<Preconditions> {
+    if !resources::owned_meta(metadata, vm)
+        || metadata.namespace != vm.namespace()
+        || metadata.uid.as_deref().is_none_or(str::is_empty)
+        || metadata
+            .resource_version
+            .as_deref()
+            .is_none_or(str::is_empty)
+    {
+        return Err(Error::Ownership(format!(
+            "migration child {} lacks this VM's ownership or object identity",
+            metadata.name.as_deref().unwrap_or("<unnamed>")
+        )));
+    }
+    Ok(Preconditions {
+        uid: metadata.uid.clone(),
+        resource_version: metadata.resource_version.clone(),
+    })
+}
+
+async fn delete_pod(
+    pods: &Api<Pod>,
+    vm: &VirtualMachine,
+    name: &str,
+    expected_uid: Option<&str>,
+) -> Result<bool> {
     let Some(pod) = pods.get_opt(name).await? else {
         return Ok(true);
     };
+    let identity = child_identity(&pod.metadata, vm)?;
+    if expected_uid.is_some_and(|uid| pod.metadata.uid.as_deref() != Some(uid)) {
+        return Err(Error::Ownership(format!(
+            "Pod {name} is another migration incarnation"
+        )));
+    }
     if pod.metadata.deletion_timestamp.is_none() {
-        pods.delete(name, &DeleteParams::default()).await?;
+        match pods
+            .delete(name, &DeleteParams::default().preconditions(identity))
+            .await
+        {
+            Ok(_) => {}
+            Err(kube::Error::Api(status)) if status.code == 404 => return Ok(true),
+            Err(error) => return Err(error.into()),
+        }
         return Ok(false);
     }
     // A process that has stopped (or never started) holds no disk session.
@@ -433,19 +474,68 @@ async fn delete_pod(pods: &Api<Pod>, name: &str) -> Result<bool> {
     Ok(false)
 }
 
-async fn delete_policy(ctx: &Context, name: &str) -> Result<()> {
-    match policies(ctx).delete(name, &DeleteParams::default()).await {
+async fn delete_policy(ctx: &Context, vm: &VirtualMachine, name: &str) -> Result<()> {
+    let api = policies(ctx);
+    let Some(policy) = api.get_opt(name).await? else {
+        return Ok(());
+    };
+    let identity = child_identity(&policy.metadata, vm)?;
+    match api
+        .delete(name, &DeleteParams::default().preconditions(identity))
+        .await
+    {
         Ok(_) => Ok(()),
         Err(kube::Error::Api(status)) if status.code == 404 => Ok(()),
         Err(error) => Err(error.into()),
     }
 }
 
-/// Delete `name` only when it is a state PVC the operator created for `uid`.
+async fn delete_config(configs: &Api<ConfigMap>, vm: &VirtualMachine, name: &str) -> Result<()> {
+    let Some(config) = configs.get_opt(name).await? else {
+        return Ok(());
+    };
+    let identity = child_identity(&config.metadata, vm)?;
+    match configs
+        .delete(name, &DeleteParams::default().preconditions(identity))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(kube::Error::Api(status)) if status.code == 404 => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn state_claim_identity(
+    claim: &PersistentVolumeClaim,
+    vm: &VirtualMachine,
+) -> Result<Preconditions> {
+    let identity = child_identity(&claim.metadata, vm)?;
+    if claim.metadata.deletion_timestamp.is_some() {
+        return Err(Error::Ownership(format!(
+            "PVC {} is being deleted",
+            claim.name_any()
+        )));
+    }
+    if claim
+        .labels()
+        .get("app.kubernetes.io/component")
+        .map(String::as_str)
+        != Some(STATE_COMPONENT)
+        || claim.labels().get(OWNER_UID).map(String::as_str) != vm.metadata.uid.as_deref()
+    {
+        return Err(Error::Ownership(format!(
+            "PVC {} is not this VM's migration state",
+            claim.name_any()
+        )));
+    }
+    Ok(identity)
+}
+
+/// Delete `name` only when it is a state PVC the operator created for this VM.
 async fn delete_state_claim(
     claims: &Api<PersistentVolumeClaim>,
     name: &str,
-    uid: &str,
+    vm: &VirtualMachine,
 ) -> Result<()> {
     let Some(claim) = claims.get_opt(name).await? else {
         return Ok(());
@@ -455,10 +545,18 @@ async fn delete_state_claim(
         .get("app.kubernetes.io/component")
         .map(String::as_str)
         == Some(STATE_COMPONENT)
-        && labels.get(OWNER_UID).map(String::as_str) == Some(uid)
+        && labels.get(OWNER_UID).map(String::as_str) == vm.metadata.uid.as_deref()
         && claim.metadata.deletion_timestamp.is_none()
     {
-        claims.delete(name, &DeleteParams::default()).await?;
+        let identity = state_claim_identity(&claim, vm)?;
+        match claims
+            .delete(name, &DeleteParams::default().preconditions(identity))
+            .await
+        {
+            Ok(_) => {}
+            Err(kube::Error::Api(status)) if status.code == 404 => {}
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(())
 }
@@ -475,28 +573,32 @@ async fn clean(
         Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
     let status = migration.status.clone().unwrap_or_default();
     let uid = uid(vm)?;
-    delete_policy(ctx, &policy_name(&migration.name_any())).await?;
-    let gone = if status.phase == "Succeeded" {
+    let current = Incarnation::of(vm);
+    delete_policy(ctx, vm, &policy_name(&migration.name_any())).await?;
+    // A late failure cannot undo authoritative adoption. Retire the old
+    // source just as on success; keep every resource of the current target.
+    let target_is_current = status.target_pod.as_deref() == Some(current.pod.as_str());
+    let gone = if status.phase == "Succeeded" || target_is_current {
         let source_gone = match &status.source_pod {
-            Some(source)
-                if Some(source) != vm.status.as_ref().and_then(|s| s.pod_name.as_ref()) =>
-            {
-                delete_pod(pods, source).await?
+            Some(source) if source != &current.pod => {
+                delete_pod(pods, vm, source, status.source_pod_uid.as_deref()).await?
             }
             _ => true,
         };
         if source_gone {
-            if let Some(previous) = &status.previous_state_volume_claim {
-                delete_state_claim(&claims, previous, &uid).await?;
+            if let Some(previous) = status
+                .previous_state_volume_claim
+                .as_ref()
+                .filter(|name| *name != &current.state_claim)
+            {
+                delete_state_claim(&claims, previous, vm).await?;
             }
         }
         source_gone
     } else {
         let target_gone = match &status.target_pod {
-            Some(target)
-                if Some(target) != vm.status.as_ref().and_then(|s| s.pod_name.as_ref()) =>
-            {
-                delete_pod(pods, target).await?
+            Some(target) if target != &current.pod => {
+                delete_pod(pods, vm, target, status.target_pod_uid.as_deref()).await?
             }
             _ => true,
         };
@@ -514,27 +616,31 @@ async fn clean(
             if anchor.annotations().get(crate::nic::MIGRATION_ANNOTATION)
                 == Some(&migration.name_any())
             {
-                delete_pod(pods, &anchor.name_any()).await?;
+                delete_pod(pods, vm, &anchor.name_any(), anchor.metadata.uid.as_deref()).await?;
             }
         }
         if target_gone {
-            if let Some(claim) = &status.target_state_volume_claim {
-                delete_state_claim(&claims, claim, &uid).await?;
+            if let Some(claim) = status
+                .target_state_volume_claim
+                .as_ref()
+                .filter(|name| *name != &current.state_claim)
+            {
+                delete_state_claim(&claims, claim, vm).await?;
             }
             if let Some(target) = &status.target_pod {
                 let configs: Api<ConfigMap> =
                     Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
-                let _ = configs
-                    .delete(
-                        &Incarnation {
-                            pod: target.clone(),
-                            state_claim: String::new(),
-                            node: None,
-                        }
-                        .config_name(),
-                        &DeleteParams::default(),
-                    )
-                    .await;
+                delete_config(
+                    &configs,
+                    vm,
+                    &Incarnation {
+                        pod: target.clone(),
+                        state_claim: String::new(),
+                        node: None,
+                    }
+                    .config_name(),
+                )
+                .await?;
             }
         }
         target_gone
@@ -595,7 +701,7 @@ async fn collect_abandoned(
                 })
             });
             tracing::warn!(pod=%name, migration=?target, "removing the target of a deleted migration");
-            delete_pod(pods, &name).await?;
+            delete_pod(pods, vm, &name, pod.metadata.uid.as_deref()).await?;
             // Now, while the Pod still names them: PVC protection keeps the
             // claim until the Pod is gone.
             if let Some(claim) = claim.filter(|c| {
@@ -605,7 +711,7 @@ async fn collect_abandoned(
                         .as_ref()
                         .and_then(|s| s.state_volume_claim.as_ref())
             }) {
-                delete_state_claim(&claims, &claim, &uid).await?;
+                delete_state_claim(&claims, &claim, vm).await?;
             }
             let config = Incarnation {
                 pod: name.clone(),
@@ -613,12 +719,10 @@ async fn collect_abandoned(
                 node: None,
             }
             .config_name();
-            if configs.get_opt(&config).await?.is_some() {
-                configs.delete(&config, &DeleteParams::default()).await?;
-            }
+            delete_config(&configs, vm, &config).await?;
         } else if gone(standby) && !live_anchor {
             tracing::warn!(pod=%name, migration=?standby, "removing a standby anchor of a deleted migration");
-            delete_pod(pods, &name).await?;
+            delete_pod(pods, vm, &name, pod.metadata.uid.as_deref()).await?;
         }
     }
     let windows = policies(ctx)
@@ -633,8 +737,8 @@ async fn collect_abandoned(
             .name_any()
             .strip_prefix("qrab-migration-")
             .map(str::to_owned);
-        if gone(migration.as_ref()) {
-            delete_policy(ctx, &window.name_any()).await?;
+        if window.name_any() != guard_name(&vm.name_any()) && gone(migration.as_ref()) {
+            delete_policy(ctx, vm, &window.name_any()).await?;
         }
     }
     Ok(())
@@ -644,19 +748,52 @@ async fn ensure_guard(ctx: &Context, vm: &VirtualMachine) -> Result<()> {
     let guard = guard(vm, &ctx.settings.namespace)?;
     let api = policies(ctx);
     let name = guard_name(&vm.name_any());
-    match api.get_opt(&name).await? {
-        Some(actual) if actual.data["spec"] == guard["spec"] => Ok(()),
-        _ => {
-            let object: DynamicObject = serde_json::from_value(guard)?;
-            api.patch(
-                &name,
-                &PatchParams::apply("qrab-operator").force(),
-                &Patch::Apply(&object),
-            )
-            .await?;
-            Ok(())
+    let actual = api.get_opt(&name).await?;
+    if let Some(actual) = &actual {
+        child_identity(&actual.metadata, vm)?;
+        if actual.data["spec"] == guard["spec"] {
+            return Ok(());
         }
     }
+    let mut object: DynamicObject = serde_json::from_value(guard)?;
+    if let Some(actual) = actual {
+        object.metadata.uid = actual.metadata.uid;
+        object.metadata.resource_version = actual.metadata.resource_version;
+    }
+    api.patch(
+        &name,
+        &PatchParams::apply("qrab-operator").force(),
+        &Patch::Apply(&object),
+    )
+    .await?;
+    Ok(())
+}
+
+/// VM status is the durable adoption receipt. Completion publication on the
+/// Migration can conflict after this write; retry must finish that receipt,
+/// rather than classify the adopted target as a replacement source.
+fn adoption_published(
+    vm: &VirtualMachine,
+    status: &VirtualMachineMigrationStatus,
+    current: &Pod,
+) -> bool {
+    let Some(vm_status) = &vm.status else {
+        return false;
+    };
+    status
+        .target_pod_uid
+        .as_deref()
+        .is_some_and(|uid| !uid.is_empty())
+        && vm_status.pod_name == status.target_pod
+        && vm_status.pod_uid == status.target_pod_uid
+        && current.uid() == status.target_pod_uid
+        && vm_status.node_name == status.target_node
+        && vm_status.state_volume_claim == status.target_state_volume_claim
+        && vm_status
+            .state_volume_uid
+            .as_deref()
+            .is_some_and(|uid| !uid.is_empty())
+        && !current.annotations().contains_key(TARGET_ANNOTATION)
 }
 
 /// Run the VM's migrations. `Some` means the VM reconcile stops here: a
@@ -701,7 +838,9 @@ pub async fn drive(
     for later in active.filter(|m| phase(m).is_empty() || phase(m) == "Pending") {
         fail(&api, later, "another migration of this VM is in progress").await?;
     }
-    step(ctx, vm, vms, pods, source, inputs, &api, current).await
+    // Keep the large preparation/adoption subworkflow out of the parent
+    // controller future's inline stack footprint.
+    Box::pin(step(ctx, vm, vms, pods, source, inputs, &api, current)).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -721,6 +860,14 @@ async fn step(
     let mut status = migration.status.clone().unwrap_or_default();
     if vm.metadata.deletion_timestamp.is_some() || !vm.spec.running {
         return fail(api, migration, "the VM is stopping").await;
+    }
+    if adoption_published(vm, &status, source) {
+        child_identity(&source.metadata, vm)?;
+        status.phase = "Succeeded".into();
+        status.message = format!("The guest runs on {} now", source.name_any());
+        status.completed_at = Some(now());
+        set_status(api, migration, &status).await?;
+        return Ok(Some(Action::requeue(Duration::from_secs(1))));
     }
     if status.phase.is_empty() || status.phase == "Pending" {
         if !ready(source) || source.metadata.deletion_timestamp.is_some() {
@@ -811,12 +958,37 @@ async fn step(
     }
     let source_exit = manager_exit(source);
     let live_target = pods.get_opt(&target).await?;
+    if let Some(target_pod) = &live_target {
+        child_identity(&target_pod.metadata, vm)?;
+        if target_pod.uid() == source.uid()
+            || status
+                .target_pod_uid
+                .as_ref()
+                .is_some_and(|uid| target_pod.metadata.uid.as_ref() != Some(uid))
+            || (status.target_pod_uid.is_none()
+                && target_pod.annotations().get(TARGET_ANNOTATION) != Some(&name))
+        {
+            return Err(Error::Ownership(format!(
+                "Pod {target} is not the recorded migration target"
+            )));
+        }
+    }
     // The source handed the guest over: the target owns it and its disks now.
     if handed_over(source) {
         let Some(target_pod) = live_target else {
             return Err(Error::Invalid(format!("the source of migration {name} handed over to {target}, which is gone; fence its disks before restarting the VM")));
         };
-        return adopt(ctx, vm, vms, api, migration, status, &target_pod, inputs).await;
+        return Box::pin(adopt(
+            ctx,
+            vm,
+            vms,
+            api,
+            migration,
+            status,
+            &target_pod,
+            inputs,
+        ))
+        .await;
     }
     if source_exit.is_some() {
         return fail(
@@ -849,10 +1021,20 @@ async fn step(
         &source.name_any(),
         &target,
     )?;
-    if policies(ctx).get_opt(&policy_name(&name)).await?.is_none() {
-        policies(ctx)
-            .create(&PostParams::default(), &serde_json::from_value(policy)?)
-            .await?;
+    match policies(ctx).get_opt(&policy_name(&name)).await? {
+        Some(actual) => {
+            child_identity(&actual.metadata, vm)?;
+            if actual.data["specs"] != policy["specs"] {
+                return Err(Error::Ownership(
+                    "existing migration window has another plan".into(),
+                ));
+            }
+        }
+        None => {
+            policies(ctx)
+                .create(&PostParams::default(), &serde_json::from_value(policy)?)
+                .await?;
+        }
     }
     let incarnation = Incarnation {
         pod: target.clone(),
@@ -869,7 +1051,9 @@ async fn step(
     )?;
     let claims: Api<PersistentVolumeClaim> =
         Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
-    if claims.get_opt(&target_claim).await?.is_none() {
+    if let Some(actual) = claims.get_opt(&target_claim).await? {
+        state_claim_identity(&actual, vm)?;
+    } else {
         let current = claims
             .get_opt(
                 status
@@ -967,8 +1151,18 @@ async fn step(
         &source_ip,
         node_ip.as_deref(),
     )?;
-    if configs.get_opt(&config.name_any()).await?.is_none() {
-        configs.create(&PostParams::default(), &config).await?;
+    match configs.get_opt(&config.name_any()).await? {
+        Some(actual) => {
+            child_identity(&actual.metadata, vm)?;
+            if actual.data != config.data {
+                return Err(Error::Ownership(
+                    "existing migration ConfigMap has another plan".into(),
+                ));
+            }
+        }
+        None => {
+            configs.create(&PostParams::default(), &config).await?;
+        }
     }
     let Some(target_pod) = live_target else {
         let mut pod = desired.pod.clone();
@@ -986,7 +1180,7 @@ async fn step(
         .await;
     }
     // Record the target's UID durably before any kubelet may run it.
-    if status.target_pod_uid != target_pod.uid() {
+    if status.target_pod_uid.is_none() {
         status.target_pod_uid = target_pod.uid();
         set_status(api, migration, &status).await?;
         return Ok(Some(Action::requeue(Duration::from_secs(1))));
@@ -1056,20 +1250,23 @@ async fn adopt(
     )?;
     // Without `incoming`, the VM's normal reconcile finds this config current.
     let configs: Api<ConfigMap> = Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    let actual = configs.get(&desired.config.name_any()).await?;
+    child_identity(&actual.metadata, vm)?;
+    let claims: Api<PersistentVolumeClaim> =
+        Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
+    let claim = claims
+        .get_opt(&claim_name)
+        .await?
+        .ok_or_else(|| Error::Invalid(format!("the target state PVC {claim_name} is missing")))?;
+    state_claim_identity(&claim, vm)?;
+    let claim_uid = claim.uid().expect("checked claim UID");
     configs
         .patch(
             &desired.config.name_any(),
             &PatchParams::default(),
-            &Patch::Merge(json!({"data":desired.config.data})),
+            &Patch::Merge(json!({"metadata":{"uid":actual.metadata.uid,"resourceVersion":actual.metadata.resource_version},"data":desired.config.data})),
         )
         .await?;
-    let claims: Api<PersistentVolumeClaim> =
-        Api::namespaced(ctx.client.clone(), &ctx.settings.namespace);
-    let claim_uid = claims
-        .get_opt(&claim_name)
-        .await?
-        .and_then(|c| c.uid())
-        .ok_or_else(|| Error::Invalid(format!("the target state PVC {claim_name} is missing")))?;
     let source = status.source_node.clone().unwrap_or_default();
     let mut vm_status: VirtualMachineStatus = crate::controller::state(
         vm,
@@ -1096,7 +1293,7 @@ async fn adopt(
         &target.name_any(),
         &PatchParams::default(),
         &Patch::Merge(
-            json!({"metadata":{"uid":target.uid(),"annotations":{TARGET_ANNOTATION:null}}}),
+            json!({"metadata":{"uid":target.uid(),"resourceVersion":target.resource_version(),"annotations":{TARGET_ANNOTATION:null}}}),
         ),
     )
     .await?;

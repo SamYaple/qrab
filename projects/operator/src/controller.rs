@@ -1165,12 +1165,16 @@ pub async fn reconcile(event: Arc<VirtualMachine>, ctx: Arc<Context>) -> Result<
                 Error::Storage(StorageError::Unavailable(_)) => "StorageUnavailable",
                 _ => "InvalidSpec",
             };
-            publish(
-                &vms,
-                &vm,
-                state(&vm, None, "Blocked", false, reason, &error.to_string()),
-            )
-            .await?;
+            let mut blocked = state(&vm, None, "Blocked", false, reason, &error.to_string());
+            // Refusing an operation does not prove the current execution is
+            // gone. Forgetting a migrated Pod here falls back to the primary
+            // name on retry and can create a second consumer of its state.
+            if let Some(current) = &vm.status {
+                blocked.pod_name = current.pod_name.clone();
+                blocked.pod_uid = current.pod_uid.clone();
+                blocked.node_name = current.node_name.clone();
+            }
+            publish(&vms, &vm, blocked).await?;
             Ok(Action::requeue(Duration::from_secs(30)))
         }
         Err(error) => Err(error),

@@ -82,6 +82,34 @@ the target. If no migration adopts such a Pod, the VM blocks with reason
 `spec.storageNode` is only the initial placement; `status.placementNode`
 replaces it as the scheduling pin after a move, and the VM restarts there.
 
+### Controller retries and object ownership
+
+Preparation checks the current VM controller relationship on existing target
+Pods, ConfigMaps, state PVCs and migration policies. Existing configuration
+and window policy must match the intended plan. A recorded target Pod UID
+cannot silently change, including when the source has already handed over.
+Adoption patches and cleanup deletes carry the checked UID/resourceVersion;
+an object replaced or updated between lookup and effect causes a retry.
+Foreign resources are refused, and a ConfigMap deletion failure cannot be
+silently recorded as completed cleanup. Manual previous state PVCs remain
+retained under their established contract.
+
+Publishing the exact target binding in VM status is the durable adoption
+receipt. The final `VirtualMachineMigration.status` write is separate. If it
+conflicts or its response is lost, the next pass recognizes the current
+target UID, node and state binding and finishes migration completion. It
+does not reinterpret the adopted target as a replacement source or clean up
+its current Pod, anchors, identity PVC or ConfigMap. A later ownership/spec
+refusal also preserves the known execution binding while reporting Blocked;
+it does not fall back to the primary Pod name.
+
+The standing per-VM guard is excluded from abandoned-window collection even
+when a valid VM name begins with `qrab-migration-`. Object checks and
+conditional writes do not turn Kubernetes and runtime/storage effects into
+one transaction. The private API cases in
+`projects/operator/tests/migration/ownership.rs` exercise these boundaries
+without launching QEMU or using a live cluster.
+
 ### Powered-off VMs
 
 A VM powered off in place (Redfish/BMC power off, or the guest shutting

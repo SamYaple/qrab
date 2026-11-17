@@ -22,8 +22,19 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[path = "migration/ownership.rs"]
+mod ownership;
+
 #[derive(Clone, Default)]
-struct Store(Arc<Mutex<BTreeMap<String, Value>>>);
+struct Store(Arc<Mutex<BTreeMap<String, Value>>>, Arc<Mutex<Faults>>);
+
+#[derive(Default)]
+struct Faults {
+    before_patch: BTreeMap<String, Value>,
+    before_delete: BTreeMap<String, Value>,
+    fail_delete: std::collections::BTreeSet<String>,
+    requests: Vec<(Method, String, Value)>,
+}
 
 const VM: &str = "/apis/qrab.yapplesauce.com/v1alpha1/namespaces/qrab/virtualmachines/test-vm";
 const PODS: &str = "/api/v1/namespaces/qrab/pods";
@@ -67,6 +78,16 @@ fn selected(object: &Value, selector: &str) -> bool {
     })
 }
 
+// Kubernetes always supplies a version. Several compact seed objects omit it
+// in storage, so normalize their wire representation like an API server.
+fn versioned(object: &Value) -> Value {
+    let mut object = object.clone();
+    if object["metadata"]["resourceVersion"].is_null() {
+        object["metadata"]["resourceVersion"] = json!("1");
+    }
+    object
+}
+
 async fn api(
     State(store): State<Store>,
     method: Method,
@@ -77,6 +98,27 @@ async fn api(
     let mut objects = store.0.lock().unwrap();
     let path = uri.path().trim_end_matches("/status").to_owned();
     let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    {
+        let mut faults = store.1.lock().unwrap();
+        if method == Method::PATCH || method == Method::DELETE {
+            faults
+                .requests
+                .push((method.clone(), path.clone(), body.clone()));
+        }
+        let replacement = if method == Method::PATCH {
+            faults.before_patch.remove(&path)
+        } else if method == Method::DELETE {
+            faults.before_delete.remove(&path)
+        } else {
+            None
+        };
+        if let Some(replacement) = replacement {
+            objects.insert(path.clone(), replacement);
+        }
+        if method == Method::DELETE && faults.fail_delete.contains(&path) {
+            return status(500, "InternalError");
+        }
+    }
     let collection = [
         PODS,
         POLICIES,
@@ -98,7 +140,7 @@ async fn api(
             let items: Vec<_> = objects
                 .iter()
                 .filter(|(k, v)| k.rsplit_once('/').unwrap().0 == path && selected(v, &selector))
-                .map(|(_, v)| v.clone())
+                .map(|(_, v)| versioned(v))
                 .collect();
             Json(json!({"apiVersion":"v1","kind":"List","metadata":{"resourceVersion":"1"},"items":items}))
                 .into_response()
@@ -115,7 +157,7 @@ async fn api(
             (StatusCode::CREATED, Json(object)).into_response()
         }
         (Method::GET, false) => match objects.get(&path) {
-            Some(object) => Json(object.clone()).into_response(),
+            Some(object) => Json(versioned(object)).into_response(),
             None => status(404, "NotFound"),
         },
         (Method::PATCH, false) => {
@@ -126,12 +168,21 @@ async fn api(
                 let mut object = body;
                 object["metadata"]["uid"] =
                     json!(format!("uid-{}", path.rsplit('/').next().unwrap()));
+                object["metadata"]["resourceVersion"] = json!("1");
                 objects.insert(path, object.clone());
                 return Json(object).into_response();
             }
             let Some(object) = objects.get_mut(&path) else {
                 return status(404, "NotFound");
             };
+            let current = versioned(object);
+            for field in ["uid", "resourceVersion"] {
+                if !body["metadata"][field].is_null()
+                    && body["metadata"][field] != current["metadata"][field]
+                {
+                    return status(409, "Conflict");
+                }
+            }
             if apply {
                 let metadata = object["metadata"].clone();
                 *object = body;
@@ -146,13 +197,25 @@ async fn api(
             }
             Json(object.clone()).into_response()
         }
-        (Method::DELETE, false) => match objects.remove(&path) {
-            Some(_) => {
-                Json(json!({"apiVersion":"v1","kind":"Status","status":"Success","code":200}))
-                    .into_response()
+        (Method::DELETE, false) => {
+            if let Some(object) = objects.get(&path) {
+                let current = versioned(object);
+                for field in ["uid", "resourceVersion"] {
+                    if !body["preconditions"][field].is_null()
+                        && body["preconditions"][field] != current["metadata"][field]
+                    {
+                        return status(409, "Conflict");
+                    }
+                }
             }
-            None => status(404, "NotFound"),
-        },
+            match objects.remove(&path) {
+                Some(_) => {
+                    Json(json!({"apiVersion":"v1","kind":"Status","status":"Success","code":200}))
+                        .into_response()
+                }
+                None => status(404, "NotFound"),
+            }
+        }
         _ => status(405, "MethodNotAllowed"),
     }
 }
