@@ -382,14 +382,36 @@ fn the_dhcp_responder_offers_the_lease_over_a_real_link() {
         dns: Some(qrab_netd::GUEST_GATEWAY),
         mtu: None,
     };
-    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let root = tempfile::tempdir().unwrap();
+    let process = root.path().join("7");
+    std::fs::create_dir_all(process.join("ns")).unwrap();
+    let uid = "6b9f0c44-0000-4000-8000-0000000000ee";
+    std::fs::write(
+        process.join("cgroup"),
+        format!("0::/kubepods/pod{uid}/container\n"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&anchor.path, process.join("ns/net")).unwrap();
+    let context = qrab_netd::anchor::Anchor::find(root.path(), uid).unwrap();
+    let worker = qrab_netd::anchor::DhcpWorker::new(&context, lease);
+    let stop = worker.stop_flag();
     sys::serve_dhcp(
-        std::fs::File::open(&anchor.path).unwrap(),
+        context.namespace().unwrap(),
         "qtdhcp0".into(),
-        lease,
+        worker.lease(),
         stop.clone(),
     )
     .unwrap();
+    // The real socket is already bound before success. An accidental second
+    // responder must fail synchronously, without disrupting the first.
+    let duplicate = sys::serve_dhcp(
+        context.namespace().unwrap(),
+        "qtdhcp0".into(),
+        worker.lease(),
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+    .unwrap_err();
+    assert_eq!(duplicate.kind(), io::ErrorKind::AddrInUse);
     let reply = sys::in_netns(&guest.path, move || {
         ip("link set gst0 address 02:00:00:00:00:42 up")?;
         // A real client sends from 0.0.0.0 on a raw socket; this UDP stand-in
@@ -408,23 +430,67 @@ fn the_dhcp_responder_offers_the_lease_over_a_real_link() {
         .map_err(io::Error::from)?;
         socket.set_broadcast(true)?;
         socket.set_read_timeout(Some(Duration::from_secs(2)))?;
-        let mut buffer = [0u8; 1500];
-        for _ in 0..5 {
-            socket.send_to(
-                &qrab_netd::dhcp::request(1, 7, lease.mac),
-                ("255.255.255.255", 67),
-            )?;
-            if let Ok((n, from)) = socket.recv_from(&mut buffer) {
-                return Ok((buffer[..n].to_vec(), from));
+        let exchange = |xid| -> io::Result<(Vec<u8>, std::net::SocketAddr)> {
+            let mut buffer = [0u8; 1500];
+            for _ in 0..5 {
+                socket.send_to(
+                    &qrab_netd::dhcp::request(1, xid, lease.mac),
+                    ("255.255.255.255", 67),
+                )?;
+                if let Ok((n, from)) = socket.recv_from(&mut buffer) {
+                    if buffer.get(4..8) == Some(xid.to_be_bytes().as_slice()) {
+                        return Ok((buffer[..n].to_vec(), from));
+                    }
+                }
             }
-        }
-        Err(io::Error::other("no DHCP reply"))
+            Err(io::Error::other("no DHCP reply"))
+        };
+        let first = exchange(7)?;
+        // The applied plan changes while the namespace and socket remain.
+        // Use the production worker's update API, not another server.
+        worker.update(qrab_netd::dhcp::Lease {
+            ip: "10.99.0.43".parse().unwrap(),
+            dns: Some("203.0.113.53".parse().unwrap()),
+            mtu: Some(1280),
+            seconds: 1200,
+            ..lease
+        });
+        let second = exchange(8)?;
+        assert!(!worker
+            .stop_flag()
+            .load(std::sync::atomic::Ordering::Relaxed));
+        Ok((first, second))
     })
     .unwrap();
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
-    let (offer, from) = reply;
+    fn option(packet: &[u8], wanted: u8) -> Option<&[u8]> {
+        let mut bytes = packet.get(240..)?;
+        while let Some((&code, tail)) = bytes.split_first() {
+            match code {
+                0 => bytes = tail,
+                255 => return None,
+                _ => {
+                    let (&length, values) = tail.split_first()?;
+                    let value = values.get(..usize::from(length))?;
+                    if code == wanted {
+                        return Some(value);
+                    }
+                    bytes = &values[usize::from(length)..];
+                }
+            }
+        }
+        None
+    }
+    let ((first, from), (second, next_from)) = reply;
     assert_eq!(from.ip().to_string(), "169.254.1.1");
-    assert_eq!(&offer[16..20], &[10, 99, 0, 42], "yiaddr is the lease");
+    assert_eq!(from, next_from);
+    assert_eq!(&first[16..20], &[10, 99, 0, 42]);
+    assert_eq!(option(&first, 6), Some([169, 254, 1, 1].as_slice()));
+    assert_eq!(option(&first, 26), None);
+    assert_eq!(&second[16..20], &[10, 99, 0, 43]);
+    assert_eq!(option(&second, 6), Some([203, 0, 113, 53].as_slice()));
+    assert_eq!(option(&second, 26), Some(1280u16.to_be_bytes().as_slice()));
+    assert_eq!(option(&second, 51), Some(1200u32.to_be_bytes().as_slice()));
 }
 
 /// One's-complement sum over 16-bit words (IPv4 and ICMP checksums).

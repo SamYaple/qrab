@@ -182,6 +182,40 @@ fn agent(api: Api<Pod>, store: reflector::Store<Pod>) -> Arc<Agent> {
     })
 }
 
+fn fake_plumbed(agent: &Agent, summary: &str) -> (tempfile::TempDir, Arc<AtomicBool>) {
+    let root = tempfile::tempdir().unwrap();
+    let process = root.path().join("7");
+    std::fs::create_dir_all(process.join("ns")).unwrap();
+    std::fs::write(
+        process.join("cgroup"),
+        format!("0::/kubepods/pod{OLD}/container\n"),
+    )
+    .unwrap();
+    std::fs::write(process.join("ns/net"), "held namespace fixture").unwrap();
+    let anchor = Arc::new(Anchor::find(root.path(), OLD).unwrap());
+    let responder = DhcpWorker::new(
+        &anchor,
+        qrab_netd::dhcp::Lease {
+            mac: [2, 0, 0, 0, 0, 1],
+            ip: "10.99.0.7".parse().unwrap(),
+            seconds: 600,
+            dns: Some(qrab_netd::GUEST_GATEWAY),
+            mtu: None,
+        },
+    );
+    let stop = responder.stop_flag();
+    agent.dhcp.lock().unwrap().insert(OLD.into(), responder);
+    agent.plumbed.lock().unwrap().insert(
+        OLD.into(),
+        Plumbed {
+            anchor,
+            verified_at: Instant::now(),
+            summary: summary.into(),
+        },
+    );
+    (root, stop)
+}
+
 #[tokio::test]
 async fn delayed_readiness_cannot_mark_a_same_name_replacement_ready() {
     let server = Server::new(pod(NEW, "20"));
@@ -230,24 +264,7 @@ async fn a_status_conflict_is_retried_without_replumbing_the_namespace() {
     assert!(server.condition(PLUMBED_CONDITION).is_none());
     assert!(agent.reported.lock().unwrap().is_empty());
 
-    let root = tempfile::tempdir().unwrap();
-    let process = root.path().join("7");
-    std::fs::create_dir_all(process.join("ns")).unwrap();
-    std::fs::write(
-        process.join("cgroup"),
-        format!("0::/kubepods/pod{OLD}/container\n"),
-    )
-    .unwrap();
-    std::fs::write(process.join("ns/net"), "held namespace fixture").unwrap();
-    let anchor = Arc::new(Anchor::find(root.path(), OLD).unwrap());
-    agent.plumbed.lock().unwrap().insert(
-        OLD.into(),
-        Plumbed {
-            anchor,
-            verified_at: Instant::now(),
-            summary: summary.into(),
-        },
-    );
+    let (_root, _stop) = fake_plumbed(&agent, summary);
     writer.apply_watcher_event(&watcher::Event::Apply(pod(OLD, "11")));
     // The successful namespace is fresh. Reconciliation must retry only its
     // rejected status write, using the updated watch snapshot. Entering the
@@ -290,4 +307,35 @@ async fn a_status_write_requires_both_uid_and_resource_version() {
         .is_err());
     }
     assert!(server.state.lock().unwrap().requests.is_empty());
+}
+
+#[tokio::test]
+async fn losing_a_process_reference_invalidates_grants_without_stopping_a_reusable_socket() {
+    let server = Server::new(pod(OLD, "11"));
+    let (store, _writer) = reflector::store();
+    let agent = agent(server.api.clone(), store);
+    let (_root, stop) = fake_plumbed(&agent, "tap prepared");
+    assert!(agent.ready_anchor(&pod(OLD, "11")).is_ok());
+    agent.invalidate_ready(OLD);
+    assert!(agent.ready_anchor(&pod(OLD, "11")).is_err());
+    assert!(!stop.load(Ordering::Relaxed));
+    assert!(agent.dhcp.lock().unwrap().contains_key(OLD));
+}
+
+#[tokio::test]
+async fn an_exited_responder_cannot_keep_a_recent_context_ready() {
+    let server = Server::new(pod(OLD, "11"));
+    let (store, mut writer) = reflector::store();
+    let agent = agent(server.api.clone(), store);
+    let (_root, stop) = fake_plumbed(&agent, "tap prepared");
+    stop.store(true, Ordering::Relaxed);
+    assert!(agent.ready_anchor(&pod(OLD, "11")).is_err());
+    writer.apply_watcher_event(&watcher::Event::Apply(pod(OLD, "11")));
+    // The old timestamp is fresh, but the stopped worker is not. A retry
+    // must run; the deliberately absent real proc root prevents plumbing.
+    reconcile(&agent, &server.api).await;
+    assert_eq!(
+        server.condition(PLUMBED_CONDITION).unwrap()["status"],
+        "False"
+    );
 }

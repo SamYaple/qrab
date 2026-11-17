@@ -197,13 +197,25 @@ impl Agent {
             .map(|ready| ready.anchor.clone())
             .ok_or("NIC is not plumbed yet")?;
         anchor.ensure_current().map_err(|e| e.to_string())?;
+        if !self
+            .dhcp
+            .lock()
+            .unwrap()
+            .get(&uid)
+            .is_some_and(|worker| worker.serves(&anchor))
+        {
+            return Err("NIC DHCP responder is not running".into());
+        }
         Ok(anchor)
     }
 
-    fn forget_namespace(&self, uid: &str) {
+    fn invalidate_ready(&self, uid: &str) {
         self.plumbed.lock().unwrap().remove(uid);
-        self.dhcp.lock().unwrap().remove(uid);
         self.forwarded.lock().unwrap().remove(uid);
+        // A process can restart while its namespace stays the same. Keep
+        // its responder until the replacement context identifies the
+        // namespace; matching healthy sockets can then be reused. A changed
+        // namespace or a gone Pod retires the old worker below.
     }
 
     fn plumb(&self, pod: &Pod) -> Result<(String, Arc<Anchor>), String> {
@@ -234,8 +246,15 @@ impl Agent {
             sys::apply(&plan, resolver)
         })
         .map_err(|e| e.to_string())?;
-        // A responder's UDP socket pins its namespace. Replace it when the
-        // sandbox changes, even if Kubernetes kept the same Pod UID.
+        let lease = qrab_netd::dhcp::Lease {
+            mac: qrab_netd::dhcp::mac(&guest_mac).ok_or("bad guest MAC")?,
+            ip: guest_ip,
+            seconds: 86400,
+            dns,
+            mtu: vpn.then(|| u16::try_from(mtu).unwrap_or(1420)),
+        };
+        // The socket belongs to the namespace; the offered lease belongs
+        // to the applied plan. Refresh the latter without rebinding port 67.
         let mut workers = self.dhcp.lock().unwrap();
         if workers
             .get(&uid)
@@ -243,24 +262,19 @@ impl Agent {
         {
             workers.remove(&uid);
         }
-        if let std::collections::hash_map::Entry::Vacant(slot) = workers.entry(uid) {
-            let mac = qrab_netd::dhcp::mac(&guest_mac).ok_or("bad guest MAC")?;
-            let lease = qrab_netd::dhcp::Lease {
-                mac,
-                ip: guest_ip,
-                seconds: 86400,
-                dns,
-                mtu: vpn.then(|| u16::try_from(mtu).unwrap_or(1420)),
-            };
-            let worker = DhcpWorker::new(&anchor);
-            sys::serve_dhcp(
-                anchor.namespace().map_err(|e| e.to_string())?,
-                tap,
-                lease,
-                worker.stop_flag(),
-            )
-            .map_err(|e| e.to_string())?;
-            slot.insert(worker);
+        match workers.entry(uid) {
+            std::collections::hash_map::Entry::Occupied(slot) => slot.get().update(lease),
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                let worker = DhcpWorker::new(&anchor, lease);
+                sys::serve_dhcp(
+                    anchor.namespace().map_err(|e| e.to_string())?,
+                    tap,
+                    worker.lease(),
+                    worker.stop_flag(),
+                )
+                .map_err(|e| e.to_string())?;
+                slot.insert(worker);
+            }
         }
         anchor.ensure_current().map_err(|e| e.to_string())?;
         Ok((summary, anchor))
@@ -684,15 +698,13 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
     for pod in &anchors {
         let uid = pod.uid().unwrap_or_default();
         let cached = agent.plumbed.lock().unwrap().get(&uid).cloned();
-        let current = cached
-            .as_ref()
-            .is_some_and(|ready| ready.anchor.ensure_current().is_ok());
+        let current = agent.ready_anchor(pod).is_ok();
         let fresh = current
             && cached
                 .as_ref()
                 .is_some_and(|ready| ready.verified_at.elapsed() < REVERIFY);
         if !current {
-            agent.forget_namespace(&uid);
+            agent.invalidate_ready(&uid);
             if cached.is_some() {
                 report(
                     pods,
@@ -745,7 +757,7 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
                 }
             }
             Err(error) => {
-                agent.forget_namespace(&uid);
+                agent.invalidate_ready(&uid);
                 log(
                     "plumb_failed",
                     serde_json::json!({"pod": pod.name_any(), "error": error}),

@@ -691,39 +691,49 @@ pub fn cilium_handoff(socket: &Path, endpoint: &str, state: &str) -> io::Result<
 const HEADER_KIND_OFFSET: usize = 242;
 
 /// Serve DHCP for one tap until `stop` is set: a UDP socket on port 67 in
-/// the anchor's namespace, bound to the tap, answering only `lease.mac`.
+/// the anchor's namespace, bound to the tap, answering only the current MAC.
 /// The socket keeps the namespace alive, so the caller stops it when the
-/// anchor goes.
+/// anchor goes. Bind/setup complete before success is returned. Each request
+/// reads one whole lease snapshot, so applied DNS/address/MTU changes do not
+/// need a socket restart.
 pub fn serve_dhcp(
     netns: File,
     tap: String,
-    lease: crate::dhcp::Lease,
+    lease: std::sync::Arc<std::sync::RwLock<crate::dhcp::Lease>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> io::Result<()> {
+    let interface = tap.clone();
+    // The UDP socket retains this namespace for subsequent I/O, regardless
+    // of the serving thread's namespace. Setup errors must reach plumbing
+    // before it can publish readiness, rather than only a background log.
+    let socket = in_namespace(netns, move || socket2_udp(&interface))?;
     std::thread::Builder::new().name(format!("dhcp-{tap}")).spawn(move || {
         let run = || -> io::Result<()> {
-            nix::sched::setns(&netns, nix::sched::CloneFlags::CLONE_NEWNET).map_err(io::Error::from)?;
-            let socket = socket2_udp(&tap)?;
             let mut buffer = [0u8; 1500];
-            eprintln!("{}", serde_json::json!({"event":"dhcp_serving","detail":{"tap":tap,"address":lease.ip}}));
+            let address = lease.read().unwrap_or_else(|e| e.into_inner()).ip;
+            eprintln!("{}", serde_json::json!({"event":"dhcp_serving","detail":{"tap":tap,"address":address}}));
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
                 let (n, from) = match socket.recv_from(&mut buffer) {
                     Ok(received) => received,
                     Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => continue,
                     Err(e) => return Err(e),
                 };
-                if let Some(reply) = crate::dhcp::reply(&buffer[..n], &lease) {
+                let current = *lease.read().unwrap_or_else(|e| e.into_inner());
+                if let Some(reply) = crate::dhcp::reply(&buffer[..n], &current) {
                     socket.send_to(&reply, (Ipv4Addr::BROADCAST, 68))?;
                     eprintln!("{}", serde_json::json!({"event":"dhcp_reply","detail":{"tap":tap,"from":from.to_string(),"kind":reply[HEADER_KIND_OFFSET]}}));
                 }
             }
             Ok(())
         };
-        if let Err(error) = run() {
+        let outcome = run();
+        // Release port 67 before publishing exit. A replacement must not
+        // race a failed worker that still owns the old socket.
+        drop(socket);
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Err(error) = outcome {
             eprintln!("{}", serde_json::json!({"event":"dhcp_failed","detail":{"tap":tap,"error":error.to_string()}}));
         }
-        // A failed worker must not remain cached as a live responder.
-        stop.store(true, std::sync::atomic::Ordering::Relaxed);
     })?;
     Ok(())
 }
@@ -744,6 +754,28 @@ fn socket2_udp(tap: &str) -> io::Result<std::net::UdpSocket> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn dhcp_namespace_setup_must_succeed_before_the_responder_is_reported_started() {
+        let namespace = tempfile::tempfile().unwrap();
+        let lease = crate::dhcp::Lease {
+            mac: [2, 0, 0, 0, 0, 1],
+            ip: "10.99.0.7".parse().unwrap(),
+            seconds: 600,
+            dns: Some(crate::GUEST_GATEWAY),
+            mtu: None,
+        };
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // A regular file cannot be entered as a network namespace, even
+        // when this fixture runs with namespace capabilities.
+        assert!(super::serve_dhcp(
+            namespace,
+            "missing0".into(),
+            std::sync::Arc::new(std::sync::RwLock::new(lease)),
+            stop,
+        )
+        .is_err());
+    }
 
     #[test]
     fn a_vpn_config_is_read_through_the_process_that_mounts_it() {

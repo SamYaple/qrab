@@ -11,7 +11,7 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -101,13 +101,15 @@ impl Anchor {
 pub struct DhcpWorker {
     token: String,
     stop: Arc<AtomicBool>,
+    lease: Arc<RwLock<crate::dhcp::Lease>>,
 }
 
 impl DhcpWorker {
-    pub fn new(anchor: &Anchor) -> Self {
+    pub fn new(anchor: &Anchor, lease: crate::dhcp::Lease) -> Self {
         Self {
             token: anchor.token(),
             stop: Arc::new(AtomicBool::new(false)),
+            lease: Arc::new(RwLock::new(lease)),
         }
     }
 
@@ -117,6 +119,15 @@ impl DhcpWorker {
 
     pub fn stop_flag(&self) -> Arc<AtomicBool> {
         self.stop.clone()
+    }
+
+    pub fn lease(&self) -> Arc<RwLock<crate::dhcp::Lease>> {
+        self.lease.clone()
+    }
+
+    /// Publish one whole lease snapshot without rebinding the same socket.
+    pub fn update(&self, lease: crate::dhcp::Lease) {
+        *self.lease.write().unwrap_or_else(|e| e.into_inner()) = lease;
     }
 }
 
@@ -131,6 +142,13 @@ mod tests {
     use super::*;
 
     const UID: &str = "6b9f0c44-0000-4000-8000-000000000001";
+    const LEASE: crate::dhcp::Lease = crate::dhcp::Lease {
+        mac: [2, 0, 0, 0, 0, 1],
+        ip: std::net::Ipv4Addr::new(10, 99, 0, 7),
+        seconds: 600,
+        dns: Some(crate::GUEST_GATEWAY),
+        mtu: None,
+    };
 
     fn process(root: &Path) -> std::path::PathBuf {
         let path = root.join("7");
@@ -151,7 +169,7 @@ mod tests {
         let original = Anchor::find(root.path(), UID).unwrap();
         let token = original.token();
         let descriptor = original.namespace().unwrap();
-        let worker = DhcpWorker::new(&original);
+        let worker = DhcpWorker::new(&original, LEASE);
         let stopped = worker.stop_flag();
         assert!(worker.serves(&original));
         // A fresh observation of an unchanged namespace has the same token:
@@ -173,7 +191,7 @@ mod tests {
         assert_eq!(original.token(), token);
         drop(worker);
         assert!(stopped.load(Ordering::Relaxed));
-        let next = DhcpWorker::new(&replacement);
+        let next = DhcpWorker::new(&replacement, LEASE);
         assert!(next.serves(&replacement));
         next.stop_flag().store(true, Ordering::Relaxed);
         assert!(
