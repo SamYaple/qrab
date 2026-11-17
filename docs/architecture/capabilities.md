@@ -17,7 +17,7 @@ not silently reclassified as boundary bugs.
 | Human identity without Keystone | Implemented foundation | Agree API RBAC, VM application roles and namespace administration model | S16, S18–S20, M01 |
 | Workload identity / rotation | Implemented foundation | Platform SPIRE enrollment, service-specific peer policies and expiry evidence | S20, L01 |
 | Optional guest workload identity | Implemented / optional | Guest-image enrollment, selector policy, revocation/recovery and software-vTPM trust model | S23, S24, L02 |
-| Cilium-native guest attachment | Implemented | KVM + stable address range + netd + platform policy; host unified cgroup-v2 view and standard kubelet roots | S08–S10 |
+| Cilium-native guest attachment | Implemented | KVM + stable address range + netd + platform policy; host unified cgroup-v2 view, standard kubelet roots and SO_PEERPIDFD support (Linux 6.5+) | S08–S10 |
 | Guest security groups | Implemented foundation | Deploy baseline/allow policies; label membership alone has no enforcement | S08, M01 |
 | Stable externally routed guest IPv4 | Implemented / constrained | /32 range and external route acceptance; no general floating-IP or overlapping-tenant network claim | S08 |
 | IPv6 / broad Neutron network parity | Work remains / outside current model | Decide required address/network/L2/router semantics before migration | S08, S09 |

@@ -176,6 +176,43 @@ live datapath proof.
 Primary main was synchronized. The source repair was not published in a
 runtime image or rolled out.
 
+## A06 — process identity checks could be separated from resource use
+
+**Affected source:** netd caller mapping, anchor namespace selection and
+resolver/VPN-file reads. **Repair baseline:** `2b601f4`.
+
+The old paths read a numeric PID's cgroup and later reopened `/proc/<pid>`
+resources. A PID/path replacement between those steps could substitute another
+process, namespace or mounted file. A socket's saved numeric peer PID also
+does not pin the original connector's lifetime. This was a source-identified
+race; no live exploit or VM grant was attempted.
+
+The repair captures the original Unix peer with `SO_PEERPIDFD`, checks its
+readiness/liveness during admission, and rechecks membership after the bounded
+request read. Process-directory descriptors are opened before validation;
+subsequent namespace, resolver and bounded VPN reads use `openat` relative to
+that held directory. Namespace workers, queue grants and DHCP receive opened
+namespace files. Numeric PID/path authorization helpers were removed.
+
+Default tests replace/rename private fake-proc directories and demonstrate the
+old path resolving replacement data while held directory/namespace handles
+retain the original resource. Bounds, relative paths, symbolic PID directories
+and close-on-exec behavior are covered. An explicit supported-kernel fixture
+with a private child/Unix socket ran successfully and refuses the original
+peer after exit even when a claimed numeric path is replaced. The netd suite,
+client-only feature check and full runtime check passed. Kernel-netns tests
+that self-skip under an unprivileged user are not live datapath evidence.
+
+The server now probes `SO_PEERPIDFD` support at startup (Linux 6.5+) and fails
+closed without it. The client-only build has no new kernel/API dependency.
+Current native node metadata reports 7.0 kernels; the peer fixture ran locally
+on 6.18.50. This does not claim feature/rollout acceptance on the nodes.
+
+**Merged source:** `095edadb84e4a383ab1ef55a09839d873e403227`.
+**Tracking:** qrab `work/netd-stable-process-authority`.
+Primary main was synchronized; no runtime images were built/published or
+rolled out. The [authority perspective](authority.md) generalizes the review.
+
 ## Checks and limits
 
 The initial `5f361b7` runtime baseline passed before the repair. Future

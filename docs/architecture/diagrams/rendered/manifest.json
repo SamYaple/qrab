@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "88966db373db71a0b42f98e7d29946601256e2a5d9c4376048ae4ed6937fefe8",
+  "catalog_sha256": "95901a9d7d0745650fa1b47c6562a32c0d46ce1f9d80e65a24718beafae20ac1",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -396,6 +396,18 @@
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "a05c422da570710cc44e4ce42c768a59367a2b99fa0add6e76f6b110519ea068",
       "width": 1568
+    },
+    "30-process-resource-handles": {
+      "height": 1000,
+      "outputs": {
+        "dark/30-process-resource-handles.svg": "5616a574644aa092fd21f370d8cdb1ac9d0eea4c59c3aabc4c7c53c303030af7",
+        "light/30-process-resource-handles.svg": "61f8cf8f81b74ad0d9a6af974aab996e06d4d7cfd4cbdf32135b266201891a21",
+        "png/30-process-resource-handles.png": "af3899ad98c0181132ba3ea9fe2ef2cd7cb9ad6798952ee2fdbeb5f3c1bc9c8a",
+        "print/30-process-resource-handles.svg": "a86645954dadf186b022ed7c5273b45623bf72da51c21b93cf41d129ba469289"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "137b57c0bf48bbea9368010a2506c59a977504c63d491f42a60da6905b0461ec",
+      "width": 409
     }
   },
   "mermaid_version": "12.3.0"

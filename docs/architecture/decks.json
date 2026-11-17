@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "4625eefabb3743b3ec775b4f547a6b873cd162bf",
+  "reviewed_through": "095edadb84e4a383ab1ef55a09839d873e403227",
   "decks": [
     {
       "id": "leadership",
@@ -173,14 +173,15 @@
           "points": [
             "Cleanup used labels/access lists as lifecycle ownership.",
             "A verified qcow2 file could select unverified backing/data inputs.",
-            "A host cgroup name could masquerade as a Kubernetes Pod identity."
+            "Local Pod authority needed exact cgroup and held process/resource references."
           ],
-          "notes": "Four source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies and node cgroup identity. Full runtime checks passed for each; the qcow2 fixture also passed on pinned QEMU 11.1.3. No runtime image publication or rollout followed these source merges.",
+          "notes": "Five source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies, node cgroup identity and process/resource lifetime. Full runtime checks passed for each; explicit pinned QEMU and Linux-peer fixtures cover their stated local scopes. No runtime image publication or rollout followed these source merges.",
           "evidence": [
             "A01",
             "A02",
             "A04",
-            "A05"
+            "A05",
+            "A06"
           ]
         },
         {
@@ -482,14 +483,15 @@
           "points": [
             "Cleanup used labels/access lists as lifecycle ownership.",
             "A verified qcow2 file could select unverified backing/data inputs.",
-            "A host cgroup name could masquerade as a Kubernetes Pod identity."
+            "Local Pod authority needed exact cgroup and held process/resource references."
           ],
-          "notes": "Four source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies and node cgroup identity. Full runtime checks passed for each; the qcow2 fixture also passed on pinned QEMU 11.1.3. No runtime image publication or rollout followed these source merges.",
+          "notes": "Five source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies, node cgroup identity and process/resource lifetime. Full runtime checks passed for each; explicit pinned QEMU and Linux-peer fixtures cover their stated local scopes. No runtime image publication or rollout followed these source merges.",
           "evidence": [
             "A01",
             "A02",
             "A04",
-            "A05"
+            "A05",
+            "A06"
           ]
         },
         {
@@ -728,14 +730,15 @@
           "points": [
             "Cleanup used labels/access lists as lifecycle ownership.",
             "A verified qcow2 file could select unverified backing/data inputs.",
-            "A host cgroup name could masquerade as a Kubernetes Pod identity."
+            "Local Pod authority needed exact cgroup and held process/resource references."
           ],
-          "notes": "Four source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies and node cgroup identity. Full runtime checks passed for each; the qcow2 fixture also passed on pinned QEMU 11.1.3. No runtime image publication or rollout followed these source merges.",
+          "notes": "Five source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies, node cgroup identity and process/resource lifetime. Full runtime checks passed for each; explicit pinned QEMU and Linux-peer fixtures cover their stated local scopes. No runtime image publication or rollout followed these source merges.",
           "evidence": [
             "A01",
             "A02",
             "A04",
-            "A05"
+            "A05",
+            "A06"
           ]
         },
         {

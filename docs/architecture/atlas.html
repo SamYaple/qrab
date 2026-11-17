@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 4625eefabb37 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>23 document views · 33 unique diagrams · three presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 095edadb84e4 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>24 document views · 34 unique diagrams · three presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -43,6 +43,7 @@ different evidence classes throughout the atlas.
 | network engineer | [network comparison](network.md) | ovn/cilium separation versus per-nic cilium endpoints |
 | storage engineer | [images and volumes](storage.md) | existing image/disk work, fencing, and remaining scope |
 | identity / security reviewer | [identity and trust](identity.md), [threat model](security.md) | human, workload, guest and storage authority |
+| cross-cutting architecture reviewer | [authority and lifetimes](authority.md) | bind a checked identity to the resource actually used |
 | on-call engineer | [failure and recovery](operations.md), [lifecycle flows](lifecycle.md) | which failures stop which operations |
 | migration planner | [transition plan](transition.md), [capability ledger](capabilities.md) | what must be proved before moving a workload |
 | skeptical reviewer | [questions and answers](questions.md), [evidence register](evidence.md) | limits, assumptions, and supporting source |
@@ -147,6 +148,11 @@ different evidence classes throughout the atlas.</p>
 <td>Identity / security reviewer</td>
 <td><a href="#doc-identity">Identity and trust</a>, <a href="#doc-security">threat model</a></td>
 <td>Human, workload, guest and storage authority</td>
+</tr>
+<tr>
+<td>Cross-cutting architecture reviewer</td>
+<td><a href="#doc-authority">Authority and lifetimes</a></td>
+<td>Bind a checked identity to the resource actually used</td>
 </tr>
 <tr>
 <td>On-call engineer</td>
@@ -2382,6 +2388,187 @@ as they land.</p>
 not present a label or launch annotation as a cryptographic credential.
 Revocation and finalization must also account for already issued credentials
 and the availability/expiry semantics of the issuing service.</p>
+</article><article class="doc" id="doc-authority" data-search="# authority across resource lifetimes
+
+a vm operation crosses several owners: human identity, declarative intent,
+runtime process, kernel resource and storage export. each crossing needs a
+reference that still identifies the intended resource when the effect occurs.
+this is a useful architecture-review perspective alongside the service map.
+
+## match the reference to the responsibility
+
+| entry / name | authority used for the effect | lifetime / recovery boundary |
+| --- | --- | --- |
+| human login | verified issuer/audience/subject plus vm action role | token/session expiry and application authorization |
+| vm name | immutable cr uid and accepted spec | a new same-name vm gets a new identity |
+| pod name | exact pod uid/controller relationship and current api state | conditional patch/delete must not affect a replacement object |
+| state claim name | pvc uid, vm-bound initialized state, lease and driver attachment contract | retain/recover the intended identity rather than silently initializing another |
+| dashboard launch label | recorded launch/vm/claim/group provenance under protected api writers | cleanup of created resources is separate from current access grants |
+| local socket pid | original connector pidfd, validated cgroup/pod and held proc directory | dead/reused numeric processes cannot substitute another actor |
+| namespace path | already-open namespace descriptor from the validated anchor process | entry/fd grants use that resource through completion |
+| mounted vpn file | read relative to the validated held process directory, with a bound | a later pid path cannot select another process&#x27;s mount/root |
+| guest address | owned pool/endpoint and controlled route/handoff state | standby/active authority and route retirement are explicit |
+| chap login | exact export generation plus required hard fencing | authentication does not establish that an old writer is gone |
+| downloaded image digest | verified standalone source and independently sealed raw generation | metadata cannot extend integrity to unverified backing/data inputs |
+| event sequence | manager epoch plus sequence/gap/drop information | bounded observations have restart/retention limits |
+
+the references here are not all credentials. a launch id is public provenance;
+a namespace descriptor is an os capability; a storage generation participates
+in a durable backend protocol. their enforcement owners are different.
+source: [boundary contracts](boundaries.md), [evidence](evidence.md) and
+[the audited repairs](audit.md).
+
+## follow the local attachment case
+
+the caller connects to a unix socket. the kernel supplies its original peer
+process handle. netd opens that process&#x27;s proc directory, validates the host
+unified cgroup and checks the api-owned vm relationship. it authorizes only
+the vm&#x27;s own nic. the anchor&#x27;s process and namespace are separately selected
+and held; the helper enters that already-open namespace on a worker and grants
+the resulting queues. guest packets then use the kernel datapath independently
+of this control connection.
+
+![held local process and resource authority](diagrams/rendered/light/30-process-resource-handles.svg)
+
+the audit found both a classification error (a host scope&#x27;s name looked like
+a pod uid) and a lifetime gap (a numeric pid/path could change between check
+and use). exact cgroup parsing addresses the former; held process/namespace
+descriptors and the original peer pidfd address the latter. these are local
+kernel/pod authority checks, separate from the node-to-node spiffe conntrack
+connection and the human&#x27;s oidc management role.
+
+## apply the same review to cleanup and images
+
+state-pvc adoption and access-group deletion must follow the resources the
+launch created, even when current grants change. object uid/resourceversion
+preconditions bind a write to what was checked. image metadata must stay
+inside the integrity boundary of the verified input. storage replacement
+requires backend evidence about the old writer, not just a missing api object.
+those source repairs are recorded as a01/a02/a04; local process repairs are
+a05/a06 in the audit.
+
+## use this perspective in the openstack comparison
+
+the target moves responsibilities to kubernetes, manager, cilium/netd and a
+scoped storage service. those owners still have to preserve identity and
+authority across retries, restarts, migrations and deletion. removing nova,
+libvirt, neutron or keystone does not complete those contracts by itself.
+the comparison should show both the simpler ownership map and the concrete
+seams that make it work. no claim about the other cluster&#x27;s internal process
+handling or identity federation is inferred from this source review.
+"><h1 id="authority--authority-across-resource-lifetimes">Authority across resource lifetimes</h1>
+<p>A VM operation crosses several owners: human identity, declarative intent,
+runtime process, kernel resource and storage export. Each crossing needs a
+reference that still identifies the intended resource when the effect occurs.
+This is a useful architecture-review perspective alongside the service map.</p>
+<h2 id="authority--match-the-reference-to-the-responsibility">Match the reference to the responsibility</h2>
+<table>
+<thead>
+<tr>
+<th>Entry / name</th>
+<th>Authority used for the effect</th>
+<th>Lifetime / recovery boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Human login</td>
+<td>Verified issuer/audience/subject plus VM action role</td>
+<td>Token/session expiry and application authorization</td>
+</tr>
+<tr>
+<td>VM name</td>
+<td>Immutable CR UID and accepted spec</td>
+<td>A new same-name VM gets a new identity</td>
+</tr>
+<tr>
+<td>Pod name</td>
+<td>Exact Pod UID/controller relationship and current API state</td>
+<td>Conditional patch/delete must not affect a replacement object</td>
+</tr>
+<tr>
+<td>State claim name</td>
+<td>PVC UID, VM-bound initialized state, lease and driver attachment contract</td>
+<td>Retain/recover the intended identity rather than silently initializing another</td>
+</tr>
+<tr>
+<td>Dashboard launch label</td>
+<td>Recorded launch/VM/claim/group provenance under protected API writers</td>
+<td>Cleanup of created resources is separate from current access grants</td>
+</tr>
+<tr>
+<td>Local socket PID</td>
+<td>Original connector pidfd, validated cgroup/Pod and held proc directory</td>
+<td>Dead/reused numeric processes cannot substitute another actor</td>
+</tr>
+<tr>
+<td>Namespace path</td>
+<td>Already-open namespace descriptor from the validated anchor process</td>
+<td>Entry/FD grants use that resource through completion</td>
+</tr>
+<tr>
+<td>Mounted VPN file</td>
+<td>Read relative to the validated held process directory, with a bound</td>
+<td>A later PID path cannot select another process's mount/root</td>
+</tr>
+<tr>
+<td>Guest address</td>
+<td>Owned pool/endpoint and controlled route/handoff state</td>
+<td>Standby/active authority and route retirement are explicit</td>
+</tr>
+<tr>
+<td>CHAP login</td>
+<td>Exact export generation plus required hard fencing</td>
+<td>Authentication does not establish that an old writer is gone</td>
+</tr>
+<tr>
+<td>Downloaded image digest</td>
+<td>Verified standalone source and independently sealed raw generation</td>
+<td>Metadata cannot extend integrity to unverified backing/data inputs</td>
+</tr>
+<tr>
+<td>Event sequence</td>
+<td>Manager epoch plus sequence/gap/drop information</td>
+<td>Bounded observations have restart/retention limits</td>
+</tr>
+</tbody>
+</table>
+<p>The references here are not all credentials. A launch ID is public provenance;
+a namespace descriptor is an OS capability; a storage generation participates
+in a durable backend protocol. Their enforcement owners are different.
+Source: <a href="#doc-boundaries">boundary contracts</a>, <a href="#doc-evidence">evidence</a> and
+<a href="#doc-audit">the audited repairs</a>.</p>
+<h2 id="authority--follow-the-local-attachment-case">Follow the local attachment case</h2>
+<p>The caller connects to a Unix socket. The kernel supplies its original peer
+process handle. netd opens that process's proc directory, validates the host
+unified cgroup and checks the API-owned VM relationship. It authorizes only
+the VM's own NIC. The anchor's process and namespace are separately selected
+and held; the helper enters that already-open namespace on a worker and grants
+the resulting queues. Guest packets then use the kernel datapath independently
+of this control connection.</p>
+<p><img src="diagrams/rendered/light/30-process-resource-handles.svg" alt="Held local process and resource authority" /></p>
+<p>The audit found both a classification error (a host scope's name looked like
+a Pod UID) and a lifetime gap (a numeric PID/path could change between check
+and use). Exact cgroup parsing addresses the former; held process/namespace
+descriptors and the original peer pidfd address the latter. These are local
+kernel/Pod authority checks, separate from the node-to-node SPIFFE conntrack
+connection and the human's OIDC management role.</p>
+<h2 id="authority--apply-the-same-review-to-cleanup-and-images">Apply the same review to cleanup and images</h2>
+<p>State-PVC adoption and access-group deletion must follow the resources the
+launch created, even when current grants change. Object UID/resourceVersion
+preconditions bind a write to what was checked. Image metadata must stay
+inside the integrity boundary of the verified input. Storage replacement
+requires backend evidence about the old writer, not just a missing API object.
+Those source repairs are recorded as A01/A02/A04; local process repairs are
+A05/A06 in the audit.</p>
+<h2 id="authority--use-this-perspective-in-the-openstack-comparison">Use this perspective in the OpenStack comparison</h2>
+<p>The target moves responsibilities to Kubernetes, manager, Cilium/netd and a
+scoped storage service. Those owners still have to preserve identity and
+authority across retries, restarts, migrations and deletion. Removing Nova,
+libvirt, Neutron or Keystone does not complete those contracts by itself.
+The comparison should show both the simpler ownership map and the concrete
+seams that make it work. No claim about the other cluster's internal process
+handling or identity federation is inferred from this source review.</p>
 </article><article class="doc" id="doc-lifecycle" data-search="# lifecycle view: follow one vm across its owners
 
 the same vm has several independent states: declarative kubernetes intent,
@@ -3022,7 +3209,7 @@ not silently reclassified as boundary bugs.
 | human identity without keystone | implemented foundation | agree api rbac, vm application roles and namespace administration model | s16, s18–s20, m01 |
 | workload identity / rotation | implemented foundation | platform spire enrollment, service-specific peer policies and expiry evidence | s20, l01 |
 | optional guest workload identity | implemented / optional | guest-image enrollment, selector policy, revocation/recovery and software-vtpm trust model | s23, s24, l02 |
-| cilium-native guest attachment | implemented | kvm + stable address range + netd + platform policy; host unified cgroup-v2 view and standard kubelet roots | s08–s10 |
+| cilium-native guest attachment | implemented | kvm + stable address range + netd + platform policy; host unified cgroup-v2 view, standard kubelet roots and so_peerpidfd support (linux 6.5+) | s08–s10 |
 | guest security groups | implemented foundation | deploy baseline/allow policies; label membership alone has no enforcement | s08, m01 |
 | stable externally routed guest ipv4 | implemented / constrained | /32 range and external route acceptance; no general floating-ip or overlapping-tenant network claim | s08 |
 | ipv6 / broad neutron network parity | work remains / outside current model | decide required address/network/l2/router semantics before migration | s08, s09 |
@@ -3128,7 +3315,7 @@ not silently reclassified as boundary bugs.</p>
 <tr>
 <td>Cilium-native guest attachment</td>
 <td>Implemented</td>
-<td>KVM + stable address range + netd + platform policy; host unified cgroup-v2 view and standard kubelet roots</td>
+<td>KVM + stable address range + netd + platform policy; host unified cgroup-v2 view, standard kubelet roots and SO_PEERPIDFD support (Linux 6.5+)</td>
 <td>S08–S10</td>
 </tr>
 <tr>
@@ -3704,7 +3891,8 @@ different facts. a test that silently skips is not live evidence. use the
 
 it found and repaired label-only state-pvc adoption, access-list-driven group
 cleanup, image metadata selecting unverified backing/data dependencies, and
-host cgroup names impersonating pod identity.
+host cgroup names impersonating pod identity, and process/path lifetime gaps
+in privileged resource selection.
 the [audit](audit.md) records regression evidence and merged shas.
 source merges do not mean the fixes are already in deployed images.
 
@@ -3791,7 +3979,8 @@ different facts. A test that silently skips is not live evidence. Use the
 <h2 id="questions--what-did-this-review-actually-fix">What did this review actually fix?</h2>
 <p>It found and repaired label-only state-PVC adoption, access-list-driven group
 cleanup, image metadata selecting unverified backing/data dependencies, and
-host cgroup names impersonating Pod identity.
+host cgroup names impersonating Pod identity, and process/path lifetime gaps
+in privileged resource selection.
 The <a href="#doc-audit">audit</a> records regression evidence and merged SHAs.
 Source merges do not mean the fixes are already in deployed images.</p>
 <h2 id="questions--is-it-cheaper-faster-or-more-reliable">Is it cheaper, faster or more reliable?</h2>
@@ -4687,6 +4876,43 @@ live datapath proof.
 primary main was synchronized. the source repair was not published in a
 runtime image or rolled out.
 
+## a06 — process identity checks could be separated from resource use
+
+**affected source:** netd caller mapping, anchor namespace selection and
+resolver/vpn-file reads. **repair baseline:** `2b601f4`.
+
+the old paths read a numeric pid&#x27;s cgroup and later reopened `/proc/&lt;pid&gt;`
+resources. a pid/path replacement between those steps could substitute another
+process, namespace or mounted file. a socket&#x27;s saved numeric peer pid also
+does not pin the original connector&#x27;s lifetime. this was a source-identified
+race; no live exploit or vm grant was attempted.
+
+the repair captures the original unix peer with `so_peerpidfd`, checks its
+readiness/liveness during admission, and rechecks membership after the bounded
+request read. process-directory descriptors are opened before validation;
+subsequent namespace, resolver and bounded vpn reads use `openat` relative to
+that held directory. namespace workers, queue grants and dhcp receive opened
+namespace files. numeric pid/path authorization helpers were removed.
+
+default tests replace/rename private fake-proc directories and demonstrate the
+old path resolving replacement data while held directory/namespace handles
+retain the original resource. bounds, relative paths, symbolic pid directories
+and close-on-exec behavior are covered. an explicit supported-kernel fixture
+with a private child/unix socket ran successfully and refuses the original
+peer after exit even when a claimed numeric path is replaced. the netd suite,
+client-only feature check and full runtime check passed. kernel-netns tests
+that self-skip under an unprivileged user are not live datapath evidence.
+
+the server now probes `so_peerpidfd` support at startup (linux 6.5+) and fails
+closed without it. the client-only build has no new kernel/api dependency.
+current native node metadata reports 7.0 kernels; the peer fixture ran locally
+on 6.18.50. this does not claim feature/rollout acceptance on the nodes.
+
+**merged source:** `095edadb84e4a383ab1ef55a09839d873e403227`.
+**tracking:** qrab `work/netd-stable-process-authority`.
+primary main was synchronized; no runtime images were built/published or
+rolled out. the [authority perspective](authority.md) generalizes the review.
+
 ## checks and limits
 
 the initial `5f361b7` runtime baseline passed before the repair. future
@@ -4838,6 +5064,36 @@ live datapath proof.</p>
 <strong>Tracking:</strong> qrab <code>work/netd-cgroup-hierarchy-authentication</code>.
 Primary main was synchronized. The source repair was not published in a
 runtime image or rolled out.</p>
+<h2 id="audit--a06--process-identity-checks-could-be-separated-from-resource-use">A06 — process identity checks could be separated from resource use</h2>
+<p><strong>Affected source:</strong> netd caller mapping, anchor namespace selection and
+resolver/VPN-file reads. <strong>Repair baseline:</strong> <code>2b601f4</code>.</p>
+<p>The old paths read a numeric PID's cgroup and later reopened <code>/proc/&lt;pid&gt;</code>
+resources. A PID/path replacement between those steps could substitute another
+process, namespace or mounted file. A socket's saved numeric peer PID also
+does not pin the original connector's lifetime. This was a source-identified
+race; no live exploit or VM grant was attempted.</p>
+<p>The repair captures the original Unix peer with <code>SO_PEERPIDFD</code>, checks its
+readiness/liveness during admission, and rechecks membership after the bounded
+request read. Process-directory descriptors are opened before validation;
+subsequent namespace, resolver and bounded VPN reads use <code>openat</code> relative to
+that held directory. Namespace workers, queue grants and DHCP receive opened
+namespace files. Numeric PID/path authorization helpers were removed.</p>
+<p>Default tests replace/rename private fake-proc directories and demonstrate the
+old path resolving replacement data while held directory/namespace handles
+retain the original resource. Bounds, relative paths, symbolic PID directories
+and close-on-exec behavior are covered. An explicit supported-kernel fixture
+with a private child/Unix socket ran successfully and refuses the original
+peer after exit even when a claimed numeric path is replaced. The netd suite,
+client-only feature check and full runtime check passed. Kernel-netns tests
+that self-skip under an unprivileged user are not live datapath evidence.</p>
+<p>The server now probes <code>SO_PEERPIDFD</code> support at startup (Linux 6.5+) and fails
+closed without it. The client-only build has no new kernel/API dependency.
+Current native node metadata reports 7.0 kernels; the peer fixture ran locally
+on 6.18.50. This does not claim feature/rollout acceptance on the nodes.</p>
+<p><strong>Merged source:</strong> <code>095edadb84e4a383ab1ef55a09839d873e403227</code>.
+<strong>Tracking:</strong> qrab <code>work/netd-stable-process-authority</code>.
+Primary main was synchronized; no runtime images were built/published or
+rolled out. The <a href="#doc-authority">authority perspective</a> generalizes the review.</p>
 <h2 id="audit--checks-and-limits">Checks and limits</h2>
 <p>The initial <code>5f361b7</code> runtime baseline passed before the repair. Future
 findings must include a source location, a concrete boundary crossing or
@@ -5285,7 +5541,10 @@ boundary, not an authenticated public management service.</p>
 <p>Exact workload identity admits the calling service. The user credential and VM role independently authorize management. This diagram excludes standalone development/alternative native credential entrypoints.</p><a href="diagrams/28-auth-is-not-a-role.mmd">Editable source</a> · <a href="diagrams/rendered/png/28-auth-is-not-a-role.png">PNG</a></section><section class="diagram-card" data-filter="29-local-pod-authority local attachment authority starts with a real pod hierarchy audited local authorization contract a kernel peer pid is mapped through a validated host unified cgroup and the api-owned pod to its own vm/nic. an arbitrary host scope with a pod-looking uuid does not establish authority. this omits process-lifetime and fd-transfer implementation details.">
 <h3>Local attachment authority starts with a real Pod hierarchy</h3><div class="scope">audited local authorization contract · S09, S10</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/29-local-pod-authority.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="29-local-pod-authority" src="diagrams/rendered/light/29-local-pod-authority.svg" alt="Local attachment authority starts with a real Pod hierarchy"></a>
-<p>A kernel peer PID is mapped through a validated host unified cgroup and the API-owned Pod to its own VM/NIC. An arbitrary host scope with a Pod-looking UUID does not establish authority. This omits process-lifetime and FD-transfer implementation details.</p><a href="diagrams/29-local-pod-authority.mmd">Editable source</a> · <a href="diagrams/rendered/png/29-local-pod-authority.png">PNG</a></section></div></article></main></div><script>
+<p>A kernel peer PID is mapped through a validated host unified cgroup and the API-owned Pod to its own VM/NIC. An arbitrary host scope with a Pod-looking UUID does not establish authority. This omits process-lifetime and FD-transfer implementation details.</p><a href="diagrams/29-local-pod-authority.mmd">Editable source</a> · <a href="diagrams/rendered/png/29-local-pod-authority.png">PNG</a></section><section class="diagram-card" data-filter="30-process-resource-handles bind process authority through resource use audited process/resource lifetime contract socket-caller identity and anchor-resource selection are separate checks. the original connector pidfd, held proc directories and opened namespace/file descriptors prevent a later numeric pid/path from substituting another resource. api ownership and own-nic authorization remain required.">
+<h3>Bind process authority through resource use</h3><div class="scope">audited process/resource lifetime contract · S09, S10</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/30-process-resource-handles.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="30-process-resource-handles" src="diagrams/rendered/light/30-process-resource-handles.svg" alt="Bind process authority through resource use"></a>
+<p>Socket-caller identity and anchor-resource selection are separate checks. The original connector pidfd, held proc directories and opened namespace/file descriptors prevent a later numeric PID/path from substituting another resource. API ownership and own-NIC authorization remain required.</p><a href="diagrams/30-process-resource-handles.mmd">Editable source</a> · <a href="diagrams/rendered/png/30-process-resource-handles.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

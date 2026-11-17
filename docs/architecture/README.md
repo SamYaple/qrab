@@ -28,6 +28,7 @@ different evidence classes throughout the atlas.
 | Network engineer | [Network comparison](network.md) | OVN/Cilium separation versus per-NIC Cilium endpoints |
 | Storage engineer | [Images and volumes](storage.md) | Existing image/disk work, fencing, and remaining scope |
 | Identity / security reviewer | [Identity and trust](identity.md), [threat model](security.md) | Human, workload, guest and storage authority |
+| Cross-cutting architecture reviewer | [Authority and lifetimes](authority.md) | Bind a checked identity to the resource actually used |
 | On-call engineer | [Failure and recovery](operations.md), [lifecycle flows](lifecycle.md) | Which failures stop which operations |
 | Migration planner | [Transition plan](transition.md), [capability ledger](capabilities.md) | What must be proved before moving a workload |
 | Skeptical reviewer | [Questions and answers](questions.md), [evidence register](evidence.md) | Limits, assumptions, and supporting source |

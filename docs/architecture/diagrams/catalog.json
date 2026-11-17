@@ -386,7 +386,17 @@
         "S09",
         "S10"
       ]
+    },
+    {
+      "id": "30-process-resource-handles",
+      "title": "Bind process authority through resource use",
+      "status": "audited process/resource lifetime contract",
+      "caption": "Socket-caller identity and anchor-resource selection are separate checks. The original connector pidfd, held proc directories and opened namespace/file descriptors prevent a later numeric PID/path from substituting another resource. API ownership and own-NIC authorization remain required.",
+      "evidence": [
+        "S09",
+        "S10"
+      ]
     }
   ],
-  "reviewed_through": "4625eefabb3743b3ec775b4f547a6b873cd162bf"
+  "reviewed_through": "095edadb84e4a383ab1ef55a09839d873e403227"
 }

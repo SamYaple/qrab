@@ -340,3 +340,13 @@ A kernel peer PID is mapped through a validated host unified cgroup and the API-
 ![Local attachment authority starts with a real Pod hierarchy](diagrams/rendered/light/29-local-pod-authority.svg)
 
 [Editable source](diagrams/29-local-pod-authority.mmd) · [Light SVG](diagrams/rendered/light/29-local-pod-authority.svg) · [Dark SVG](diagrams/rendered/dark/29-local-pod-authority.svg) · [Print SVG](diagrams/rendered/print/29-local-pod-authority.svg) · [PNG](diagrams/rendered/png/29-local-pod-authority.png)
+
+## 30-process-resource-handles: Bind process authority through resource use
+
+**Scope:** audited process/resource lifetime contract. **Evidence:** S09, S10.
+
+Socket-caller identity and anchor-resource selection are separate checks. The original connector pidfd, held proc directories and opened namespace/file descriptors prevent a later numeric PID/path from substituting another resource. API ownership and own-NIC authorization remain required.
+
+![Bind process authority through resource use](diagrams/rendered/light/30-process-resource-handles.svg)
+
+[Editable source](diagrams/30-process-resource-handles.mmd) · [Light SVG](diagrams/rendered/light/30-process-resource-handles.svg) · [Dark SVG](diagrams/rendered/dark/30-process-resource-handles.svg) · [Print SVG](diagrams/rendered/print/30-process-resource-handles.svg) · [PNG](diagrams/rendered/png/30-process-resource-handles.png)
