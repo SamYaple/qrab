@@ -99,10 +99,16 @@ guest; its init starts `spire-agent` from the identity disk.
   no reboot and no new issuer certificate.
 - Deleting the VM removed its ClusterStaticEntries.
 
-Two parts are still open:
-- live proof of agent eviction on deletion (step 7), tracked as
-  `qrab/work/spire-guest-evictor-live-rollout`;
-- the IDM dashboard's guest boundary view.
+Agent eviction on deletion (step 7) was proven live on 2026-11-17 (towl
+`qrab/work/spire-guest-evictor-live-rollout`) with test VM `gid-evict`:
+- The guest attested as a `tpm_devid` agent and held its `demo` SVID.
+- Deleting the VM removed both entries and stopped the Pod. The operator then
+  called the kube01 evictor, which logged the audit line
+  (`outcome="evicted"`).
+- The agent left `spire-server agent list` within 10 s, and every other agent
+  was unchanged.
+
+The IDM dashboard's guest boundary view is still open.
 
 The towl container is `qrab/container/vm-guest-spiffe-identity`.
 
@@ -211,6 +217,9 @@ guest boundary (what code in the VM may do) stay separate.
    anyway and records a `GuestAgentNotEvicted` Warning event. The agent then
    stays listed until its SVID expires, about 1 h, but gets no workload SVIDs.
    Without `QRAB_GUEST_EVICTOR_URLS` the operator only removes the entries.
+   On the nodes, Cilium host policy `spire-guest-evictor-boundary`
+   (kubernetes-gitops `infrastructure/qrab-identity/`) drops TCP 8447 from
+   everything except the operator Pod.
 
 ### The qrab CAs (created 2026-11-16)
 
