@@ -753,6 +753,11 @@ storage service; the operator then owns `<vm>-disk-<id>` CHAP Secrets (RBAC
 `secret-policy.yaml`) and needs the opt-in
 `contrib/kubernetes/operator/storage-api` component. Without it such VMs
 report `StorageServiceUnavailable`.
+Removed-disk credential cleanup atomically tests the intended VM UID/disk
+ownership using a no-op JSON Patch with a metadata-only response, then deletes
+only that Secret UID/resourceVersion. This keeps Secret data unread and the
+existing no-GET/list/watch RBAC. A colliding name or a changed Secret cannot
+authorize deleting another VM's credential; missing credentials are idempotent.
 The disposable legacy lifecycle script is intentionally limited to VMs without
 native disks; failed native probes require hard-fence recovery.
 

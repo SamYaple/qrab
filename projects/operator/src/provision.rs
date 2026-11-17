@@ -2,8 +2,9 @@
 //!
 //! Each disk is created (blank) or CoW-cloned (base image), grown on size
 //! increase and exported with an operator-generated CHAP secret stored in an
-//! owned Secret. Credentials are write-only: the operator never reads a
-//! Secret. Every export uses a fresh secret written before the call, so an
+//! owned Secret. Credentials are write-only: the operator never reads Secret
+//! data. Cleanup checks ownership with a test-only metadata patch and receives
+//! metadata only. Every export uses a fresh secret written before the call, so an
 //! Active export's Secret is the one it was exported with; an interrupted
 //! export or fence is finished with a fence and the next generation. A fenced
 //! disk is re-exported only after the VM process that held the old secret is
@@ -19,11 +20,14 @@ use k8s_openapi::{
     ByteString,
 };
 use kube::{
-    api::{DeleteParams, Patch, PatchParams},
+    api::{DeleteParams, Patch, PatchParams, Preconditions},
     Api, Resource, ResourceExt,
 };
 use serde_json::json;
 use std::{collections::BTreeMap, io::Read};
+
+#[cfg(test)]
+mod secret_tests;
 
 pub const SECRET_KEY: &str = "password";
 pub const GENERATION_ANNOTATION: &str = "qrab.yapplesauce.com/credential-generation";
@@ -357,7 +361,7 @@ pub fn self_fencing(vm: &VirtualMachine, api: Option<&dyn StorageApi>) -> bool {
 }
 
 /// Secrets named `<vm>-disk-<id>`, controller-owned by the VM, holding only
-/// the CHAP password and its generation annotation. Never read back.
+/// the CHAP password and its generation annotation. Never read data back.
 pub struct SecretStore<'a> {
     pub api: Api<Secret>,
     pub vm: &'a VirtualMachine,
@@ -381,7 +385,62 @@ impl CredentialStore for SecretStore<'_> {
 
     async fn delete(&self, disk: &str) -> Result<()> {
         let name = secret_name(&self.vm.name_any(), disk);
-        match self.api.delete(&name, &DeleteParams::default()).await {
+        let uid = self
+            .vm
+            .uid()
+            .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+        // Names are reusable, including collisions between valid VM/disk pairs.
+        // Atomically test the intended owner without Secret GET permission or
+        // a response containing data. Every operation is a no-op JSON test.
+        let tests = serde_json::from_value(json!([
+            {"op":"test","path":"/metadata/ownerReferences/0/apiVersion","value":"qrab.yapplesauce.com/v1alpha1"},
+            {"op":"test","path":"/metadata/ownerReferences/0/kind","value":"VirtualMachine"},
+            {"op":"test","path":"/metadata/ownerReferences/0/name","value":self.vm.name_any()},
+            {"op":"test","path":"/metadata/ownerReferences/0/uid","value":uid},
+            {"op":"test","path":"/metadata/ownerReferences/0/controller","value":true},
+            {"op":"test","path":"/metadata/labels/app.kubernetes.io~1component","value":"disk-credential"},
+            {"op":"test","path":"/metadata/labels/qrab.yapplesauce.com~1owner-uid","value":uid},
+            {"op":"test","path":"/metadata/annotations/qrab.yapplesauce.com~1disk","value":disk}
+        ]))?;
+        let checked = match self
+            .api
+            .patch_metadata(&name, &PatchParams::default(), &Patch::Json::<()>(tests))
+            .await
+        {
+            Ok(checked) => checked,
+            Err(kube::Error::Api(status)) if status.code == 404 => return Ok(()),
+            Err(kube::Error::Api(status)) if status.code == 422 => {
+                return Err(Error::Ownership(format!(
+                    "disk credential {name} does not match VM {uid} and disk {disk}"
+                )))
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let metadata = checked.metadata;
+        if metadata.name.as_deref() != Some(name.as_str())
+            || metadata.namespace != self.vm.namespace()
+            || !metadata.owner_references.as_deref().is_some_and(|refs| {
+                matches!(refs, [owner] if owner.api_version == "qrab.yapplesauce.com/v1alpha1"
+                    && owner.kind == "VirtualMachine" && owner.name == self.vm.name_any()
+                    && owner.uid == uid && owner.controller == Some(true))
+            })
+            || metadata.uid.as_deref().is_none_or(str::is_empty)
+            || metadata
+                .resource_version
+                .as_deref()
+                .is_none_or(str::is_empty)
+        {
+            return Err(Error::Ownership(format!(
+                "disk credential {name} lacks exact owned object metadata"
+            )));
+        }
+        // Preserve the checked object through the effect. A new Secret or a
+        // credential rotation between PATCH and DELETE must cause a conflict.
+        let params = DeleteParams::default().preconditions(Preconditions {
+            uid: metadata.uid,
+            resource_version: metadata.resource_version,
+        });
+        match self.api.delete(&name, &params).await {
             Ok(_) => Ok(()),
             Err(kube::Error::Api(status)) if status.code == 404 => Ok(()),
             Err(error) => Err(error.into()),

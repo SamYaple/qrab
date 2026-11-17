@@ -3946,6 +3946,7 @@ dependencies = [
  "axum",
  "futures",
  "getrandom 0.4.2",
+ "json-patch",
  "k8s-openapi",
  "kube",
  "qrab-netd",
