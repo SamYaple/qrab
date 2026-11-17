@@ -12,7 +12,7 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 9059b977ce91 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 28c1e6040a7b · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
 <div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-runtime" data-doc="runtime">Runtime engineer&#x27;s view: what replaces libvirt</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>32 document views · 61 unique diagrams · 8 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a> <a href="exports/runtime.html">Direct QEMU management slides</a> · <a href="exports/runtime.pptx">PPTX</a> · <a href="exports/runtime.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
@@ -2122,6 +2122,18 @@ four nics per vm and bounded/best-effort conntrack transfer; service-translated
 flows are not equivalent to every direct connection. see the current
 [networking guide](../networking.md#limits) for exact limits and dated tests.
 
+two retirement clocks serve different owners. their shared current duration
+does not make them one handoff protocol:
+
+| clock | starts from | protected effect |
+| --- | --- | --- |
+| operator anchor retirement: 20 seconds | an eligible old-node anchor receives `retire-after` | timer write and eventual pod delete use the observed uid/version; a replacement or updated snapshot conflicts |
+| netd forwarding orphan grace: 20 seconds | a forwarding route is no longer represented by the active inventory | fresh forwarding clears old orphan age; forwarding changes and sweep share a lock through the kernel effect |
+
+reconcile/sweep cadence affects actual retirement time. neither clock proves
+bgp convergence, conntrack completeness or application continuity. the api
+and isolated-kernel regressions are recorded as [a23 and a19](audit.md).
+
 ## keep the paths separate
 
 guest iscsi disks use qemu&#x27;s backend on the vm management pod network, not a
@@ -2263,6 +2275,32 @@ installing upstream Cilium. Its limits include IPv4-only per-NIC addressing,
 four NICs per VM and bounded/best-effort conntrack transfer; service-translated
 flows are not equivalent to every direct connection. See the current
 <a href="../networking.md#limits">networking guide</a> for exact limits and dated tests.</p>
+<p>Two retirement clocks serve different owners. Their shared current duration
+does not make them one handoff protocol:</p>
+<table>
+<thead>
+<tr>
+<th>Clock</th>
+<th>Starts from</th>
+<th>Protected effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Operator anchor retirement: 20 seconds</td>
+<td>An eligible old-node anchor receives <code>retire-after</code></td>
+<td>Timer write and eventual Pod delete use the observed UID/version; a replacement or updated snapshot conflicts</td>
+</tr>
+<tr>
+<td>netd forwarding orphan grace: 20 seconds</td>
+<td>A forwarding route is no longer represented by the active inventory</td>
+<td>Fresh forwarding clears old orphan age; forwarding changes and sweep share a lock through the kernel effect</td>
+</tr>
+</tbody>
+</table>
+<p>Reconcile/sweep cadence affects actual retirement time. Neither clock proves
+BGP convergence, conntrack completeness or application continuity. The API
+and isolated-kernel regressions are recorded as <a href="#doc-audit">A23 and A19</a>.</p>
 <h2 id="network--keep-the-paths-separate">Keep the paths separate</h2>
 <p>Guest iSCSI disks use QEMU's backend on the VM management Pod network, not a
 guest NIC. Management HTTPS, migration state, conntrack exchange, BGP routing
@@ -7366,7 +7404,7 @@ these repairs.
 
 | boundary | repairs | invariant |
 | --- | --- | --- |
-| resource provenance and cleanup | a01, a02, a15, a21, a22 | delete/adopt the proven launch, group uuid or exact credential object |
+| resource provenance and cleanup | a01, a02, a15, a21, a22, a23 | delete/adopt the proven launch, group uuid or exact credential object |
 | local process and provider authority | a05, a06, a11, a14 | a name or numeric pid cannot replace the authorized current resource |
 | attachment and applied-state lifetime | a07, a10, a12, a13, a19 | namespace, lease, config, endpoint and route changes retain their own incarnation |
 | stream/descriptor ownership | a08 | bound the whole frame and own every delivered descriptor through refusal/cleanup |
@@ -8139,6 +8177,35 @@ operations and an adoption receipt do not create a cross-system transaction.
 **merged source:** `9059b977ce9193eb4bd0a515d97e95c45bbcab00`.
 **tracking:** qrab `work/migration-child-object-ownership`.
 
+## a23 — anchor retirement did not retain the observed object snapshot
+
+**location:** operator `retire_other_anchors` and shared pod deletion helper.
+**repair baseline:** `9059b97` (the initial regression used unchanged paths at
+`a4d6461`).
+
+the operator checked an observed anchor&#x27;s vm owner, then wrote `retire-after`
+by name. a replacement or newer owner snapshot could receive that old timer.
+the shared deletion helper checked uid alone, so a newer ownership/retirement
+snapshot on the same pod could still be deleted. actual functions against a
+private conditional api reproduced the foreign annotation and stale deletion,
+including an expired observation deleting a renewed timer. missing identity
+also permitted an unconditioned effect.
+
+both timer patches and pod deletes now require nonempty observed uid and
+resourceversion and carry those conditions through the api effect. the next
+reconcile reads fresh metadata after conflict. five regressions cover
+replacement/update refusal, renewed expiry, missing/empty identity before any
+rpc, and matching annotation/deletion behavior. the complete runtime gate,
+generated-resource comparisons and strict clippy pass.
+
+this is the operator&#x27;s kubernetes-object retirement clock. a19 separately
+repairs netd&#x27;s kernel forwarding-orphan clock. both currently use 20 seconds;
+that does not establish bgp convergence or make them one lifetime contract.
+no kernel route, cluster object or guest was changed by the private fixtures.
+
+**merged source:** `28c1e6040a7b86da516d28c67f2667af1239857a`.
+**tracking:** qrab `work/anchor-retirement-object-incarnation`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -8225,7 +8292,7 @@ these repairs.</p>
 <tbody>
 <tr>
 <td>Resource provenance and cleanup</td>
-<td>A01, A02, A15, A21, A22</td>
+<td>A01, A02, A15, A21, A22, A23</td>
 <td>Delete/adopt the proven launch, group UUID or exact credential object</td>
 </tr>
 <tr>
@@ -8868,6 +8935,29 @@ network and storage acceptance retain their own evidence. Conditional API
 operations and an adoption receipt do not create a cross-system transaction.</p>
 <p><strong>Merged source:</strong> <code>9059b977ce9193eb4bd0a515d97e95c45bbcab00</code>.
 <strong>Tracking:</strong> qrab <code>work/migration-child-object-ownership</code>.</p>
+<h2 id="audit--a23--anchor-retirement-did-not-retain-the-observed-object-snapshot">A23 — anchor retirement did not retain the observed object snapshot</h2>
+<p><strong>Location:</strong> operator <code>retire_other_anchors</code> and shared Pod deletion helper.
+<strong>Repair baseline:</strong> <code>9059b97</code> (the initial regression used unchanged paths at
+<code>a4d6461</code>).</p>
+<p>The operator checked an observed anchor's VM owner, then wrote <code>retire-after</code>
+by name. A replacement or newer owner snapshot could receive that old timer.
+The shared deletion helper checked UID alone, so a newer ownership/retirement
+snapshot on the same Pod could still be deleted. Actual functions against a
+private conditional API reproduced the foreign annotation and stale deletion,
+including an expired observation deleting a renewed timer. Missing identity
+also permitted an unconditioned effect.</p>
+<p>Both timer patches and Pod deletes now require nonempty observed UID and
+resourceVersion and carry those conditions through the API effect. The next
+reconcile reads fresh metadata after conflict. Five regressions cover
+replacement/update refusal, renewed expiry, missing/empty identity before any
+RPC, and matching annotation/deletion behavior. The complete runtime gate,
+generated-resource comparisons and strict Clippy pass.</p>
+<p>This is the operator's Kubernetes-object retirement clock. A19 separately
+repairs netd's kernel forwarding-orphan clock. Both currently use 20 seconds;
+that does not establish BGP convergence or make them one lifetime contract.
+No kernel route, cluster object or guest was changed by the private fixtures.</p>
+<p><strong>Merged source:</strong> <code>28c1e6040a7b86da516d28c67f2667af1239857a</code>.
+<strong>Tracking:</strong> qrab <code>work/anchor-retirement-object-incarnation</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -8997,6 +9087,7 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 | t17 | [broker status writer](../../projects/proton/src/broker/runner.rs), [private api snapshot regressions](../../projects/proton/src/broker/runner/tests.rs) | delayed profile results carry exact uid/version and cannot overwrite replacements/newer snapshots | a provider/secret/kernel/api transaction or live account verification |
 | t18 | [image importer](../../projects/operator/src/image_import.rs), [kubernetes adapter](../../projects/operator/src/image_import/cluster.rs), [private api regressions](../../projects/operator/src/image_import/tests/kube.rs) | parent/job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | live image import, zfs/lio acceptance or a cross-system transaction |
 | t19 | [migration controller](../../projects/operator/src/migration.rs), [refusal status](../../projects/operator/src/controller.rs), [private api ownership/retry regressions](../../projects/operator/tests/migration/ownership.rs) | current owner/intent checks, conditional effects, adoption receipt recovery and retained execution bindings across exercised failures | a kubernetes/runtime/storage transaction, real guest handover or live cilium traffic |
+| t20 | [controller retirement/deletion](../../projects/operator/src/controller.rs), [private conditional api regressions](../../projects/operator/src/controller/retirement_tests.rs) | nonempty uid/version bind timer writes and pod deletes; replacements, ownership updates and renewed timers survive stale observations | kernel route withdrawal, bgp convergence, live guest continuity or a rollout |
 
 ## external sources
 
@@ -9261,7 +9352,8 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T16 | <a href="../../projects/qrab-netd/src/main.rs">Forwarding change/sweep</a>, <a href="../../projects/qrab-netd/src/forward_tests.rs">private kernel and default lock regressions</a> | A fresh route receives its own orphan grace and cannot interleave installation/reset with sweep deletion | Live node route operations, Cilium/BGP convergence or unrelated address-reuse guarantees |</p>
 <p>| T17 | <a href="../../projects/proton/src/broker/runner.rs">Broker status writer</a>, <a href="../../projects/proton/src/broker/runner/tests.rs">private API snapshot regressions</a> | Delayed profile results carry exact UID/version and cannot overwrite replacements/newer snapshots | A provider/Secret/kernel/API transaction or live account verification |
 | T18 | <a href="../../projects/operator/src/image_import.rs">Image importer</a>, <a href="../../projects/operator/src/image_import/cluster.rs">Kubernetes adapter</a>, <a href="../../projects/operator/src/image_import/tests/kube.rs">private API regressions</a> | Parent/Job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | Live image import, ZFS/LIO acceptance or a cross-system transaction |
-| T19 | <a href="../../projects/operator/src/migration.rs">Migration controller</a>, <a href="../../projects/operator/src/controller.rs">refusal status</a>, <a href="../../projects/operator/tests/migration/ownership.rs">private API ownership/retry regressions</a> | Current owner/intent checks, conditional effects, adoption receipt recovery and retained execution bindings across exercised failures | A Kubernetes/runtime/storage transaction, real guest handover or live Cilium traffic |</p>
+| T19 | <a href="../../projects/operator/src/migration.rs">Migration controller</a>, <a href="../../projects/operator/src/controller.rs">refusal status</a>, <a href="../../projects/operator/tests/migration/ownership.rs">private API ownership/retry regressions</a> | Current owner/intent checks, conditional effects, adoption receipt recovery and retained execution bindings across exercised failures | A Kubernetes/runtime/storage transaction, real guest handover or live Cilium traffic |
+| T20 | <a href="../../projects/operator/src/controller.rs">Controller retirement/deletion</a>, <a href="../../projects/operator/src/controller/retirement_tests.rs">private conditional API regressions</a> | Nonempty UID/version bind timer writes and Pod deletes; replacements, ownership updates and renewed timers survive stale observations | Kernel route withdrawal, BGP convergence, live guest continuity or a rollout |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.

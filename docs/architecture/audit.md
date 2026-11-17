@@ -10,7 +10,7 @@ these repairs.
 
 | Boundary | Repairs | Invariant |
 | --- | --- | --- |
-| Resource provenance and cleanup | A01, A02, A15, A21, A22 | Delete/adopt the proven launch, group UUID or exact credential object |
+| Resource provenance and cleanup | A01, A02, A15, A21, A22, A23 | Delete/adopt the proven launch, group UUID or exact credential object |
 | Local process and provider authority | A05, A06, A11, A14 | A name or numeric PID cannot replace the authorized current resource |
 | Attachment and applied-state lifetime | A07, A10, A12, A13, A19 | Namespace, lease, config, endpoint and route changes retain their own incarnation |
 | Stream/descriptor ownership | A08 | Bound the whole frame and own every delivered descriptor through refusal/cleanup |
@@ -782,6 +782,35 @@ operations and an adoption receipt do not create a cross-system transaction.
 
 **Merged source:** `9059b977ce9193eb4bd0a515d97e95c45bbcab00`.
 **Tracking:** qrab `work/migration-child-object-ownership`.
+
+## A23 — anchor retirement did not retain the observed object snapshot
+
+**Location:** operator `retire_other_anchors` and shared Pod deletion helper.
+**Repair baseline:** `9059b97` (the initial regression used unchanged paths at
+`a4d6461`).
+
+The operator checked an observed anchor's VM owner, then wrote `retire-after`
+by name. A replacement or newer owner snapshot could receive that old timer.
+The shared deletion helper checked UID alone, so a newer ownership/retirement
+snapshot on the same Pod could still be deleted. Actual functions against a
+private conditional API reproduced the foreign annotation and stale deletion,
+including an expired observation deleting a renewed timer. Missing identity
+also permitted an unconditioned effect.
+
+Both timer patches and Pod deletes now require nonempty observed UID and
+resourceVersion and carry those conditions through the API effect. The next
+reconcile reads fresh metadata after conflict. Five regressions cover
+replacement/update refusal, renewed expiry, missing/empty identity before any
+RPC, and matching annotation/deletion behavior. The complete runtime gate,
+generated-resource comparisons and strict Clippy pass.
+
+This is the operator's Kubernetes-object retirement clock. A19 separately
+repairs netd's kernel forwarding-orphan clock. Both currently use 20 seconds;
+that does not establish BGP convergence or make them one lifetime contract.
+No kernel route, cluster object or guest was changed by the private fixtures.
+
+**Merged source:** `28c1e6040a7b86da516d28c67f2667af1239857a`.
+**Tracking:** qrab `work/anchor-retirement-object-incarnation`.
 
 ## Validation repair: the HTTP power fixture depended on test order
 

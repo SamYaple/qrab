@@ -83,6 +83,18 @@ four NICs per VM and bounded/best-effort conntrack transfer; service-translated
 flows are not equivalent to every direct connection. See the current
 [networking guide](../networking.md#limits) for exact limits and dated tests.
 
+Two retirement clocks serve different owners. Their shared current duration
+does not make them one handoff protocol:
+
+| Clock | Starts from | Protected effect |
+| --- | --- | --- |
+| Operator anchor retirement: 20 seconds | An eligible old-node anchor receives `retire-after` | Timer write and eventual Pod delete use the observed UID/version; a replacement or updated snapshot conflicts |
+| netd forwarding orphan grace: 20 seconds | A forwarding route is no longer represented by the active inventory | Fresh forwarding clears old orphan age; forwarding changes and sweep share a lock through the kernel effect |
+
+Reconcile/sweep cadence affects actual retirement time. Neither clock proves
+BGP convergence, conntrack completeness or application continuity. The API
+and isolated-kernel regressions are recorded as [A23 and A19](audit.md).
+
 ## Keep the paths separate
 
 Guest iSCSI disks use QEMU's backend on the VM management Pod network, not a
