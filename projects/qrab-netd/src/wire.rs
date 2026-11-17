@@ -1,5 +1,5 @@
 //! The VM-facing socket protocol. The manager sends one JSON line naming a
-//! NIC and a queue count; the agent answers with one message whose JSON body
+//! NIC and a queue count; the agent answers with one JSON line whose body
 //! says what it sends and whose SCM_RIGHTS carry `queues` tap descriptors
 //! followed by `queues` vhost-net descriptors, or a refusal with none.
 //!
@@ -30,7 +30,7 @@
 //! ```
 use serde::{Deserialize, Serialize};
 use std::{
-    io::{self, IoSlice, IoSliceMut, Read, Write},
+    io::{self, IoSlice, Read, Write},
     os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
     os::unix::net::UnixStream,
     path::Path,
@@ -118,7 +118,7 @@ struct Reply {
 #[derive(Debug)]
 pub struct Grant {
     pub tap: String,
-    /// UID of the anchor Pod the queues belong to (absent from an older agent).
+    /// Opaque anchor/namespace token (absent from an older agent).
     pub anchor: Option<String>,
     pub taps: Vec<OwnedFd>,
     pub vhosts: Vec<OwnedFd>,
@@ -201,19 +201,34 @@ pub fn parse_request(line: &[u8]) -> io::Result<Request> {
 }
 
 fn send(stream: &UnixStream, reply: &Reply, fds: &[RawFd]) -> io::Result<()> {
-    let body = serde_json::to_vec(reply)?;
+    let mut body = serde_json::to_vec(reply)?;
+    if body.len() > MAX_MESSAGE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "reply too large",
+        ));
+    }
+    body.push(b'\n');
     let iov = [IoSlice::new(&body)];
     let rights = [nix::sys::socket::ControlMessage::ScmRights(fds)];
     let cmsgs: &[_] = if fds.is_empty() { &[] } else { &rights };
-    nix::sys::socket::sendmsg::<()>(
+    let written = nix::sys::socket::sendmsg::<()>(
         stream.as_raw_fd(),
         &iov,
         cmsgs,
-        nix::sys::socket::MsgFlags::empty(),
+        nix::sys::socket::MsgFlags::MSG_NOSIGNAL,
         None,
     )
     .map_err(io::Error::from)?;
-    Ok(())
+    if written == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::WriteZero,
+            "empty reply write",
+        ));
+    }
+    // SCM_RIGHTS accompanies the first successful write only. A short
+    // stream write must finish the body without duplicating its descriptors.
+    (&*stream).write_all(&body[written..])
 }
 
 pub fn send_grant(
@@ -244,7 +259,7 @@ pub fn send_grant(
     )
 }
 
-/// Answer a `probe` with the serving anchor's UID.
+/// Answer a `probe` with the serving anchor/namespace token.
 pub fn send_probe(stream: &UnixStream, anchor: &str) -> io::Result<()> {
     send(
         stream,
@@ -291,33 +306,112 @@ pub fn send_refusal(stream: &UnixStream, error: &str) -> io::Result<()> {
     )
 }
 
-/// Receive the agent's answer to a request.
-pub fn receive_grant(stream: &UnixStream) -> io::Result<Grant> {
-    let mut body = vec![0u8; MAX_MESSAGE];
-    let mut space = nix::cmsg_space!([RawFd; 2 * MAX_QUEUES as usize]);
-    let (bytes, mut fds) = {
-        let mut iov = [IoSliceMut::new(&mut body)];
-        let message = nix::sys::socket::recvmsg::<()>(
-            stream.as_raw_fd(),
-            &mut iov,
-            Some(&mut space),
-            nix::sys::socket::MsgFlags::MSG_CMSG_CLOEXEC,
-        )
-        .map_err(io::Error::from)?;
-        let mut fds = Vec::new();
-        for cmsg in message.cmsgs().map_err(io::Error::from)? {
-            if let nix::sys::socket::ControlMessageOwned::ScmRights(received) = cmsg {
-                // SAFETY: the kernel just installed these descriptors for us.
-                fds.extend(
-                    received
-                        .into_iter()
-                        .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) }),
-                );
-            }
-        }
-        (message.bytes, fds)
+/// Receive one chunk, owning every installed SCM_RIGHTS descriptor before
+/// checking truncation. Nix 0.29's cmsgs() refuses MSG_CTRUNC before exposing
+/// the installed subset, which would leak that subset on the error path.
+fn receive_chunk(stream: &UnixStream, body: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> {
+    use nix::libc;
+    const CONTROL_BYTES: usize = nix::sys::socket::cmsg_space::<[RawFd; 2 * MAX_QUEUES as usize]>();
+    const WORDS: usize = CONTROL_BYTES.div_ceil(std::mem::size_of::<usize>());
+    const { assert!(std::mem::align_of::<usize>() >= std::mem::align_of::<libc::cmsghdr>()) };
+    let mut control = [0usize; WORDS];
+    let mut iov = libc::iovec {
+        iov_base: body.as_mut_ptr().cast(),
+        iov_len: body.len(),
     };
-    let reply: Reply = serde_json::from_slice(&body[..bytes])
+    // SAFETY: zero is a valid empty msghdr; the live buffers below replace
+    // its iovec/control pointers for the duration of recvmsg.
+    let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
+    message.msg_iov = &mut iov;
+    message.msg_iovlen = 1;
+    message.msg_control = control.as_mut_ptr().cast();
+    message.msg_controllen = CONTROL_BYTES;
+    // SAFETY: stream and every writable buffer remain valid and correctly
+    // sized. CLOEXEC applies atomically to all installed descriptors.
+    let bytes = unsafe { libc::recvmsg(stream.as_raw_fd(), &mut message, libc::MSG_CMSG_CLOEXEC) };
+    if bytes < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut fds = Vec::new();
+    let mut unexpected = false;
+    // SAFETY: the control buffer is aligned and contains kernel-validated
+    // ancillary headers. On truncation Linux still returns complete FDs in
+    // the retained SCM_RIGHTS header; the discarded ones are kernel-closed.
+    unsafe {
+        let mut header = libc::CMSG_FIRSTHDR(&message);
+        while !header.is_null() {
+            if (*header).cmsg_level == libc::SOL_SOCKET && (*header).cmsg_type == libc::SCM_RIGHTS {
+                let count = ((*header).cmsg_len - libc::CMSG_LEN(0) as usize)
+                    / std::mem::size_of::<RawFd>();
+                let data = libc::CMSG_DATA(header).cast::<RawFd>();
+                for index in 0..count {
+                    fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(
+                        data.add(index),
+                    )));
+                }
+            } else {
+                unexpected = true;
+            }
+            header = libc::CMSG_NXTHDR(&message, header);
+        }
+    }
+    if unexpected || message.msg_flags & (libc::MSG_CTRUNC | libc::MSG_TRUNC) != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "unexpected or truncated reply descriptors",
+        ));
+    }
+    Ok((bytes as usize, fds))
+}
+
+fn receive_reply_within(
+    stream: &UnixStream,
+    deadline: Duration,
+) -> io::Result<(Reply, Vec<OwnedFd>)> {
+    let start = Instant::now();
+    let mut body = Vec::with_capacity(256);
+    let mut fds = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        let remaining = deadline
+            .checked_sub(start.elapsed())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "reply deadline elapsed"))?;
+        stream.set_read_timeout(Some(remaining))?;
+        let (bytes, received) = match receive_chunk(stream, &mut chunk) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        fds.extend(received);
+        if fds.len() > 2 * MAX_QUEUES as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "too many reply descriptors",
+            ));
+        }
+        if bytes == 0 {
+            // Earlier agents emitted a complete JSON value then closed.
+            break;
+        }
+        body.extend_from_slice(&chunk[..bytes]);
+        if let Some(end) = body.iter().position(|b| *b == b'\n') {
+            body.truncate(end);
+            break;
+        }
+        if body.len() > MAX_MESSAGE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "reply too large",
+            ));
+        }
+    }
+    if body.len() > MAX_MESSAGE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "reply too large",
+        ));
+    }
+    let reply: Reply = serde_json::from_slice(&body)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
     if !reply.ok {
         return Err(io::Error::other(format!(
@@ -325,8 +419,18 @@ pub fn receive_grant(stream: &UnixStream) -> io::Result<Grant> {
             reply.error.unwrap_or_default()
         )));
     }
+    Ok((reply, fds))
+}
+
+fn reply_deadline(stream: &UnixStream) -> io::Result<Duration> {
+    Ok(stream.read_timeout()?.unwrap_or(Duration::from_secs(30)))
+}
+
+/// Receive the complete agent reply, with bounded time/bytes/descriptors.
+pub fn receive_grant(stream: &UnixStream) -> io::Result<Grant> {
+    let (reply, mut fds) = receive_reply_within(stream, reply_deadline(stream)?)?;
     let queues = usize::from(reply.queues);
-    if queues == 0 || fds.len() != 2 * queues {
+    if queues == 0 || queues > usize::from(MAX_QUEUES) || fds.len() != 2 * queues {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "reply and descriptors disagree",
@@ -334,7 +438,9 @@ pub fn receive_grant(stream: &UnixStream) -> io::Result<Grant> {
     }
     let vhosts = fds.split_off(queues);
     Ok(Grant {
-        tap: reply.tap.unwrap_or_default(),
+        tap: reply
+            .tap
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "reply names no tap"))?,
         anchor: reply.anchor,
         taps: fds,
         vhosts,
@@ -342,8 +448,26 @@ pub fn receive_grant(stream: &UnixStream) -> io::Result<Grant> {
 }
 
 fn connect(socket: &Path, request: &Request, timeout: Duration) -> io::Result<UnixStream> {
-    let mut stream = UnixStream::connect(socket)?;
+    use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr};
+    // A blocking Unix connect can wait indefinitely on a full listen queue,
+    // before socket read/write timeouts can help. Refuse a busy agent at once;
+    // callers already retry unavailable attachment/control requests.
+    let fd = nix::sys::socket::socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::SOCK_CLOEXEC | SockFlag::SOCK_NONBLOCK,
+        None,
+    )
+    .map_err(io::Error::from)?;
+    nix::sys::socket::connect(
+        fd.as_raw_fd(),
+        &UnixAddr::new(socket).map_err(io::Error::from)?,
+    )
+    .map_err(io::Error::from)?;
+    let mut stream = UnixStream::from(fd);
+    stream.set_nonblocking(false)?;
     stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
     let mut line = serde_json::to_vec(request)?;
     line.push(b'\n');
     stream.write_all(&line)?;
@@ -375,19 +499,8 @@ pub fn control(
         op,
         via,
     };
-    let stream = connect(socket, &request, Duration::from_secs(90))?;
-    let mut body = vec![0u8; MAX_MESSAGE];
-    let n = io::Read::read(&mut &stream, &mut body)?;
-    let reply: Reply = serde_json::from_slice(&body[..n])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
-    if reply.ok {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "qrab-netd refused: {}",
-            reply.error.unwrap_or_default()
-        )))
-    }
+    read_reply(&connect(socket, &request, Duration::from_secs(90))?)?;
+    Ok(())
 }
 
 /// Answer a `ct-pull` with how many entries were written.
@@ -406,26 +519,14 @@ pub fn send_imported(stream: &UnixStream, imported: usize) -> io::Result<()> {
     )
 }
 
-/// Read a whole reply (up to [`PAYLOAD_LIMIT`]) until the agent closes.
+/// Read a complete descriptor-free reply, honoring the total read deadline.
 fn read_reply(stream: &UnixStream) -> io::Result<Reply> {
-    let mut body = Vec::new();
-    stream
-        .take(PAYLOAD_LIMIT as u64 + 1)
-        .read_to_end(&mut body)?;
-    if body.len() > PAYLOAD_LIMIT {
+    let (reply, fds) = receive_reply_within(stream, reply_deadline(stream)?)?;
+    if !fds.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "reply too large",
+            "control reply carries descriptors",
         ));
-    }
-    let end = body.iter().position(|b| *b == b'\n').unwrap_or(body.len());
-    let reply: Reply = serde_json::from_slice(&body[..end])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
-    if !reply.ok {
-        return Err(io::Error::other(format!(
-            "qrab-netd refused: {}",
-            reply.error.clone().unwrap_or_default()
-        )));
     }
     Ok(reply)
 }
@@ -461,10 +562,7 @@ pub fn probe(socket: &Path, nic: &str) -> io::Result<String> {
         via: None,
     };
     let stream = connect(socket, &request, Duration::from_secs(10))?;
-    let mut body = vec![0u8; MAX_MESSAGE];
-    let n = io::Read::read(&mut &stream, &mut body)?;
-    let reply: Reply = serde_json::from_slice(&body[..n])
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("bad reply: {e}")))?;
+    let reply = read_reply(&stream)?;
     match reply {
         Reply {
             ok: true,
@@ -485,6 +583,235 @@ pub fn probe(socket: &Path, nic: &str) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn send_bytes_with_fds(stream: &UnixStream, bytes: &[u8], fds: &[RawFd]) {
+        let rights = [nix::sys::socket::ControlMessage::ScmRights(fds)];
+        let sent = nix::sys::socket::sendmsg::<()>(
+            stream.as_raw_fd(),
+            &[IoSlice::new(bytes)],
+            &rights,
+            nix::sys::socket::MsgFlags::empty(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(sent, bytes.len());
+    }
+
+    #[test]
+    fn grant_fragmentation_keeps_descriptors_until_the_complete_reply() {
+        let (agent, manager) = UnixStream::pair().unwrap();
+        let worker = std::thread::spawn(move || {
+            let files: Vec<OwnedFd> = (0..2)
+                .map(|_| tempfile::tempfile().unwrap().into())
+                .collect();
+            let raw: Vec<_> = files.iter().map(AsRawFd::as_raw_fd).collect();
+            send_bytes_with_fds(&agent, b"{\"ok\":", &raw);
+            std::thread::sleep(Duration::from_millis(30));
+            (&agent)
+                .write_all(
+                    b"true,\"tap\":\"qt0123456789ab\",\"queues\":1,\"anchor\":\"pod@1:7\"}\n",
+                )
+                .unwrap();
+        });
+        let result = receive_grant(&manager);
+        worker.join().unwrap();
+        let grant = result.unwrap();
+        assert_eq!(grant.anchor.as_deref(), Some("pod@1:7"));
+        assert_eq!((grant.taps.len(), grant.vhosts.len()), (1, 1));
+        for fd in grant.taps.iter().chain(&grant.vhosts) {
+            let flags = nix::fcntl::fcntl(fd.as_raw_fd(), nix::fcntl::FcntlArg::F_GETFD).unwrap();
+            assert_ne!(flags & nix::libc::FD_CLOEXEC, 0);
+        }
+    }
+
+    #[test]
+    fn truncated_ancillary_descriptors_are_refused_and_closed() {
+        let (agent, manager) = UnixStream::pair().unwrap();
+        let (mut witness, endpoint) = UnixStream::pair().unwrap();
+        witness
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        let files: Vec<OwnedFd> = (0..2 * MAX_QUEUES + 1)
+            .map(|_| endpoint.try_clone().unwrap().into())
+            .collect();
+        let raw: Vec<_> = files.iter().map(AsRawFd::as_raw_fd).collect();
+        send_bytes_with_fds(
+            &agent,
+            b"{\"ok\":true,\"tap\":\"qt0\",\"queues\":8}\n",
+            &raw,
+        );
+        drop((files, endpoint, agent));
+        assert!(receive_grant(&manager).is_err());
+        // EOF proves that every installed duplicate was closed. Counting
+        // process-wide FDs would race the other concurrently running tests.
+        assert_eq!(witness.read(&mut [0u8; 1]).unwrap(), 0);
+    }
+
+    #[test]
+    fn probes_controls_and_conntrack_counts_accept_fragmented_replies() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("netd.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let worker = std::thread::spawn(move || {
+            for op in [Op::Probe, Op::Prepare, Op::CtPull] {
+                let (mut stream, _) = listener.accept().unwrap();
+                assert_eq!(read_request(&stream).unwrap().op, op);
+                stream.write_all(b"{\"ok\":").unwrap();
+                std::thread::sleep(Duration::from_millis(20));
+                stream
+                    .write_all(b"true,\"anchor\":\"pod@1:7\",\"imported\":12}\n")
+                    .unwrap();
+            }
+        });
+        assert_eq!(probe(&path, "lan").unwrap(), "pod@1:7");
+        control(&path, "lan", Op::Prepare, None).unwrap();
+        assert_eq!(conntrack_pull(&path, "lan").unwrap(), 12);
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn grant_rights_can_arrive_with_a_later_stream_fragment() {
+        let (mut agent, manager) = UnixStream::pair().unwrap();
+        let worker = std::thread::spawn(move || {
+            agent.write_all(b"{\"ok\":").unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+            let files: Vec<OwnedFd> = (0..2)
+                .map(|_| tempfile::tempfile().unwrap().into())
+                .collect();
+            let raw: Vec<_> = files.iter().map(AsRawFd::as_raw_fd).collect();
+            send_bytes_with_fds(&agent, b"true,\"tap\":\"qt0\",\"queues\":1}\n", &raw);
+        });
+        let grant = receive_grant(&manager).unwrap();
+        worker.join().unwrap();
+        assert_eq!((grant.taps.len(), grant.vhosts.len()), (1, 1));
+    }
+
+    #[test]
+    fn an_old_unterminated_reply_is_accepted_only_when_complete_at_eof() {
+        for (body, good) in [
+            (br#"{"ok":true,"imported":7}"#.as_slice(), true),
+            (br#"{"ok":true,"imported":"#.as_slice(), false),
+        ] {
+            let (mut agent, manager) = UnixStream::pair().unwrap();
+            agent.write_all(body).unwrap();
+            drop(agent);
+            let result = read_reply(&manager);
+            if good {
+                assert_eq!(result.unwrap().imported, Some(7));
+            } else {
+                assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData);
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_and_oversized_grants_drop_received_descriptors() {
+        let oversized = vec![b'x'; MAX_MESSAGE + 1];
+        for body in [
+            b"not-json\n".as_slice(),
+            b"{\"ok\":false,\"error\":\"no\"}\n".as_slice(),
+            b"{\"ok\":true,\"tap\":\"qt0\",\"queues\":8}\n".as_slice(),
+            b"{\"ok\":true,\"queues\":1}\n".as_slice(),
+            oversized.as_slice(),
+        ] {
+            let (agent, manager) = UnixStream::pair().unwrap();
+            let (mut witness, endpoint) = UnixStream::pair().unwrap();
+            witness
+                .set_read_timeout(Some(Duration::from_millis(200)))
+                .unwrap();
+            send_bytes_with_fds(&agent, body, &[endpoint.as_raw_fd(), endpoint.as_raw_fd()]);
+            drop((agent, endpoint));
+            assert!(receive_grant(&manager).is_err());
+            assert_eq!(witness.read(&mut [0u8; 1]).unwrap(), 0);
+        }
+    }
+
+    #[test]
+    fn descriptor_free_replies_refuse_and_close_unexpected_rights() {
+        let (agent, manager) = UnixStream::pair().unwrap();
+        let (mut witness, endpoint) = UnixStream::pair().unwrap();
+        witness
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        send_bytes_with_fds(&agent, b"{\"ok\":true}\n", &[endpoint.as_raw_fd()]);
+        drop((agent, endpoint));
+        assert_eq!(
+            read_reply(&manager).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(witness.read(&mut [0u8; 1]).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_dribbling_reply_cannot_extend_the_total_deadline() {
+        let (mut agent, manager) = UnixStream::pair().unwrap();
+        let (mut witness, endpoint) = UnixStream::pair().unwrap();
+        witness
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        let worker = std::thread::spawn(move || {
+            send_bytes_with_fds(&agent, b"{", &[endpoint.as_raw_fd()]);
+            drop(endpoint);
+            for byte in b"\"ok\":true,\"tap\":\"qt0\",\"queues\":1}\n" {
+                std::thread::sleep(Duration::from_millis(40));
+                if agent.write_all(&[*byte]).is_err() {
+                    return;
+                }
+            }
+        });
+        let start = Instant::now();
+        let error = receive_reply_within(&manager, Duration::from_millis(200)).unwrap_err();
+        assert!(start.elapsed() < Duration::from_secs(1));
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        ));
+        assert_eq!(witness.read(&mut [0u8; 1]).unwrap(), 0);
+        drop(manager);
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn a_full_agent_listen_queue_is_a_bounded_retryable_error() {
+        use nix::sys::socket::{AddressFamily, Backlog, SockFlag, SockType, UnixAddr};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("busy.sock");
+        let listener = nix::sys::socket::socket(
+            AddressFamily::Unix,
+            SockType::Stream,
+            SockFlag::SOCK_CLOEXEC,
+            None,
+        )
+        .unwrap();
+        let address = UnixAddr::new(&path).unwrap();
+        nix::sys::socket::bind(listener.as_raw_fd(), &address).unwrap();
+        nix::sys::socket::listen(&listener, Backlog::new(0).unwrap()).unwrap();
+        let occupied = UnixStream::connect(&path).unwrap();
+        let (sent, result) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            sent.send(
+                connect(
+                    &path,
+                    &Request {
+                        nic: "lan".into(),
+                        queues: 0,
+                        op: Op::Probe,
+                        via: None,
+                    },
+                    Duration::from_millis(100),
+                )
+                .map(|_| ())
+                .map_err(|e| e.kind()),
+            )
+            .unwrap();
+        });
+        let answer = result.recv_timeout(Duration::from_secs(1));
+        // Release even a broken blocking implementation before failing.
+        drop((listener, occupied));
+        worker.join().unwrap();
+        assert_eq!(answer.unwrap(), Err(io::ErrorKind::WouldBlock));
+    }
 
     #[test]
     fn a_conntrack_pull_names_only_the_nic_and_returns_a_count() {
