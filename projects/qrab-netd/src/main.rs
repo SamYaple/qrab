@@ -125,7 +125,7 @@ impl Agent {
             if !due {
                 continue;
             }
-            let Ok(tunnel) = sys::read_tunnel(&self.proc_root, &uid) else {
+            let Ok(tunnel) = sys::read_tunnel(anchor.process()) else {
                 continue;
             };
             let gateway = match (tunnel.port_forwarding, tunnel.gateway()) {
@@ -196,7 +196,7 @@ impl Agent {
             .get(&uid)
             .map(|ready| ready.anchor.clone())
             .ok_or("NIC is not plumbed yet")?;
-        anchor.ensure_current().map_err(|e| e.to_string())?;
+        anchor.ensure_for(pod).map_err(|e| e.to_string())?;
         if !self
             .dhcp
             .lock()
@@ -218,15 +218,18 @@ impl Agent {
         // namespace or a gone Pod retires the old worker below.
     }
 
+    fn anchor_for(&self, pod: &Pod) -> Result<Arc<Anchor>, String> {
+        Anchor::find(&self.proc_root, pod)
+            .map(Arc::new)
+            .map_err(|e| e.to_string())
+    }
+
     fn plumb(&self, pod: &Pod) -> Result<(String, Arc<Anchor>), String> {
         let uid = pod.uid().ok_or("Pod has no UID")?;
-        let anchor = Arc::new(Anchor::find(&self.proc_root, &uid).map_err(|e| e.to_string())?);
+        let anchor = self.anchor_for(pod)?;
         let mut plan = NicPlan::for_anchor(pod)?;
         if NicPlan::is_vpn(pod) {
-            plan = plan.with_tunnel(sys::read_tunnel(
-                &self.proc_root,
-                &pod.uid().unwrap_or_default(),
-            )?);
+            plan = plan.with_tunnel(sys::read_tunnel(anchor.process())?);
         }
         let resolver = sys::pod_resolver(anchor.process());
         let summary = match &plan.vpn {
@@ -276,7 +279,7 @@ impl Agent {
                 slot.insert(worker);
             }
         }
-        anchor.ensure_current().map_err(|e| e.to_string())?;
+        anchor.ensure_for(pod).map_err(|e| e.to_string())?;
         Ok((summary, anchor))
     }
 
@@ -334,7 +337,7 @@ impl Agent {
         })
         .map_err(|e| e.to_string())?;
         let vhosts = sys::open_vhost(queues).map_err(|e| e.to_string())?;
-        ready.ensure_current().map_err(|e| e.to_string())?;
+        ready.ensure_for(anchor).map_err(|e| e.to_string())?;
         wire::send_grant(stream, &plan.tap, &ready.token(), &taps, &vhosts)
             .map_err(|e| e.to_string())?;
         Ok(format!(
@@ -718,7 +721,12 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         // A rewritten VPN Secret (a server switch) is applied on the next
         // tick, not at the next re-verify.
         let digest = NicPlan::is_vpn(pod)
-            .then(|| sys::tunnel_digest(&agent.proc_root, &uid))
+            .then(|| {
+                agent
+                    .anchor_for(pod)
+                    .ok()
+                    .and_then(|anchor| sys::tunnel_digest(anchor.process()))
+            })
             .flatten();
         let rewritten = digest.is_some_and(|d| agent.tunnels.lock().unwrap().get(&uid) != Some(&d));
         if fresh && !rewritten {

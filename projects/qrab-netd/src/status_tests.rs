@@ -19,7 +19,10 @@ fn pod(uid: &str, version: &str) -> Pod {
             "labels":{authz::NAME_LABEL:"qrab", authz::COMPONENT_LABEL:authz::NIC_COMPONENT,
                 authz::OWNER_UID:"vm-uid", authz::NIC_LABEL:"lan"},
             "annotations":{qrab_netd::DATAPATH_ANNOTATION:qrab_netd::DATAPATH_TAP}},
-        "status":{"podIP":"10.99.0.7", "conditions":[{"type":"ContainersReady", "status":"True"}]}
+        "spec":{"containers":[{"name":qrab_netd::ANCHOR_CONTAINER,"image":"fixture"}]},
+        "status":{"podIP":"10.99.0.7", "conditions":[{"type":"ContainersReady", "status":"True"}],
+            "containerStatuses":[{"name":qrab_netd::ANCHOR_CONTAINER,"image":"fixture","imageID":"fixture","ready":false,"restartCount":0,
+                "containerID":format!("containerd://{}", "1".repeat(64)),"state":{"running":{}}}]}
     }))
     .unwrap()
 }
@@ -188,11 +191,11 @@ fn fake_plumbed(agent: &Agent, summary: &str) -> (tempfile::TempDir, Arc<AtomicB
     std::fs::create_dir_all(process.join("ns")).unwrap();
     std::fs::write(
         process.join("cgroup"),
-        format!("0::/kubepods/pod{OLD}/container\n"),
+        format!("0::/kubepods/pod{OLD}/{}\n", "1".repeat(64)),
     )
     .unwrap();
     std::fs::write(process.join("ns/net"), "held namespace fixture").unwrap();
-    let anchor = Arc::new(Anchor::find(root.path(), OLD).unwrap());
+    let anchor = Arc::new(Anchor::find(root.path(), &pod(OLD, "11")).unwrap());
     let responder = DhcpWorker::new(
         &anchor,
         qrab_netd::dhcp::Lease {
@@ -337,5 +340,45 @@ async fn an_exited_responder_cannot_keep_a_recent_context_ready() {
     assert_eq!(
         server.condition(PLUMBED_CONDITION).unwrap()["status"],
         "False"
+    );
+}
+
+#[tokio::test]
+async fn namespace_discovery_uses_the_current_container_instead_of_an_older_live_pid() {
+    use std::os::unix::fs::MetadataExt;
+    let old_id = "1".repeat(64);
+    let current_id = "2".repeat(64);
+    let root = tempfile::tempdir().unwrap();
+    for (pid, id) in [(7, &old_id), (9, &current_id)] {
+        let dir = root.path().join(pid.to_string());
+        std::fs::create_dir_all(dir.join("ns")).unwrap();
+        std::fs::write(
+            dir.join("cgroup"),
+            format!(
+                "0::/kubepods.slice/kubepods-pod{}.slice/cri-containerd-{id}.scope\n",
+                OLD.replace('-', "_")
+            ),
+        )
+        .unwrap();
+        std::fs::write(dir.join("ns/net"), id).unwrap();
+    }
+    let mut current = serde_json::to_value(pod(OLD, "11")).unwrap();
+    current["spec"] = json!({"containers":[{"name":"anchor","image":"fixture"}]});
+    current["status"]["containerStatuses"] = json!([{
+        "name":"anchor", "image":"fixture", "imageID":"fixture", "restartCount":1,
+        "ready":false, "containerID":format!("containerd://{current_id}"), "state":{"running":{}}
+    }]);
+    let current: Pod = serde_json::from_value(current).unwrap();
+    let server = Server::new(current.clone());
+    let (store, _writer) = reflector::store();
+    let mut agent = agent(server.api.clone(), store);
+    Arc::get_mut(&mut agent).unwrap().proc_root = root.path().to_owned();
+    let selected = agent.anchor_for(&current).unwrap();
+    assert_eq!(selected.process().pid(), 9);
+    assert_eq!(
+        selected.namespace().unwrap().metadata().unwrap().ino(),
+        std::fs::metadata(root.path().join("9/ns/net"))
+            .unwrap()
+            .ino()
     );
 }

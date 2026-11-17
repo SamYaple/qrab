@@ -2,6 +2,7 @@
 //! devices, and applying a [`NicPlan`]. Everything here needs the agent's
 //! privileges (CAP_SYS_ADMIN for setns, CAP_NET_ADMIN in the target
 //! namespace) and host PIDs.
+use crate::process::Process;
 use crate::{plan::NicPlan, plan::UPLINK};
 use std::{
     fs::{self, File, OpenOptions},
@@ -512,40 +513,33 @@ pub fn import_conntrack(
     Ok(accepted.len())
 }
 
-/// The wg-quick config a VPN anchor mounts, read through the root of the
-/// Pod's process that has the mount: the anchor container's, not the
-/// sandbox's (whose mount namespace has no volumes).
-pub fn read_tunnel(proc_root: &Path, pod_uid: &str) -> Result<crate::vpn::Tunnel, String> {
-    read_tunnel_text(proc_root, pod_uid).and_then(|text| crate::vpn::Tunnel::parse(&text))
+/// The config mounted by the already-verified current anchor container.
+/// Never rescan arbitrary same-UID processes for a convenient older mount.
+pub fn read_tunnel(process: &Process) -> Result<crate::vpn::Tunnel, String> {
+    read_tunnel_text(process).and_then(|text| crate::vpn::Tunnel::parse(&text))
 }
 
-/// A digest of the anchor's mounted VPN config, to notice a rewritten
-/// Secret (a server switch) without waiting for the periodic re-verify.
-pub fn tunnel_digest(proc_root: &Path, pod_uid: &str) -> Option<[u8; 32]> {
+/// A digest read through that same held container reference.
+pub fn tunnel_digest(process: &Process) -> Option<[u8; 32]> {
     use sha2::{Digest, Sha256};
-    read_tunnel_text(proc_root, pod_uid)
+    read_tunnel_text(process)
         .ok()
         .map(|text| Sha256::digest(text.as_bytes()).into())
 }
 
-fn read_tunnel_text(proc_root: &Path, pod_uid: &str) -> Result<String, String> {
-    let mut last = None;
-    for process in processes_of_pod(proc_root, pod_uid) {
-        let path = Path::new("root")
-            .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
-            .join(crate::vpn::VPN_FILE);
-        match process.read_text(&path, crate::vpn::MAX_CONFIG) {
-            Ok(text) => return Ok(text),
-            Err(error) if error.kind() == io::ErrorKind::FileTooLarge => {
-                return Err("the WireGuard config is too large".into())
+fn read_tunnel_text(process: &Process) -> Result<String, String> {
+    let path = Path::new("root")
+        .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
+        .join(crate::vpn::VPN_FILE);
+    process
+        .read_text(&path, crate::vpn::MAX_CONFIG)
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::FileTooLarge {
+                "the WireGuard config is too large".into()
+            } else {
+                format!("cannot read the anchor's VPN config: {error}")
             }
-            Err(error) => last = Some(error),
-        }
-    }
-    Err(match last {
-        Some(error) => format!("cannot read the anchor's VPN config: {error}"),
-        None => "no running process of the anchor yet".into(),
-    })
+        })
 }
 
 /// Route protocol marking the transient forward routes this agent owns, so
@@ -785,8 +779,8 @@ mod tests {
             "0::/kubepods.slice/kubepods-pod{}.slice/cri-containerd-x.scope\n",
             uid.replace('-', "_")
         );
-        // pid 5: a host-user lookalike; pid 7: the sandbox, no volumes;
-        // pid 9: the actual anchor container; pid 11: unrelated host service.
+        // pid 5: a host-user lookalike; pid 7: an older same-UID process;
+        // pid 9: the selected anchor container; pid 11: unrelated host service.
         for pid in ["5", "7", "9", "11"] {
             let dir = proc_root.path().join(pid);
             std::fs::create_dir_all(dir.join("root")).unwrap();
@@ -808,23 +802,31 @@ mod tests {
                 .collect::<Vec<_>>(),
             [7, 9]
         );
-        assert!(read_tunnel(proc_root.path(), uid)
-            .unwrap_err()
-            .contains("No such file"));
+        let old_mount = proc_root.path().join("7/root/run/qrab-vpn");
+        std::fs::create_dir_all(&old_mount).unwrap();
+        std::fs::write(
+            old_mount.join("wg.conf"),
+            "an older config must not substitute for the selected process",
+        )
+        .unwrap();
+        assert!(
+            read_tunnel(&crate::process::Process::open(proc_root.path(), 9).unwrap())
+                .unwrap_err()
+                .contains("No such file")
+        );
         let mount = proc_root.path().join("9/root/run/qrab-vpn");
         std::fs::create_dir_all(&mount).unwrap();
         std::fs::write(mount.join("wg.conf"), "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 10.2.0.2/32\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nEndpoint = 203.0.113.9:51820\n").unwrap();
-        // The sandbox comes first but lacks the mount; the container has it.
+        // The earlier same-UID mount never overrides the selected container.
         assert_eq!(
-            read_tunnel(proc_root.path(), uid)
+            read_tunnel(&crate::process::Process::open(proc_root.path(), 9).unwrap())
                 .unwrap()
                 .address
                 .to_string(),
             "10.2.0.2"
         );
-        assert_eq!(
-            read_tunnel(proc_root.path(), "00000000-0000-4000-8000-000000000000").unwrap_err(),
-            "no running process of the anchor yet"
+        assert!(
+            processes_of_pod(proc_root.path(), "00000000-0000-4000-8000-000000000000").is_empty()
         );
     }
     use super::*;

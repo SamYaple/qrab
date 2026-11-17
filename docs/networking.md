@@ -837,13 +837,21 @@ What is tested, and how:
   so a host lookalike cannot become an anchor. The privileged `hostPID` netd
   DaemonSet must retain the host's unified cgroup view. A NIC the VM lacks is
   refused, and a tap QEMU already holds is refused too.
+  Anchor discovery also matches the declared `anchor` container's observed
+  Running status and complete 64-hex runtime ID to the direct container cgroup
+  scope. An older live same-UID process is insufficient. Containerd, CRI-O and
+  Docker-style IDs/scopes are supported; unknown, missing or terminated
+  container identity waits for a usable current observation. Ready is not
+  required: the anchor executable only waits for termination, so it can start
+  before netd sets the readiness gate. A process restart in the same namespace
+  preserves the attachment token and reusable DHCP socket.
   The original Unix peer is pinned with `SO_PEERPIDFD` and checked through
   admission, so a numeric PID reused after peer exit cannot name another Pod.
   This requires Linux 6.5+ with `SO_PEERPIDFD`; netd probes it at startup and
   refuses unsupported kernels instead of falling back to numeric identity.
   Proc directories are opened before membership checks, and namespace,
   resolver and mounted VPN reads use those held directory descriptors.
-  Namespace entry and DHCP use an already-open namespace file, without later
+  Namespace entry and DHCP socket setup use an already-open namespace file, without later
   reopening `/proc/<pid>` after authorization. Default tests replace private
   fake-proc directories to check the binding. The explicit peer-exit fixture
   uses only a private Unix socket/child on a supported kernel:

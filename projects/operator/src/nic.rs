@@ -231,7 +231,7 @@ pub fn render_anchor(
         "tolerations":[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}],
         "affinity":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchFields":[{"key":"metadata.name","operator":"In","values":[node]}]}]}}},
         "readinessGates":[{"conditionType":qrab_netd::PLUMBED_CONDITION}],
-        "containers":[{"name":"anchor","image":image,"imagePullPolicy":"Always","command":["qrab-manager"],"args":["anchor"],
+        "containers":[{"name":qrab_netd::ANCHOR_CONTAINER,"image":image,"imagePullPolicy":"Always","command":["qrab-manager"],"args":["anchor"],
             "resources":{"requests":{"cpu":"5m","memory":"16Mi"},"limits":{"cpu":"100m","memory":"32Mi"}},
             "securityContext":security,"terminationMessagePolicy":"FallbackToLogsOnError"}]
     }});

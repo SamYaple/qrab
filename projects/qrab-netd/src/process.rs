@@ -48,6 +48,19 @@ impl Process {
         })
     }
 
+    /// Pod and container identity from the same bounded cgroup snapshot.
+    pub fn pod_container(&self) -> io::Result<(String, String)> {
+        let record = self.read_text(Path::new("cgroup"), 16 * 1024)?;
+        let uid = crate::cgroup::pod_uid(&record);
+        let container = crate::cgroup::container_id(&record);
+        uid.zip(container).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "process has no trusted Pod/container scope",
+            )
+        })
+    }
+
     pub fn network_namespace(&self) -> io::Result<File> {
         self.open_relative(Path::new("ns/net"))
     }

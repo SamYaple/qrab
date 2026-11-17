@@ -32,6 +32,8 @@ pub mod wire;
 /// leaves the Pod alone.
 pub const DATAPATH_ANNOTATION: &str = "qrab.yapplesauce.com/nic-datapath";
 pub const DATAPATH_TAP: &str = "tap";
+/// Regular anchor container whose current runtime ID selects its process.
+pub const ANCHOR_CONTAINER: &str = "anchor";
 /// Pod condition the agent sets on each anchor it serves; anchors list it as
 /// a readiness gate so they become Ready only once plumbed.
 pub const PLUMBED_CONDITION: &str = "qrab.yapplesauce.com/nic-plumbed";

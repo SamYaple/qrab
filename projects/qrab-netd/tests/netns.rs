@@ -61,29 +61,47 @@ fn a_same_uid_sandbox_replacement_uses_a_new_namespace_token() {
     let uid = "6b9f0c44-0000-4000-8000-0000000000dd";
     std::fs::write(
         process.join("cgroup"),
-        format!("0::/kubepods/pod{uid}/container\n"),
+        format!("0::/kubepods/pod{uid}/{}\n", "1".repeat(64)),
     )
     .unwrap();
     let link = process.join("ns/net");
     std::os::unix::fs::symlink(&first.path, &link).unwrap();
-    let old = qrab_netd::anchor::Anchor::find(root.path(), uid).unwrap();
+    let old = qrab_netd::anchor::Anchor::find(root.path(), &observed_anchor(uid)).unwrap();
     let token = old.token();
     sys::in_namespace(old.namespace().unwrap(), || {
         ip("link add oldonly0 type dummy").map(drop)
     })
     .unwrap();
     assert_eq!(
-        qrab_netd::anchor::Anchor::find(root.path(), uid)
+        qrab_netd::anchor::Anchor::find(root.path(), &observed_anchor(uid))
             .unwrap()
             .token(),
         token
     );
 
-    // Same API UID, but the sandbox now names a different real namespace.
-    std::fs::remove_file(&link).unwrap();
-    std::os::unix::fs::symlink(&next.path, &link).unwrap();
-    assert!(old.ensure_current().is_err());
-    let replacement = qrab_netd::anchor::Anchor::find(root.path(), uid).unwrap();
+    // Both same-UID generations remain live. The newer API container ID,
+    // not the lower PID or the old process's continued existence, selects B.
+    let newer = root.path().join("9");
+    std::fs::create_dir_all(newer.join("ns")).unwrap();
+    std::fs::write(
+        newer.join("cgroup"),
+        format!("0::/kubepods/pod{uid}/{}\n", "2".repeat(64)),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&next.path, newer.join("ns/net")).unwrap();
+    let mut current = observed_anchor(uid);
+    current
+        .status
+        .as_mut()
+        .unwrap()
+        .container_statuses
+        .as_mut()
+        .unwrap()[0]
+        .container_id = Some(format!("containerd://{}", "2".repeat(64)));
+    assert!(old.ensure_current().is_ok());
+    assert!(old.ensure_for(&current).is_err());
+    let replacement = qrab_netd::anchor::Anchor::find(root.path(), &current).unwrap();
+    assert_eq!(replacement.process().pid(), 9);
     assert_ne!(replacement.token(), token);
     let original_task = first.path.clone();
     drop(first);
@@ -106,6 +124,15 @@ fn a_same_uid_sandbox_replacement_uses_a_new_namespace_token() {
             .unwrap()
             .contains("oldonly0")
     );
+}
+
+fn observed_anchor(uid: &str) -> k8s_openapi::api::core::v1::Pod {
+    serde_json::from_value(serde_json::json!({
+        "metadata":{"uid":uid},
+        "spec":{"containers":[{"name":qrab_netd::ANCHOR_CONTAINER,"image":"fixture"}]},
+        "status":{"containerStatuses":[{"name":qrab_netd::ANCHOR_CONTAINER,"image":"fixture","imageID":"fixture",
+            "ready":false,"restartCount":0,"containerID":format!("containerd://{}", "1".repeat(64)),"state":{"running":{}}}]}
+    })).unwrap()
 }
 
 fn ip(words: &str) -> io::Result<String> {
@@ -388,11 +415,11 @@ fn the_dhcp_responder_offers_the_lease_over_a_real_link() {
     let uid = "6b9f0c44-0000-4000-8000-0000000000ee";
     std::fs::write(
         process.join("cgroup"),
-        format!("0::/kubepods/pod{uid}/container\n"),
+        format!("0::/kubepods/pod{uid}/{}\n", "1".repeat(64)),
     )
     .unwrap();
     std::os::unix::fs::symlink(&anchor.path, process.join("ns/net")).unwrap();
-    let context = qrab_netd::anchor::Anchor::find(root.path(), uid).unwrap();
+    let context = qrab_netd::anchor::Anchor::find(root.path(), &observed_anchor(uid)).unwrap();
     let worker = qrab_netd::anchor::DhcpWorker::new(&context, lease);
     let stop = worker.stop_flag();
     sys::serve_dhcp(
