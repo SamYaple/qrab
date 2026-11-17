@@ -265,6 +265,55 @@ class FileTransactions(unittest.TestCase):
 
 
 class BootAndIdentity(unittest.TestCase):
+    def test_lost_activation_ack_is_reconciled_without_restarting_install(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root);ready={"association_health":"installed","wpa_sha256":"a"*64}
+            with patch.object(D,"remote_native_health_status",side_effect=[
+                    D.DeployError("old version"),D.DeployError("SSH recovering"),ready]) as status, \
+                 patch.object(D,"ssh_run",return_value=subprocess.CompletedProcess(
+                    [],255,b"",b"Timeout, server not responding")) as dispatch, \
+                 patch.object(D.time,"sleep"):
+                result=D.activate_remote_native_health(state,"kube02","bob","a"*64,"b"*64)
+            self.assertEqual(result["activation_acknowledgement"],"reconciled from running state")
+            dispatch.assert_called_once();self.assertEqual(status.call_count,3)
+            command=dispatch.call_args.args[2]
+            self.assertIn("systemd-run",command);self.assertIn("--no-block",command)
+            self.assertIn("install-health",command)
+            self.assertEqual(D.load(state/"health-activation-kube02.json")["exit"],255)
+
+    def test_converged_remote_upgrade_does_not_dispatch_another_install(self):
+        ready={"association_health":"installed","wpa_sha256":"a"*64}
+        with patch.object(D,"remote_native_health_status",return_value=ready), \
+             patch.object(D,"ssh_run") as dispatch:
+            self.assertEqual(D.activate_remote_native_health(Path("/unused"),"kube03","bob",
+                             "a"*64,"b"*64),ready)
+        dispatch.assert_not_called()
+
+    def test_unconverged_remote_activation_cannot_report_success(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(D,"remote_native_health_status",side_effect=D.DeployError("not installed")), \
+                 patch.object(D,"ssh_run",return_value=subprocess.CompletedProcess([],0,b"",b"")), \
+                 patch.object(D.time,"monotonic",side_effect=[0,0,2]), \
+                 patch.object(D.time,"sleep"),self.assertRaisesRegex(D.DeployError,"did not converge"):
+                D.activate_remote_native_health(Path(root),"kube02","bob","a"*64,"b"*64,seconds=1)
+
+    def test_remote_status_rejects_a_different_installed_binary(self):
+        wrong={"association_health":"installed","wpa_sha256":"c"*64}
+        with patch.object(D,"ssh_run",return_value=subprocess.CompletedProcess(
+                [],0,json.dumps(wrong).encode(),b"")),self.assertRaisesRegex(D.DeployError,"does not match"):
+            D.remote_native_health_status(Path("/unused"),"kube02","bob","a"*64)
+
+    def test_native_status_requires_the_running_binary_not_only_cached_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            state=Path(root);D.phase(state,"committed");sha=D.digest(b"cached binary")
+            D.save(state/"health-release.json",{"wpa_sha256":sha})
+            binary=state/("tools-health-"+sha[:12])/"wpa_supplicant"
+            binary.parent.mkdir();binary.write_bytes(b"cached binary")
+            with patch.object(D,"run",return_value=subprocess.CompletedProcess(
+                    [],0,str(os.getpid()).encode(),b"")), \
+                 self.assertRaisesRegex(D.DeployError,"is not running"):
+                D.native_health_status(state)
+
     def test_health_install_refuses_uncommitted_and_inactive_state(self):
         with tempfile.TemporaryDirectory() as root:
             state=Path(root);D.phase(state,"committed")

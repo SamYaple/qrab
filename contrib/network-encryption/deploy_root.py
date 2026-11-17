@@ -766,6 +766,30 @@ RestrictAddressFamilies=AF_UNIX AF_NETLINK
                    b"[Unit]\nWants=qrab-macsec-health.service\n")
 
 
+def native_health_status(state):
+    """Read the installed state independently of an activation SSH session."""
+    require(current_phase(state) == "committed" and not (state / "uncommitted").exists(),
+            "native deployment is not committed")
+    release = load(state / "health-release.json")
+    require(re.fullmatch(r"[0-9a-f]{64}", release["wpa_sha256"]) is not None,
+            "invalid health supplicant hash")
+    binary = state / ("tools-health-" + release["wpa_sha256"][:12]) / "wpa_supplicant"
+    require(binary.is_file() and not binary.is_symlink()
+            and digest(binary.read_bytes()) == release["wpa_sha256"], "health supplicant is not installed")
+    pid = int(run(["systemctl", "show", "qrab-macsec.service", "-p", "MainPID", "--value"]).stdout.strip() or b"0")
+    require(os.fsencode(binary) in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0"),
+            "the intended health supplicant is not running")
+    require(wpa_control(state, "MKA_REKEY_CAPABILITY") == b"1\n", "MKA rekey capability is missing")
+    require(run(["systemctl", "is-active", "qrab-macsec-health.service"], check=False).returncode == 0,
+            "association health watcher is not active")
+    rows = [row for row in jrun(["ip", "-j", "-s", "macsec", "show"]) if row.get("ifname") == UPPER]
+    status = macsec_health(rows)
+    require(status["healthy"] and len(rows[0].get("rx_sc", [])) == 3,
+            "receive associations are incomplete")
+    return {"association_health": "installed", "deployment_phase": "committed",
+            "wpa_sha256": release["wpa_sha256"], "health": status}
+
+
 def install_native_health(state):
     require(current_phase(state) == "committed" and not (state / "uncommitted").exists(),
             "association health upgrade requires a committed deployment")
@@ -825,9 +849,9 @@ def install_native_health(state):
         if status["healthy"] and len(rows[0].get("rx_sc", [])) == 3:
             stable = now if stable is None else stable
             if now - stable >= 5:
-                require(wpa_control(state, "MKA_REKEY_CAPABILITY") == b"1\n", "MKA rekey capability is missing")
-                return {"association_health": "installed", "deployment_phase": current_phase(state),
-                        "wpa_sha256": release["wpa_sha256"], "health": status}
+                result = native_health_status(state)
+                save(state / "health-install.json", result)
+                return result
         else:
             stable = None
             if now - requested >= 10:
@@ -842,9 +866,8 @@ def install_native_health(state):
 
 def prove_native_health(state):
     profile = load(state / "profile.json")
-    rows = [row for row in jrun(["ip", "-j", "-s", "macsec", "show"]) if row.get("ifname") == UPPER]
-    status = macsec_health(rows)
-    require(status["healthy"] and len(rows[0].get("rx_sc", [])) == 3, "receive associations are incomplete")
+    installed = native_health_status(state)
+    status = installed["health"]
     require(not addresses(profile["lower"]), "a raw-lower IP address remains")
     guarded = json.loads(nft(state, "-j", "list", "table", "netdev", GUARD_TABLE).stdout)
     require(firewall_semantics(guarded) == load(state / "guard-semantics.json"), "raw guard changed")
@@ -865,7 +888,8 @@ def prove_native_health(state):
     capture = capture_clear(capture_state)
     watcher = run(["systemctl", "is-active", "qrab-macsec-health.service"], check=False)
     require(watcher.returncode == 0, "association health watcher is not active")
-    return {"health": status, "peer_paths": peers, "capture": capture}
+    return {"health": status, "peer_paths": peers, "capture": capture,
+            "wpa_sha256": installed["wpa_sha256"]}
 
 
 def render_network(profile, before):
@@ -1446,6 +1470,8 @@ def agent(state, action):
     if action == "health-monitor":
         health_monitor(state)
         return {}
+    if action == "health-status":
+        return native_health_status(state)
     if action == "status":
         return {"phase": current_phase(state), "role": load(state / "profile.json")["role"]}
     if action == "stop-control":
@@ -1737,6 +1763,51 @@ def deploy_cluster(state, user):
         raise
 
 
+def remote_native_health_status(state, role, user, expected_sha):
+    command = shlex.join(["sudo", "-n", "/usr/bin/python3", "-I",
+                          str(state / "health-agent.py"), "agent", "--state", str(state), "health-status"])
+    result = ssh_run(user, HOSTS[role], command, check=False, timeout=15)
+    require(result.returncode == 0, f"{role} health status unavailable: {ssh_failure_reason(result.stderr)}")
+    status = json.loads(result.stdout)
+    require(status.get("association_health") == "installed"
+            and status.get("wpa_sha256") == expected_sha, f"{role} health status does not match the release")
+    return status
+
+
+def activate_remote_native_health(state, role, user, expected_sha, source_sha, seconds=180):
+    # A lost SSH acknowledgement does not establish an installation failure.
+    # Reconcile first, including on an idempotent coordinator retry.
+    try:
+        return remote_native_health_status(state, role, user, expected_sha)
+    except (DeployError, OSError, ValueError):
+        pass
+    unit = "qrab-native-health-upgrade-" + state.name[-12:] + "-" + source_sha[:12]
+    command = shlex.join(["sudo", "-n", "systemd-run", "--quiet", "--collect", "--no-block",
+                          "--unit=" + unit, "--property=Type=oneshot", "--property=TimeoutStartSec=180",
+                          "/usr/bin/python3", "-I", str(state / "health-agent.py"),
+                          "agent", "--state", str(state), "install-health"])
+    diagnostic = state / ("health-activation-" + role + ".json")
+    try:
+        result = ssh_run(user, HOSTS[role], command, check=False, timeout=20)
+        dispatch = {"unit": unit, "exit": result.returncode,
+                    "stderr": result.stderr.decode(errors="replace")[-4096:]}
+    except (DeployError, OSError) as error:
+        dispatch = {"unit": unit, "error": str(error)}
+    save(diagnostic, dispatch)
+    end = time.monotonic() + seconds
+    last = "no health status returned"
+    while time.monotonic() < end:
+        try:
+            status = remote_native_health_status(state, role, user, expected_sha)
+            if dispatch.get("exit") != 0:
+                status["activation_acknowledgement"] = "reconciled from running state"
+            return status
+        except (DeployError, OSError, ValueError) as error:
+            last = str(error)
+        time.sleep(3)
+    raise DeployError(f"{role} activation did not converge: {last}; inspect {diagnostic}")
+
+
 def upgrade_cluster_health(state, user, kit):
     require(current_phase(state) == "committed" and not (state / "uncommitted").exists(),
             "association health upgrade requires a committed deployment")
@@ -1800,25 +1871,19 @@ print(json.dumps({{'staged':{digest(source)!r}}}))
     require(not any("error" in result for result in staged.values()),
             f"health staging is partial; no MKA activation attempted; inspect {state}/health-upgrade.json")
     for role in HOSTS:
-        for attempt in range(3):
-            try:
-                if role == "gateway":
+        try:
+            if role == "gateway":
+                try:
+                    results[role] = native_health_status(state)
+                    require(results[role]["wpa_sha256"] == json.loads(release)["wpa_sha256"],
+                            "gateway health status does not match the release")
+                except (DeployError, OSError, ValueError):
                     results[role] = agent(state, "install-health")
-                else:
-                    command = shlex.join(["sudo", "-n", "/usr/bin/python3", "-I",
-                                          str(state / "health-agent.py"), "agent", "--state", str(state),
-                                          "install-health"])
-                    result = ssh_run(user, HOSTS[role], command, timeout=120)
-                    results[role] = json.loads(result.stdout)
-                break
-            except (DeployError, OSError, ValueError) as error:
-                results[role] = {"error": str(error)}
-                if attempt < 2:
-                    try:
-                        wpa_control(state, "MKA_REKEY")
-                    except OSError:
-                        pass
-                    time.sleep(3)
+            else:
+                results[role] = activate_remote_native_health(
+                    state, role, user, json.loads(release)["wpa_sha256"], digest(source))
+        except (DeployError, OSError, ValueError) as error:
+            results[role] = {"error": str(error)}
         save(state / "health-upgrade.json", receipt)
         if role == "gateway" and "error" in results[role]:
             break

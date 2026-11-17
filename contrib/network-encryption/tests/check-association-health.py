@@ -260,7 +260,7 @@ for target in sys.argv[2:]:
                             supplicants["gateway"]=launch("gateway","upgraded-tool",executable,
                                 "-Dmacsec_linux","-ibr0","-c",configs["gateway"])
                             address("gateway")
-                        elif argv[1] not in ("show","daemon-reload","restart"):
+                        elif argv[1] not in ("show","daemon-reload","restart","is-active"):
                             raise AssertionError("unexpected systemd operation")
                         return subprocess.CompletedProcess(argv,0,b"",b"")
                     if argv[0] == "ip":
