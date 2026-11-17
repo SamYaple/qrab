@@ -24,6 +24,10 @@ use std::{
 /// A plumbed anchor is re-verified this often; an unplumbed one every pass.
 const REVERIFY: Duration = Duration::from_secs(60);
 
+#[cfg(test)]
+#[path = "status_tests.rs"]
+mod status_tests;
+
 fn log(event: &str, detail: serde_json::Value) {
     eprintln!("{}", serde_json::json!({"event": event, "detail": detail}));
 }
@@ -31,11 +35,18 @@ fn log(event: &str, detail: serde_json::Value) {
 /// One NAT-PMP round: when, and the forwarded port or why not.
 type PortRound = (Instant, Result<u16, String>);
 
+#[derive(Clone)]
+struct Plumbed {
+    anchor: Arc<Anchor>,
+    verified_at: Instant,
+    summary: String,
+}
+
 struct Agent {
     proc_root: PathBuf,
     store: reflector::Store<Pod>,
     /// Anchor UID → the namespace last plumbed and when it was verified.
-    plumbed: Mutex<HashMap<String, (Arc<Anchor>, Instant)>>,
+    plumbed: Mutex<HashMap<String, Plumbed>>,
     /// Anchor UID → the condition last written (status, message).
     reported: Mutex<HashMap<String, (bool, String)>>,
     /// One grant at a time, so the busy check and the attach cannot race.
@@ -159,13 +170,11 @@ impl Agent {
             "message": message,
             "lastTransitionTime": k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(k8s_openapi::jiff::Timestamp::now()),
         });
-        let patch = Patch::Strategic(serde_json::json!({"status": {"conditions": [condition]}}));
         let name = pod.name_any();
-        if let Err(error) = self.runtime.block_on(self.api.patch_status(
-            &name,
-            &PatchParams::default(),
-            &patch,
-        )) {
+        if let Err(error) = self
+            .runtime
+            .block_on(write_condition(&self.api, pod, condition))
+        {
             log(
                 "report_failed",
                 serde_json::json!({"pod": name, "error": error.to_string()}),
@@ -185,7 +194,7 @@ impl Agent {
             .lock()
             .unwrap()
             .get(&uid)
-            .map(|(anchor, _)| anchor.clone())
+            .map(|ready| ready.anchor.clone())
             .ok_or("NIC is not plumbed yet")?;
         anchor.ensure_current().map_err(|e| e.to_string())?;
         Ok(anchor)
@@ -603,6 +612,35 @@ impl Agent {
 /// How long a forward route outlives the last local anchor of its address.
 const FORWARD_GRACE: Duration = Duration::from_secs(20);
 
+/// Bind a delayed local outcome to the exact Pod snapshot observed. A
+/// same-name replacement or a newer status update must reject the whole patch.
+async fn write_condition(
+    pods: &Api<Pod>,
+    pod: &Pod,
+    condition: serde_json::Value,
+) -> Result<(), String> {
+    let uid = pod
+        .metadata
+        .uid
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or("Pod has no UID")?;
+    let version = pod
+        .metadata
+        .resource_version
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or("Pod has no resourceVersion")?;
+    let patch = Patch::Strategic(serde_json::json!({
+        "metadata": {"uid":uid, "resourceVersion":version},
+        "status": {"conditions": [condition]},
+    }));
+    pods.patch_status(&pod.name_any(), &PatchParams::default(), &patch)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 async fn report(pods: &Api<Pod>, agent: &Agent, pod: &Pod, outcome: &Result<String, String>) {
     let (Some(uid), name) = (pod.uid(), pod.name_any()) else {
         return;
@@ -621,11 +659,7 @@ async fn report(pods: &Api<Pod>, agent: &Agent, pod: &Pod, outcome: &Result<Stri
         "message": message,
         "lastTransitionTime": k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(k8s_openapi::jiff::Timestamp::now()),
     });
-    let patch = Patch::Strategic(serde_json::json!({"status": {"conditions": [condition]}}));
-    match pods
-        .patch_status(&name, &PatchParams::default(), &patch)
-        .await
-    {
+    match write_condition(pods, pod, condition).await {
         Ok(_) => {
             log(
                 "reported",
@@ -652,11 +686,11 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         let cached = agent.plumbed.lock().unwrap().get(&uid).cloned();
         let current = cached
             .as_ref()
-            .is_some_and(|(anchor, _)| anchor.ensure_current().is_ok());
+            .is_some_and(|ready| ready.anchor.ensure_current().is_ok());
         let fresh = current
             && cached
                 .as_ref()
-                .is_some_and(|(_, at)| at.elapsed() < REVERIFY);
+                .is_some_and(|ready| ready.verified_at.elapsed() < REVERIFY);
         if !current {
             agent.forget_namespace(&uid);
             if cached.is_some() {
@@ -676,6 +710,12 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
             .flatten();
         let rewritten = digest.is_some_and(|d| agent.tunnels.lock().unwrap().get(&uid) != Some(&d));
         if fresh && !rewritten {
+            // A previous status PATCH may have conflicted or failed after
+            // successful kernel work. Retry from this current watch snapshot
+            // without repeating plumbing or waiting for the reverify interval.
+            if let Some(ready) = cached {
+                report(pods, agent, pod, &Ok(ready.summary)).await;
+            }
             continue;
         }
         let worker = agent.clone();
@@ -684,11 +724,14 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
             .await
             .unwrap_or_else(|e| Err(e.to_string()));
         let outcome = outcome.map(|(summary, anchor)| {
-            agent
-                .plumbed
-                .lock()
-                .unwrap()
-                .insert(uid.clone(), (anchor, Instant::now()));
+            agent.plumbed.lock().unwrap().insert(
+                uid.clone(),
+                Plumbed {
+                    anchor,
+                    verified_at: Instant::now(),
+                    summary: summary.clone(),
+                },
+            );
             summary
         });
         match &outcome {
