@@ -112,6 +112,36 @@ fn memory_growth_patches_the_resize_subresource_and_keeps_the_boot_template() {
 }
 
 #[test]
+fn odd_memory_growth_restarts_even_if_the_container_limit_was_already_applied() {
+    for boot in [512, 513] {
+        let mut vm = vm();
+        vm.spec.memory_mib = boot;
+        let pod = running(&vm);
+        vm.spec.memory_mib = boot + 1;
+        let desired = rerender(&vm, &pod);
+        assert!(
+            matches!(resources::plan_resize(&vm, &pod, &desired), ResizePlan::Restart(m) if m.contains("2 MiB")),
+            "one MiB cannot be represented by a whole hotplug block"
+        );
+        // Recover Pods whose old controller already changed their limits.
+        let mut applied = serde_json::to_value(&pod).unwrap();
+        applied["spec"]["containers"][0]["resources"] =
+            GuestSize::of(&vm).container_resources(vm.spec.accelerator);
+        let applied: Pod = serde_json::from_value(applied).unwrap();
+        assert!(matches!(
+            resources::plan_resize(&vm, &applied, &desired),
+            ResizePlan::Restart(_)
+        ));
+        // Alignment is relative to the captured boot size, including odd boots.
+        vm.spec.memory_mib = boot + 2;
+        assert!(matches!(
+            resources::plan_resize(&vm, &pod, &rerender(&vm, &pod)),
+            ResizePlan::Grow(_)
+        ));
+    }
+}
+
+#[test]
 fn shrink_vcpu_growth_on_tcg_beyond_maxima_and_unstarted_pods_restart() {
     let base = vm();
     let pod = running(&base);

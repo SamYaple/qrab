@@ -24,6 +24,8 @@ const CPU_LIMIT_OVERHEAD_MILLIS: u32 = 1000;
 // before these change.
 const MEMORY_REQUEST_OVERHEAD_MIB: u32 = 256;
 const MEMORY_LIMIT_OVERHEAD_MIB: u32 = 512;
+// The manager's fixed virtio-mem contract, relative to its captured boot size.
+const MEMORY_HOTPLUG_BLOCK_MIB: u32 = 2;
 const SIZE_DIR: &str = "/run/qrab-size";
 /// Provisioned-disk capacities `{"<id>": bytes}`. Projected into SIZE_DIR as
 /// `disk_capacity`; the manager grows the running guest's disks from it.
@@ -1901,6 +1903,15 @@ pub fn plan_resize(vm: &VirtualMachine, pod: &Pod, desired: &Desired) -> ResizeP
     else {
         return ResizePlan::Restart("the VM Pod has unrecognized container resources");
     };
+    // Check before Steady as well: a previous controller may already have
+    // applied an odd-MiB container limit that the running guest cannot match.
+    if want.memory_mib > desired.boot.memory_mib
+        && !(want.memory_mib - desired.boot.memory_mib).is_multiple_of(MEMORY_HOTPLUG_BLOCK_MIB)
+    {
+        return ResizePlan::Restart(
+            "memory growth requires whole 2 MiB blocks relative to the boot size",
+        );
+    }
     if want == have {
         return ResizePlan::Steady;
     }

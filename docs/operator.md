@@ -525,17 +525,21 @@ kubectl -n qrab patch qvm "$vm" --type merge -p '{"spec":{"memoryMiB":1024}}'
 kubectl -n qrab get qvm "$vm" -o jsonpath='{.status.resize}'
 ```
 
-- **Growth within the boot maxima** of a Running Pod patches `pods/resize`
+- **Growth within the boot maxima**, with memory increments in whole 2 MiB
+  blocks relative to the captured boot size, of a Running Pod patches `pods/resize`
   (strategic merge of the manager container's resources, with `metadata.uid` as
   a precondition). No Pod restart. The manager then hot-adds memory/vCPUs
   ([manager.md](manager.md#in-place-growth-hotplug)) once the kubelet has
   applied the new cgroup limits.
-- **Shrink**, growth beyond `maxCpus`/`maxMemoryMiB`, a change of either ceiling,
+- **Shrink**, memory growth between those whole-block sizes, growth beyond
+  `maxCpus`/`maxMemoryMiB`, a change of either ceiling,
   or a size change before the Pod is Running takes the existing controlled
   restart path (reason `ResizeRequiresRestart`; firmware/TPM identity retained).
   The guest is never shrunk in place, even though Kubernetes would apply a lower
   memory limit. Lowering a still-Deferred request also restarts: the kubelet may
   admit and apply the larger size (and the manager plug it) concurrently.
+  An old Pod whose container limit was already changed to an unrepresentable
+  memory size also takes this path, so its exact requested boot size is restored.
 - `maxCpus` / `maxMemoryMiB` are optional, boot-time hot-plug ceilings, validated
   by CEL to be ≥ `cpus`/`memoryMiB`. Defaults: 4× the booted size (vCPUs at most
   64; memory at most +64 GiB). **Linux refuses hot-added vCPUs under TCG**, so

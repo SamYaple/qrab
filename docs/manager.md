@@ -118,6 +118,12 @@ desired size from files and gates on the container's own cgroup:
 - `limits_dir` holds the downward-API files `cpu_limit_millis` and
   `memory_limit_mib`. Desired guest size = limit − overhead (`cpu_limit/1000 − 1`
   vCPUs, `memory_limit − 512` MiB in operator Pods).
+- In-place memory growth uses whole 2 MiB blocks relative to the captured
+  boot size. Actual requests round down within the desired size, applied
+  capacity and logical ceiling, and status records the actual requested
+  size. A desired increase that cannot be represented reports
+  `restart_required`; the operator recreates the Pod at that exact boot size.
+  This also repairs an old Pod whose container limit was already changed.
 - Each one-second heartbeat also reads `cgroup_dir` (default `/sys/fs/cgroup`)
   `cpu.max` and `memory.max`. Growth is `min(desired, applied cgroup, maxima)`
   and never shrinks. vCPUs are added with `query-hotpluggable-cpus` +

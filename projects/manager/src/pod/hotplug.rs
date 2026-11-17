@@ -264,6 +264,16 @@ async fn reconcile_at(config: &Config, qmp: &Qmp, resize: &mut Resize, now: u64)
                 Some("desired size exceeds the boot-time maximum; a restart is required".into()),
             )
         }
+        Ok(())
+            if desired.memory_mib > resize.boot.memory_mib
+                && !(desired.memory_mib - resize.boot.memory_mib)
+                    .is_multiple_of(HOTPLUG_BLOCK_MIB) =>
+        {
+            (
+                ResizePhase::RestartRequired,
+                Some("memory growth requires whole 2 MiB blocks relative to boot; restart at the desired size".into()),
+            )
+        }
         Ok(()) if desired.cpus > permitted.cpus || desired.memory_mib > permitted.memory_mib => (
             ResizePhase::WaitingForLimits,
             Some("waiting for the kubelet to raise the container cgroup limits".into()),
@@ -288,9 +298,12 @@ async fn grow(qmp: &Qmp, resize: &mut Resize) -> Result<()> {
         // Record partial progress even if a later device_add fails.
         resize.current.cpus = add_cpus(qmp, goal.cpus).await?.max(resize.current.cpus);
     }
-    if goal.memory_mib > resize.current.memory_mib {
-        let requested = (goal.memory_mib - resize.boot.memory_mib).div_ceil(HOTPLUG_BLOCK_MIB)
-            * HOTPLUG_BLOCK_MIB;
+    // Budget actual device blocks, not an unrepresentable logical MiB goal.
+    // Rounding up here can exceed the applied cgroup or configured maximum.
+    let requested =
+        (goal.memory_mib - resize.boot.memory_mib) / HOTPLUG_BLOCK_MIB * HOTPLUG_BLOCK_MIB;
+    let memory_mib = resize.boot.memory_mib + requested;
+    if memory_mib > resize.current.memory_mib {
         qmp.execute(&QomSet {
             path: format!("/machine/peripheral/{MEMORY_DEVICE}"),
             property: "requested-size".into(),
@@ -298,7 +311,7 @@ async fn grow(qmp: &Qmp, resize: &mut Resize) -> Result<()> {
             arguments: None,
         })
         .await?;
-        resize.current.memory_mib = goal.memory_mib;
+        resize.current.memory_mib = memory_mib;
     }
     if resize.current.memory_mib > resize.boot.memory_mib {
         let plugged = qmp
@@ -516,6 +529,88 @@ mod tests {
         assert_eq!(resize.failures, 9);
         qmp.shutdown().await;
         assert_eq!(server.await.unwrap(), 9, "one device_add per attempt");
+    }
+
+    #[tokio::test]
+    async fn virtio_mem_never_rounds_past_any_logical_memory_bound() {
+        use qapi_protocol::server::QmpSession;
+        use std::sync::{Arc, Mutex};
+        for boot in [512, 513] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = config(dir.path());
+            config.memory_mib = boot;
+            config.hotplug.as_mut().unwrap().max_memory_mib = boot + 1535;
+            let socket = dir.path().join("qmp.sock");
+            let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let seen = requests.clone();
+            let server = tokio::spawn(async move {
+                let mut session = QmpSession::accept(&listener).await.unwrap();
+                session.send_greeting(11, 1, 3).await.unwrap();
+                session.negotiate().await.unwrap();
+                let mut requested = 0;
+                while let Ok((name, args)) = session.recv_command().await {
+                    let reply = match name.as_str() {
+                        "qom-set" => {
+                            assert_eq!(args["property"], "requested-size");
+                            requested = args["value"].as_u64().unwrap();
+                            seen.lock().unwrap().push(requested);
+                            serde_json::json!({})
+                        }
+                        "qom-get" => serde_json::json!(requested),
+                        other => panic!("unexpected command {other}"),
+                    };
+                    session.send_return(reply).await.unwrap();
+                }
+            });
+            let (qmp, _events) = Qmp::new(&socket).await.unwrap();
+            let mut resize = Resize::new(&config).unwrap();
+            let apply = |wanted: u64, allowed: u64| {
+                write(
+                    dir.path(),
+                    2000,
+                    wanted + 512,
+                    "200000 100000",
+                    &((allowed + 512) << 20).to_string(),
+                );
+            };
+
+            // One MiB of applied capacity cannot authorize a 2 MiB request.
+            apply(boot + 2, boot + 1);
+            reconcile_at(&config, &qmp, &mut resize, 0).await;
+            assert!(
+                requests.lock().unwrap().is_empty(),
+                "QMP received more memory than the applied capacity permits"
+            );
+            assert_eq!(resize.current.memory_mib, boot);
+            assert_eq!(resize.phase, ResizePhase::WaitingForLimits);
+
+            // The normal whole-block growth still reaches its exact target.
+            apply(boot + 2, boot + 2);
+            reconcile_at(&config, &qmp, &mut resize, 1000).await;
+            assert_eq!(requests.lock().unwrap().as_slice(), &[2u64 << 20]);
+            assert_eq!(resize.current.memory_mib, boot + 2);
+            assert_eq!(resize.plugged_memory_mib, Some(2));
+            assert_eq!(resize.phase, ResizePhase::Idle);
+
+            // Neither odd desired size nor an odd logical ceiling may round up.
+            apply(boot + 3, boot + 3);
+            reconcile_at(&config, &qmp, &mut resize, 2000).await;
+            assert_eq!(resize.current.memory_mib, boot + 2);
+            assert_eq!(resize.phase, ResizePhase::RestartRequired);
+            assert!(resize.detail.as_deref().unwrap().contains("2 MiB"));
+            apply(boot + 1535, boot + 4096);
+            reconcile_at(&config, &qmp, &mut resize, 3000).await;
+            assert_eq!(resize.current.memory_mib, boot + 1534);
+            assert_eq!(resize.plugged_memory_mib, Some(1534));
+            assert_eq!(resize.phase, ResizePhase::RestartRequired);
+            assert_eq!(
+                requests.lock().unwrap().as_slice(),
+                &[2u64 << 20, 1534u64 << 20]
+            );
+            qmp.shutdown().await;
+            server.await.unwrap();
+        }
     }
 
     #[tokio::test]
