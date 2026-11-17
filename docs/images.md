@@ -52,13 +52,16 @@ none of them. Per BaseImage it:
    one made with `vm-image-import`) is **adopted** as Sealed, without Jobs;
 2. runs the **inspect** Job: download over HTTPS (redirects must stay on
    HTTPS, at most 64 GiB), check the upstream SHA-256 *before* anything
-   parses the file, then `qemu-img info` for the virtual size. A wrong
-   digest fails the image at once;
+   parses the file, then require a self-contained input before `qemu-img info`
+   reports the virtual size. A bounded qcow2 v2/v3 fixed-header preflight
+   rejects backing-file offset/length declarations and external data files
+   before any qemu-img invocation. A wrong digest or dependency fails the
+   image at once;
 3. calls `vm-image-stage-create` with the size rounded up to whole MiB
    (at least 16 MiB), writes a fresh CHAP password to Secret `<bimg>-stage`
    (BaseImage-owned, key `password` only, confined by
    `secret-policy.yaml`) and calls `vm-image-stage-export`;
-4. runs the **write** Job: download and check again, convert to raw, hash
+4. runs the **write** Job: download, check and preflight again, convert to raw, hash
    it, and write it onto the stage LUN with `qemu-img convert -n` over
    qemu's userspace libiscsi initiator, logging in as the stage's own
    initiator with the mounted CHAP password (a qemu `secret` object reads the
@@ -87,10 +90,30 @@ message: `{"virtualSize":N}`, `{"sizeBytes":N,"sha256":"..."}` or
 `{"error":"sha256-mismatch"|"import-failed","message":"..."}`.
 
 Trust: the upstream SHA-256 an image admin enters is the root of trust. The
-write Job converts only a file that matches it, and the storage host seals
+digest covers the downloaded file, not any file or network backing dependency
+named by image metadata. Import Jobs therefore require standalone raw/qcow2
+inputs; flatten a backing chain in its trusted preparation environment first.
+The preflight checks dependency declarations only; QEMU remains responsible
+for full format validation. The write Job converts only a self-contained file
+that matches the digest, and the storage host seals
 only bytes that match what the Job reported, so a short or damaged write is
 caught. A compromised converter could still write other bytes, but only
 for a file the admin pinned.
+
+## Verification
+
+The explicit single-file boundary fixture check needs only the pinned current
+`qemu-img` and private temporary files, not a cluster, guest or storage target:
+
+```sh
+QRAB_TEST_QEMU_IMG=/path/to/current/qemu-img \
+  cargo test --locked -p qrab-operator real_qcow2_fixtures_keep_the_single_file_boundary -- --ignored --nocapture
+```
+
+It checks standalone qcow2 v2/v3/extended-L2 images, refuses backing and
+external-data dependencies, and demonstrates conversion of a benign external
+marker in the unguarded baseline. Default image-job tests validate truncated
+headers, dependency declarations and refusal before tool launch without QEMU.
 
 ## Rollout
 

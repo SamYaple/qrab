@@ -289,8 +289,52 @@ fn qemu_img(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// The virtual size from `qemu-img info`, for the verified file only.
+/// Reject qcow2 inputs whose contents depend on anything but the verified
+/// download. A checksum of the top-level file does not authenticate a backing
+/// chain or an external data file. This is a bounded dependency preflight,
+/// not a replacement qcow2 parser: QEMU still validates the image itself.
+///
+/// The fixed fields follow the pinned QEMU qcow2 v2/v3 header contract:
+/// backing offset/length at 8/16 and v3 incompatible features at 72. The
+/// external-data-file feature is bit 2. No filename is read or opened here.
+fn require_self_contained(mut input: impl Read, format: ImageFormat) -> Result<()> {
+    if format == ImageFormat::Raw {
+        return Ok(());
+    }
+    let mut header = [0u8; 104];
+    input
+        .read_exact(&mut header[..72])
+        .context("truncated qcow2 fixed header")?;
+    ensure!(&header[..4] == b"QFI\xfb", "invalid qcow2 magic");
+    let version = u32::from_be_bytes(header[4..8].try_into().unwrap());
+    ensure!(
+        matches!(version, 2 | 3),
+        "unsupported qcow2 version {version}"
+    );
+    let backing_offset = u64::from_be_bytes(header[8..16].try_into().unwrap());
+    let backing_length = u32::from_be_bytes(header[16..20].try_into().unwrap());
+    ensure!(
+        backing_offset == 0 && backing_length == 0,
+        "qcow2 backing files are not supported; import a standalone flattened image"
+    );
+    if version == 3 {
+        input
+            .read_exact(&mut header[72..])
+            .context("truncated qcow2 v3 fixed header")?;
+        let features = u64::from_be_bytes(header[72..80].try_into().unwrap());
+        ensure!(
+            features & (1 << 2) == 0,
+            "qcow2 external data files are not supported; import a standalone image"
+        );
+        let length = u32::from_be_bytes(header[100..104].try_into().unwrap());
+        ensure!(length >= 104, "invalid qcow2 v3 fixed header length");
+    }
+    Ok(())
+}
+
+/// The virtual size from `qemu-img info`, for a verified self-contained file.
 pub fn virtual_size(path: &Path, format: ImageFormat) -> Result<u64> {
+    require_self_contained(std::fs::File::open(path)?, format)?;
     let info = qemu_img(&[
         "info",
         "-f",
@@ -430,6 +474,205 @@ mod tests {
 
     fn argv(values: &[&str]) -> Vec<String> {
         values.iter().map(|v| (*v).to_owned()).collect()
+    }
+
+    fn qcow_header(version: u32) -> Vec<u8> {
+        let mut header = vec![0; if version == 2 { 72 } else { 104 }];
+        header[..4].copy_from_slice(b"QFI\xfb");
+        header[4..8].copy_from_slice(&version.to_be_bytes());
+        if version != 2 {
+            header[100..104].copy_from_slice(&104u32.to_be_bytes());
+        }
+        header
+    }
+
+    #[test]
+    fn image_dependencies_are_rejected_before_qemu_can_open_them() {
+        for version in [2, 3] {
+            let header = qcow_header(version);
+            assert!(require_self_contained(header.as_slice(), ImageFormat::Qcow2).is_ok());
+            for (offset, bytes) in [
+                (8, 1u64.to_be_bytes().to_vec()),
+                (16, 1u32.to_be_bytes().to_vec()),
+            ] {
+                let mut backing = header.clone();
+                backing[offset..offset + bytes.len()].copy_from_slice(&bytes);
+                assert!(
+                    require_self_contained(backing.as_slice(), ImageFormat::Qcow2)
+                        .unwrap_err()
+                        .to_string()
+                        .contains("backing files")
+                );
+            }
+        }
+        let mut external = qcow_header(3);
+        external[72..80].copy_from_slice(&(1u64 << 2).to_be_bytes());
+        assert!(
+            require_self_contained(external.as_slice(), ImageFormat::Qcow2)
+                .unwrap_err()
+                .to_string()
+                .contains("external data files")
+        );
+
+        // Valid unrelated v3 features (compression and extended L2) do not
+        // add dependencies and remain QEMU's format-validation responsibility.
+        let mut standalone = qcow_header(3);
+        standalone[72..80].copy_from_slice(&((1u64 << 3) | (1 << 4)).to_be_bytes());
+        assert!(require_self_contained(standalone.as_slice(), ImageFormat::Qcow2).is_ok());
+    }
+
+    #[test]
+    fn malformed_qcow_headers_fail_closed_with_bounded_reads() {
+        for version in [2, 3] {
+            let header = qcow_header(version);
+            for n in 0..header.len() {
+                assert!(
+                    require_self_contained(&header[..n], ImageFormat::Qcow2).is_err(),
+                    "v{version} length {n}"
+                );
+            }
+        }
+        let mut invalid = qcow_header(3);
+        invalid[0] = 0;
+        assert!(require_self_contained(invalid.as_slice(), ImageFormat::Qcow2).is_err());
+        assert!(require_self_contained(qcow_header(4).as_slice(), ImageFormat::Qcow2).is_err());
+        let mut short_header = qcow_header(3);
+        short_header[100..104].copy_from_slice(&72u32.to_be_bytes());
+        assert!(require_self_contained(short_header.as_slice(), ImageFormat::Qcow2).is_err());
+
+        struct Bounded<'a>(&'a [u8]);
+        impl Read for Bounded<'_> {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                assert!(!self.0.is_empty(), "preflight read beyond the fixed header");
+                self.0.read(out)
+            }
+        }
+        assert!(require_self_contained(Bounded(&qcow_header(3)), ImageFormat::Qcow2).is_ok());
+        assert!(require_self_contained(Bounded(&[]), ImageFormat::Raw).is_ok());
+    }
+
+    #[test]
+    fn virtual_size_refuses_external_references_before_starting_qemu_img() {
+        let mut random = [0; 16];
+        getrandom::fill(&mut random).unwrap();
+        let path = std::env::temp_dir().join(format!("qrab-image-preflight-{}", hex(&random)));
+        let mut header = qcow_header(3);
+        header[8..16].copy_from_slice(&104u64.to_be_bytes());
+        header[16..20].copy_from_slice(&16u32.to_be_bytes());
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(&header).unwrap();
+        drop(file);
+        // This default test does not need qemu-img, a guest or a storage host.
+        let error = virtual_size(&path, ImageFormat::Qcow2).unwrap_err();
+        std::fs::remove_file(&path).unwrap();
+        assert!(error.to_string().contains("backing files"));
+    }
+
+    #[test]
+    #[ignore = "requires QRAB_TEST_QEMU_IMG pointing to the pinned current qemu-img; local files only"]
+    fn real_qcow2_fixtures_keep_the_single_file_boundary() {
+        use std::os::unix::fs::DirBuilderExt;
+        let binary = std::env::var_os("QRAB_TEST_QEMU_IMG").expect("set QRAB_TEST_QEMU_IMG");
+        let mut random = [0; 16];
+        getrandom::fill(&mut random).unwrap();
+        let root = std::env::temp_dir().join(format!("qrab-qcow2-fixtures-{}", hex(&random)));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&root)
+            .unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let command = |args: &[&str]| {
+            let output = Command::new(&binary).args(args).output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        for (name, options) in [
+            ("v2", "compat=0.10"),
+            ("v3", "compat=1.1"),
+            ("extl2", "extended_l2=on"),
+        ] {
+            let path = root.join(name);
+            command(&[
+                "create",
+                "-q",
+                "-f",
+                "qcow2",
+                "-o",
+                options,
+                path.to_str().unwrap(),
+                "1M",
+            ]);
+            require_self_contained(std::fs::File::open(path).unwrap(), ImageFormat::Qcow2).unwrap();
+        }
+        let marker = root.join("outside-download.raw");
+        std::fs::write(&marker, vec![0x5a; 1 << 20]).unwrap();
+        let overlay = root.join("backing.qcow2");
+        command(&[
+            "create",
+            "-q",
+            "-f",
+            "qcow2",
+            "-b",
+            marker.to_str().unwrap(),
+            "-F",
+            "raw",
+            overlay.to_str().unwrap(),
+        ]);
+        assert!(
+            require_self_contained(std::fs::File::open(&overlay).unwrap(), ImageFormat::Qcow2)
+                .unwrap_err()
+                .to_string()
+                .contains("backing files")
+        );
+        // Demonstrate why hashing only the overlay is insufficient: the
+        // normal converter reads the separate benign marker into its output.
+        let flattened = root.join("baseline-converted.raw");
+        command(&[
+            "convert",
+            "-f",
+            "qcow2",
+            "-O",
+            "raw",
+            overlay.to_str().unwrap(),
+            flattened.to_str().unwrap(),
+        ]);
+        assert_eq!(
+            std::fs::read(flattened).unwrap(),
+            std::fs::read(marker).unwrap()
+        );
+
+        let external = root.join("external.qcow2");
+        let data = root.join("external-data.raw");
+        let options = format!("data_file={},data_file_raw=on", data.display());
+        command(&[
+            "create",
+            "-q",
+            "-f",
+            "qcow2",
+            "-o",
+            &options,
+            external.to_str().unwrap(),
+            "1M",
+        ]);
+        assert!(
+            require_self_contained(std::fs::File::open(external).unwrap(), ImageFormat::Qcow2)
+                .unwrap_err()
+                .to_string()
+                .contains("external data files")
+        );
     }
 
     #[test]
