@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "556e5b74b6468effd36b162a85bcc42482e6ef04edda2d90a4e83d30f8cc5377",
+  "catalog_sha256": "3d92c643918b8614512e9e37f4a728b555b022266dfdad6cc2687cdb8a4e05f6",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -719,6 +719,18 @@
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "87342dc7712bf9b8da37e83332a3354afd6cbb7663460dfec327961ac6072b08",
+      "width": 1600
+    },
+    "57-migration-adoption-receipt": {
+      "height": 900,
+      "outputs": {
+        "dark/57-migration-adoption-receipt.svg": "ea349ad41fa3152f99bc5d12c894a7871235a6c5d317bb88fa549537d36076d8",
+        "light/57-migration-adoption-receipt.svg": "8596d650d1b985da27e538587bb612d352518e81f7906380aba16ceabdad4f7e",
+        "png/57-migration-adoption-receipt.png": "18c6479de4251616aae541a51d4269b164dc77bc4d06df4d5fe0d3116c31a129",
+        "print/57-migration-adoption-receipt.svg": "3f5ff1a04d30265b4bb62c276befea76e5cf718d9dc7d639b5acd31c4fc0349a"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "318a39264284af8472e910e17df9315c67970067ca2614db4823ac695eebc210",
       "width": 1600
     }
   },

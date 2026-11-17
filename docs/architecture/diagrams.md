@@ -610,3 +610,13 @@ Local refusal before dispatch means this request was not sent. A deadline or con
 ![Three command outcomes, three next steps](diagrams/rendered/light/56-command-outcomes.svg)
 
 [Editable source](diagrams/56-command-outcomes.json) · [Light SVG](diagrams/rendered/light/56-command-outcomes.svg) · [Dark SVG](diagrams/rendered/dark/56-command-outcomes.svg) · [Print SVG](diagrams/rendered/print/56-command-outcomes.svg) · [PNG](diagrams/rendered/png/56-command-outcomes.png)
+
+## 57-migration-adoption-receipt: A published target remains the current owner
+
+**Scope:** implemented repair / private controller API proof. **Evidence:** S03, S11, T19.
+
+VM status records the exact adopted target before a separate Migration completion write. Retry finishes that receipt and retains current Pod/anchors/state/config; owner checks and conditional child effects also apply to refusal and cleanup. This is operator API evidence, not a runtime/storage transaction.
+
+![A published target remains the current owner](diagrams/rendered/light/57-migration-adoption-receipt.svg)
+
+[Editable source](diagrams/57-migration-adoption-receipt.json) · [Light SVG](diagrams/rendered/light/57-migration-adoption-receipt.svg) · [Dark SVG](diagrams/rendered/dark/57-migration-adoption-receipt.svg) · [Print SVG](diagrams/rendered/print/57-migration-adoption-receipt.svg) · [PNG](diagrams/rendered/png/57-migration-adoption-receipt.png)

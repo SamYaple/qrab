@@ -720,7 +720,19 @@
         "T02"
       ],
       "source": "56-command-outcomes.json"
+    },
+    {
+      "id": "57-migration-adoption-receipt",
+      "source": "57-migration-adoption-receipt.json",
+      "title": "A published target remains the current owner",
+      "status": "implemented repair / private controller API proof",
+      "caption": "VM status records the exact adopted target before a separate Migration completion write. Retry finishes that receipt and retains current Pod/anchors/state/config; owner checks and conditional child effects also apply to refusal and cleanup. This is operator API evidence, not a runtime/storage transaction.",
+      "evidence": [
+        "S03",
+        "S11",
+        "T19"
+      ]
     }
   ],
-  "reviewed_through": "efdc909680ce03ba85ee3be55b747a0cdb3c3fdb"
+  "reviewed_through": "9059b977ce9193eb4bd0a515d97e95c45bbcab00"
 }

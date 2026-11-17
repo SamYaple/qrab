@@ -10,11 +10,11 @@ these repairs.
 
 | Boundary | Repairs | Invariant |
 | --- | --- | --- |
-| Resource provenance and cleanup | A01, A02, A15, A21 | Delete/adopt the proven launch, group UUID or exact credential object |
+| Resource provenance and cleanup | A01, A02, A15, A21, A22 | Delete/adopt the proven launch, group UUID or exact credential object |
 | Local process and provider authority | A05, A06, A11, A14 | A name or numeric PID cannot replace the authorized current resource |
 | Attachment and applied-state lifetime | A07, A10, A12, A13, A19 | Namespace, lease, config, endpoint and route changes retain their own incarnation |
 | Stream/descriptor ownership | A08 | Bound the whole frame and own every delivered descriptor through refusal/cleanup |
-| Delayed API observations | A09, A20, A21 | Status belongs to the observed object UID/version |
+| Delayed API observations | A09, A20, A21, A22 | Status belongs to the observed object UID/version |
 | Image/media inputs | A04, A17 | Validate the actual self-contained input selected for use |
 | Resource budget and reporting scope | A16, A18 | Actual device blocks and reported counters stay within the checked boundary |
 
@@ -729,6 +729,59 @@ Kubernetes child ownership, or claim an atomic Kubernetes/storage transaction.
 
 **Merged source:** `efdc909680ce03ba85ee3be55b747a0cdb3c3fdb`.
 **Tracking:** qrab `work/image-import-object-incarnations`.
+
+## A22 — migration reuse, handover and cleanup lost object authority
+
+**Location:** operator migration workflow and generic refusal status.
+**Repair baseline:** `a4d6461`.
+
+Twelve private API/controller regressions failed against the original source.
+Target preparation trusted existing ConfigMap, state-PVC and policy names;
+guard SSA could take over a foreign policy. Cleanup could delete foreign
+Pods/configuration, delete a replacement between lookup and effect, and
+ignore a ConfigMap deletion failure while marking cleanup complete. The
+handover branch also bypassed the later target-owner check. A standing guard
+for a valid VM name beginning `qrab-migration-` could be swept as an abandoned
+migration window.
+
+The repair checks VM controller ownership and object identity throughout
+preparation, adoption and cleanup. Existing configuration/window intent must
+match; recorded target UID cannot silently change. Patches/deletes carry
+checked UID/version conditions. Deletion errors propagate; foreign resources
+remain untouched. The standing guard is explicitly excluded from window GC.
+Manual previous state claims keep their deliberate retention behavior.
+
+![Published migration adoption receipt](diagrams/rendered/light/57-migration-adoption-receipt.svg)
+
+The fault fixture also exposed a distributed retry gap: VM target status
+could be published before the final Migration status write conflicted. The
+old retry called the current target a replaced source, failed the migration,
+and allowed failed cleanup to remove current identity/configuration. The
+published VM binding now serves as the adoption receipt. Retry completes
+migration publication from the exact current target. Late cleanup protects
+its Pod, active anchors, state claim and configuration.
+
+A separate regression reproduced a normal ownership refusal clearing the
+current migrated Pod name/UID/node for a VM without native disks, despite
+retaining its state claim. Generic refusal status now keeps the known
+execution binding while reporting Blocked/not-ready; retry does not revert
+to the primary Pod name. Explicit stopped/absence handling stays separate.
+
+The API fixture now supplies versions and enforces supplied PATCH/DELETE
+conditions, with replacement/failure injection. Added validation enlarged a
+debug async future enough to hit the test-thread stack; boxing the migration
+substeps fixed that without increasing test stack limits. All 26 migration integration cases pass, including 14 new ownership/retry
+cases. The full runtime gate, generated-resource comparisons and strict
+Clippy pass. Late failed cleanup retains the current target resources and
+retires the old source.
+
+These are private controller/API checks. They do not launch QEMU, mount a
+PVC, move a real guest, mutate Cilium or exercise a backend fence. Runtime,
+network and storage acceptance retain their own evidence. Conditional API
+operations and an adoption receipt do not create a cross-system transaction.
+
+**Merged source:** `9059b977ce9193eb4bd0a515d97e95c45bbcab00`.
+**Tracking:** qrab `work/migration-child-object-ownership`.
 
 ## Validation repair: the HTTP power fixture depended on test order
 

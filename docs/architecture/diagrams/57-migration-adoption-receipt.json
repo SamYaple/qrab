@@ -1,0 +1,21 @@
+{
+  "title": "A published target remains the current owner",
+  "subtitle": "VM adoption and migration completion are separate conditional API writes",
+  "note": "Operator/private API proof. Runtime handover, Cilium traffic and storage fences retain their separate acceptance scope.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":235,"w":440,"h":200,"kind":"foundation","kicker":"RUNTIME / HANDOVER EVIDENCE","lines":["Source reports migrated","Verify the recorded target UID","Check owned config and state"]},
+    {"x":580,"y":235,"w":440,"h":200,"kind":"qrab","kicker":"VM STATUS / ADOPTION RECEIPT","lines":["Current Pod name + UID + node","Current state claim + UID","Publish with object conditions"]},
+    {"x":1100,"y":235,"w":440,"h":200,"kind":"qrab","kicker":"MIGRATION STATUS / COMPLETION","lines":["Record Succeeded separately","Retire old source resources","Keep the current execution"]},
+    {"x":60,"y":570,"w":440,"h":180,"kind":"foundation","kicker":"ALWAYS / CURRENT RESOURCES STAY","lines":["Pod, active anchors, state, config","Refusal retains known binding","Unknown ownership blocks effects"]},
+    {"x":580,"y":570,"w":440,"h":180,"kind":"build","kicker":"FAULT / COMPLETION WRITE LOST","lines":["VM status already names target","Migration record is still older","No rollback of adopted resources"]},
+    {"x":1100,"y":570,"w":440,"h":180,"kind":"qrab","kicker":"RETRY / FOLLOW THE RECEIPT","lines":["Recognize exact current target","Finish completion publication","Then perform scoped cleanup"]}
+  ],
+  "arrows": [
+    {"points":[[500,335],[580,335]]},
+    {"points":[[1020,335],[1100,335]]},
+    {"points":[[800,435],[800,570]]},
+    {"points":[[1020,660],[1100,660]]},
+    {"points":[[1320,570],[1320,435]]}
+  ]
+}

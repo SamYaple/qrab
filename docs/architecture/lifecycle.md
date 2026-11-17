@@ -73,6 +73,17 @@ owner. (S11, S12.)
 
 ![Migration sequence](diagrams/rendered/light/16-migration-sequence.svg)
 
+The operator publishes the target binding in VM status before it separately
+marks the migration complete. That VM binding is an adoption receipt: a lost
+completion write retries from the current target, preserving its Pod, active
+anchors, identity PVC and configuration. Existing children must prove their
+owner/intent, and mutations/deletes retain UID/version conditions. Refusal
+status keeps the known execution binding. [A22](audit.md) records the private
+API regressions and repair; these checks do not establish a runtime/network
+or storage transaction.
+
+![Published migration adoption receipt](diagrams/rendered/light/57-migration-adoption-receipt.svg)
+
 Shared disks are not copied. Unsupported firmware/management state and
 auxiliary PVC sharing requirements remain admission limits. A powered-off
 VM has no running guest state to live-migrate; there is no implicit cold-move
