@@ -1,0 +1,772 @@
+{
+  "checked_date": "2026-11-17",
+  "reviewed_through": "69ef4274d6ba973bb696371c97fb0716a1e4206c",
+  "decks": [
+    {
+      "id": "leadership",
+      "title": "One Kubernetes control plane",
+      "style": "light",
+      "minutes": 5,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "VMs with one Kubernetes control plane",
+          "subtitle": "OpenStack comparison / qrab target architecture",
+          "notes": "Five-minute presentation. The comparison uses the operator-supplied OpenStack topology and inspected qrab source, not an audit of the other cluster.",
+          "evidence": [
+            "S01",
+            "U01",
+            "U02"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-openstack-overview",
+          "notes": "This is the operator-supplied topology in the other cluster. Services run in containers, but libvirt owns QEMU in host cgroups and OVN supplies guest networking. Do not infer a particular release, storage backend or floating-IP mode.",
+          "evidence": [
+            "U01",
+            "U02"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-qrab-overview",
+          "notes": "Kubernetes owns intent, manager owns the local QEMU process, and separate anchors give guest NICs independent Cilium identities. Node/storage helpers remain separately privileged. Image and volume scope is not yet a complete OpenStack product replacement.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S08",
+            "S13",
+            "S15",
+            "S20"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Keep the platform already doing the work",
+          "cards": [
+            {
+              "title": "Kubernetes",
+              "body": "API \u00b7 admission \u00b7 scheduling \u00b7 kubelet \u00b7 container lifecycle"
+            },
+            {
+              "title": "Cilium + FRR",
+              "body": "Endpoint identity \u00b7 policy \u00b7 datapath \u00b7 BGP reachability"
+            },
+            {
+              "title": "QEMU + infrastructure",
+              "body": "QEMU/KVM \u00b7 Linux \u00b7 backing storage \u00b7 existing identity provider"
+            }
+          ],
+          "notes": "The target removes duplicated cloud control planes, not the hypervisor, physical network, storage or identity responsibilities. The two deployments live in separate clusters.",
+          "evidence": [
+            "S02",
+            "S08",
+            "S14",
+            "S21"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Remove services; assign the surviving work",
+          "headers": [
+            "Replace",
+            "Responsibility moves to"
+          ],
+          "rows": [
+            [
+              "Nova / libvirt",
+              "Kubernetes + operator + manager"
+            ],
+            [
+              "Neutron / OVN",
+              "Cilium + anchors + netd + FRR"
+            ],
+            [
+              "Keystone",
+              "API auth/RBAC + OIDC roles + SPIRE"
+            ],
+            [
+              "Glance / Cinder",
+              "Image/disk controllers + storage service"
+            ]
+          ],
+          "notes": "These are responsibility mappings, not compatible APIs. Nova has more duties than issuing local hypervisor commands. Network address, routing and policy work survives removal of OVN. Image and volume requirements must be accepted explicitly.",
+          "evidence": [
+            "S02",
+            "S08",
+            "S13",
+            "S15",
+            "U01",
+            "U02",
+            "U03",
+            "U04"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "05-cgroup-comparison",
+          "notes": "The cgroup comparison applies to the supplied libvirt deployment. qrab supervises QEMU directly in the manager container. Privileged attachment helpers stay outside that local VM boundary.",
+          "evidence": [
+            "S02",
+            "S04"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Three questions; three policy owners",
+          "headers": [
+            "Question",
+            "Owner"
+          ],
+          "rows": [
+            [
+              "Who is the human?",
+              "Existing OIDC provider"
+            ],
+            [
+              "May this actor do this?",
+              "Kubernetes RBAC/admission or VM app roles"
+            ],
+            [
+              "Which service is calling?",
+              "SPIFFE/SPIRE + exact peer policy"
+            ]
+          ],
+          "notes": "Kubernetes API authentication does not automatically authorize Redfish. A dashboard SVID is not a human console-admin grant. Guest workload identity and CHAP exports have additional distinct scopes.",
+          "evidence": [
+            "S18",
+            "S19",
+            "S20",
+            "S23"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Images and volumes: useful foundation, explicit remaining scope",
+          "cards": [
+            {
+              "title": "Already implemented",
+              "body": "Verified imports \u00b7 sealed generations \u00b7 CoW clones \u00b7 online growth \u00b7 fencing"
+            },
+            {
+              "title": "Finish the required subset",
+              "body": "Publication/sharing \u00b7 distribution \u00b7 backup/restore \u00b7 quotas \u00b7 recovery drills"
+            },
+            {
+              "title": "Keep the authority split",
+              "body": "Storage owns bytes/fences. Operator orchestrates. QEMU performs block I/O."
+            }
+          ],
+          "notes": "The design can replace the required Glance/Cinder subset without reproducing their whole APIs. Current source already has substantial implementation, including the separately authorized deletion/retirement/reaper contract. Source support is not proof a timer or new release is deployed.",
+          "evidence": [
+            "S13",
+            "S14",
+            "S15",
+            "U03",
+            "U04"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "The review found real boundary bugs",
+          "points": [
+            "State PVCs could gain a foreign GC owner from a dashboard label.",
+            "Group cleanup followed current access lists instead of recorded launch ownership.",
+            "A verified qcow2 file could select extra unverified backing/data inputs."
+          ],
+          "notes": "All three defects have merged source repairs and regression evidence in audit.md. Full runtime checks passed for each. The qcow2 fixture also passed against pinned QEMU 11.1.3. These source merges did not publish images or deploy the cluster.",
+          "evidence": [
+            "A01",
+            "A02",
+            "A04"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Retire a service when its last responsibility moves",
+          "points": [
+            "Prove the workload: boot, network, identity, disks, backup and recovery.",
+            "Cut over one writer and one network authority.",
+            "Keep a data-aware rollback plan; then retire unused cloud services."
+          ],
+          "notes": "This is a target architecture and acceptance plan. No OpenStack API compatibility, cross-platform live migration or measured cost/performance advantage is claimed.",
+          "evidence": [
+            "S02",
+            "S08",
+            "S13",
+            "S15"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "engineering",
+      "title": "VM architecture and ownership",
+      "style": "dark",
+      "minutes": 15,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "Where each VM boundary belongs",
+          "subtitle": "Engineering architecture review / code and ownership",
+          "notes": "Fifteen-minute technical narrative. Use the source register, capability ledger and detailed diagram catalog as the review appendix.",
+          "evidence": [
+            "S01"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-openstack-overview",
+          "notes": "This is the operator-supplied topology in the other cluster. Services run in containers, but libvirt owns QEMU in host cgroups and OVN supplies guest networking. Do not infer a particular release, storage backend or floating-IP mode.",
+          "evidence": [
+            "U01",
+            "U02"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-qrab-overview",
+          "notes": "Kubernetes owns intent, manager owns the local QEMU process, and separate anchors give guest NICs independent Cilium identities. Node/storage helpers remain separately privileged. Image and volume scope is not yet a complete OpenStack product replacement.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S08",
+            "S13",
+            "S15",
+            "S20"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Remove services; assign the surviving work",
+          "headers": [
+            "Replace",
+            "Responsibility moves to"
+          ],
+          "rows": [
+            [
+              "Nova / libvirt",
+              "Kubernetes + operator + manager"
+            ],
+            [
+              "Neutron / OVN",
+              "Cilium + anchors + netd + FRR"
+            ],
+            [
+              "Keystone",
+              "API auth/RBAC + OIDC roles + SPIRE"
+            ],
+            [
+              "Glance / Cinder",
+              "Image/disk controllers + storage service"
+            ]
+          ],
+          "notes": "These are responsibility mappings, not compatible APIs. Nova has more duties than issuing local hypervisor commands. Network address, routing and policy work survives removal of OVN. Image and volume requirements must be accepted explicitly.",
+          "evidence": [
+            "S02",
+            "S08",
+            "S13",
+            "S15",
+            "U01",
+            "U02",
+            "U03",
+            "U04"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "The code spine follows the ownership split",
+          "headers": [
+            "Layer",
+            "Primary owner"
+          ],
+          "rows": [
+            [
+              "QMP/QGA types and transport",
+              "qapi-macros / qapi / qapi-protocol"
+            ],
+            [
+              "Local VM execution",
+              "manager"
+            ],
+            [
+              "Declarative VM + migration + images",
+              "operator"
+            ],
+            [
+              "Guest network attachment",
+              "netd + Cilium/FRR integration"
+            ],
+            [
+              "User management and observation",
+              "BMC / Redfish / dashboard / telemetry"
+            ]
+          ],
+          "notes": "The workspace has 19 crates, 18 in the default path. Crate dependencies do not grant runtime authority: BMC/Redfish reuse manager abstractions while manager remains the private QMP owner.",
+          "evidence": [
+            "S01",
+            "S04",
+            "S06",
+            "S07",
+            "S08",
+            "S26"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "05-cgroup-comparison",
+          "notes": "Direct supervision aligns QEMU with its VM-specific container lifecycle and resource accounting. Process cleanup retains state authority through child reaping.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S05"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "A private QMP owner; a bounded public operation",
+          "points": [
+            "Manager owns private QMP, QGA and VNC sessions.",
+            "BMC/Redfish authorize users before local control operations.",
+            "Protocol crates stay independent of Kubernetes, launchers, KVM and guest downloads."
+          ],
+          "notes": "The local socket trusts authorized same-UID peers. It is not another human login boundary or a generic remote QMP endpoint. Standalone embedded control is a separate deployment mode of the same abstraction.",
+          "evidence": [
+            "S04",
+            "S06",
+            "S07",
+            "S18",
+            "S19"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "06-two-networks-to-one",
+          "notes": "A single Cilium fabric preserves separate management and NIC endpoint identities. The guest never shares the management network namespace. Each NIC costs a Pod/endpoint and requires explicit address/route ownership.",
+          "evidence": [
+            "S08",
+            "S09"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "One datapath still needs explicit control",
+          "points": [
+            "Operator claims stable /32s and writes scoped FRR intent.",
+            "netd grants only authorized TAP/vhost descriptors.",
+            "Cilium policies enforce groups; labels alone do not create default deny."
+          ],
+          "notes": "Cilium BGP is a distinct upstream capability. Inspected qrab code uses frr-k8s. Ordinary attachment uses Cilium; duplicate-address live handoff depends on the local fork.",
+          "evidence": [
+            "S08",
+            "S09",
+            "S10",
+            "M01",
+            "U06",
+            "U07"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-migration-overview",
+          "notes": "The target initiates the main connection, while bulk state moves source to target. Managers transfer supported VM state and switch control. Node peers transfer scoped conntrack. Shared disks are not copied. Guest-packet forwarding is another stream.",
+          "evidence": [
+            "S11",
+            "S12",
+            "S14"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "A migration is an ownership transfer",
+          "points": [
+            "Prepare a compatible target with empty identity state and fenced NICs.",
+            "Switch endpoint authority in the final pause; then adopt the exact target.",
+            "Refuse unsupported management state or auxiliary claims before unsafe side effects."
+          ],
+          "notes": "Powered-off VMs do not live-migrate, and the protocol is within qrab. Source completion, target adoption, forwarding grace and storage ownership must agree. No general cold-move/node-evacuation product is established.",
+          "evidence": [
+            "S05",
+            "S08",
+            "S11",
+            "S12",
+            "S13"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Three questions; three policy owners",
+          "headers": [
+            "Question",
+            "Owner"
+          ],
+          "rows": [
+            [
+              "Who is the human?",
+              "Existing OIDC provider"
+            ],
+            [
+              "May this actor do this?",
+              "Kubernetes RBAC/admission or VM app roles"
+            ],
+            [
+              "Which service is calling?",
+              "SPIFFE/SPIRE + exact peer policy"
+            ]
+          ],
+          "notes": "Kubernetes API authentication does not automatically authorize Redfish. A dashboard SVID is not a human console-admin grant. Guest workload identity and CHAP exports have additional distinct scopes.",
+          "evidence": [
+            "S18",
+            "S19",
+            "S20",
+            "S23"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-storage-overview",
+          "notes": "The operator orchestrates scoped storage verbs through a separately authorized service. The root helper owns ZFS/LIO exports and fences. QEMU opens its own CHAP-authorized disk session; identity state uses another volume.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Images and volumes: useful foundation, explicit remaining scope",
+          "cards": [
+            {
+              "title": "Already implemented",
+              "body": "Verified imports \u00b7 sealed generations \u00b7 CoW clones \u00b7 online growth \u00b7 fencing"
+            },
+            {
+              "title": "Finish the required subset",
+              "body": "Publication/sharing \u00b7 distribution \u00b7 backup/restore \u00b7 quotas \u00b7 recovery drills"
+            },
+            {
+              "title": "Keep the authority split",
+              "body": "Storage owns bytes/fences. Operator orchestrates. QEMU performs block I/O."
+            }
+          ],
+          "notes": "The design can replace the required Glance/Cinder subset without reproducing their whole APIs. Current source already has substantial implementation, including the separately authorized deletion/retirement/reaper contract. Source support is not proof a timer or new release is deployed.",
+          "evidence": [
+            "S13",
+            "S14",
+            "S15",
+            "U03",
+            "U04"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Failures require evidence of the old owner",
+          "points": [
+            "Pod disappearance is not a hard storage fence.",
+            "A guest power-off is not declarative Pod removal.",
+            "Kubelet Applied resource limits are not guest hotplug/onlining proof."
+          ],
+          "notes": "These distinctions determine recovery correctness. The manager, controller, backend journals and node datapath each provide different evidence.",
+          "evidence": [
+            "S02",
+            "S03",
+            "S04",
+            "S13"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "The review found real boundary bugs",
+          "points": [
+            "State PVCs could gain a foreign GC owner from a dashboard label.",
+            "Group cleanup followed current access lists instead of recorded launch ownership.",
+            "A verified qcow2 file could select extra unverified backing/data inputs."
+          ],
+          "notes": "All three defects have merged source repairs and regression evidence in audit.md. Full runtime checks passed for each. The qcow2 fixture also passed against pinned QEMU 11.1.3. These source merges did not publish images or deploy the cluster.",
+          "evidence": [
+            "A01",
+            "A02",
+            "A04"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Required proof classes stay separate",
+          "headers": [
+            "Evidence class",
+            "What it can establish"
+          ],
+          "rows": [
+            [
+              "Source / unit tests",
+              "Implemented behavior and refusal paths"
+            ],
+            [
+              "Rendered manifests",
+              "Requested deployment and policy"
+            ],
+            [
+              "Explicit real-tool / kernel tests",
+              "The named local integration behavior"
+            ],
+            [
+              "Dated live acceptance",
+              "A scoped test of named deployed releases"
+            ]
+          ],
+          "notes": "A mounted identity socket or a green skipped test is not deployment proof. Source merges, image publication and rollout remain separate operations.",
+          "evidence": [
+            "M01",
+            "M02",
+            "T01",
+            "L01"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Review decisions, not only component count",
+          "points": [
+            "Assign every surviving OpenStack duty to an explicit owner.",
+            "Accept the required image/volume/network/recovery subset.",
+            "Maintain the Cilium fork and privileged helper contracts as real dependencies."
+          ],
+          "notes": "The target has fewer duplicated control planes. Reliability, performance, cost and operational simplicity still need fair workload measurements and recovery drills.",
+          "evidence": [
+            "S01",
+            "S08",
+            "S13",
+            "S15"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operations",
+      "title": "Operate the boundaries",
+      "style": "print",
+      "minutes": 20,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "Operate the boundaries",
+          "subtitle": "Failure-first workshop / qrab and OpenStack",
+          "notes": "Twenty-minute workshop. Ask who owns the state, what fresh evidence exists, and what could still be active before proposing a repair.",
+          "evidence": [
+            "S03",
+            "S04",
+            "S13"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-openstack-overview",
+          "notes": "This is the operator-supplied topology in the other cluster. Services run in containers, but libvirt owns QEMU in host cgroups and OVN supplies guest networking. Do not infer a particular release, storage backend or floating-IP mode.",
+          "evidence": [
+            "U01",
+            "U02"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-qrab-overview",
+          "notes": "Kubernetes owns intent, manager owns the local QEMU process, and separate anchors give guest NICs independent Cilium identities. Node/storage helpers remain separately privileged. Image and volume scope is not yet a complete OpenStack product replacement.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S08",
+            "S13",
+            "S15",
+            "S20"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "A symptom is not the owner",
+          "headers": [
+            "Symptom",
+            "First boundary to inspect"
+          ],
+          "rows": [
+            [
+              "Guest is off; console still reachable",
+              "Manager power state versus Pod lifecycle"
+            ],
+            [
+              "Guest packets fail; VM probes pass",
+              "NIC anchor / Cilium / route path"
+            ],
+            [
+              "New disk operation fails; guest I/O works",
+              "Storage control API versus data connection"
+            ],
+            [
+              "Deletion waits",
+              "The finalizer that still owns cleanup"
+            ]
+          ],
+          "notes": "Existing QEMU, kernel queue FDs and disk sessions can have different lifetimes from their control services. Read the exact VM/Pod/anchor/export identities before acting.",
+          "evidence": [
+            "S03",
+            "S04",
+            "S08",
+            "S09",
+            "S13"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Scenario: the old node vanished",
+          "points": [
+            "Identify the exact old VM/Pod UID and disk generation.",
+            "Keep unknown writer ownership visible.",
+            "Require clean release or a completed backend fence before replacement."
+          ],
+          "notes": "A node lease, NotReady condition, missing API object or forced deletion is not a storage fence. Hand-declared disks retain the documented explicit administrator recovery.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-storage-overview",
+          "notes": "Use this diagram to separate storage API failure from iSCSI data-path failure. CHAP authorizes access but does not enforce one writer or encrypt the payload. Native transport encryption has its own verified segment.",
+          "evidence": [
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-migration-overview",
+          "notes": "Two VM Pods during a migration are not automatically split brain: the target is prepared/fenced and ownership must transfer through the protocol. Conversely, API object names alone do not prove a safe transfer.",
+          "evidence": [
+            "S08",
+            "S11",
+            "S12"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Scenario: the user logs in but cannot act",
+          "points": [
+            "Distinguish valid human identity from VM action role.",
+            "Check exact service SVID admission independently.",
+            "Check API RBAC/admission only for the declarative API path."
+          ],
+          "notes": "Do not validate a user issue with an unrelated cluster-admin or service credential and call the original user path proven. The dashboard is a trusted ServiceAccount deputy.",
+          "evidence": [
+            "S16",
+            "S18",
+            "S19",
+            "S20"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Deletion is not one operation",
+          "headers": [
+            "Object",
+            "Relevant authority"
+          ],
+          "rows": [
+            [
+              "Control Pods / config / credential Secrets",
+              "Proven Kubernetes ownership + safe drain"
+            ],
+            [
+              "State PVC",
+              "Exact launch/established owner; otherwise retained"
+            ],
+            [
+              "Access groups / guest registrations",
+              "Their recorded lifecycle owners"
+            ],
+            [
+              "Guest disk bytes",
+              "Fence / retirement / separate grace reaper"
+            ],
+            [
+              "Backing state PV/zvol",
+              "Separate storage reclaim workflow"
+            ]
+          ],
+          "notes": "The audit tightened PVC and access-group provenance. Source now supports a seven-day root guest-disk reaper; that does not establish installed state or cover Released state PVs automatically.",
+          "evidence": [
+            "A01",
+            "A02",
+            "S13",
+            "S14",
+            "S16",
+            "S23"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "After a fix, prove the invariant",
+          "points": [
+            "Power cycle: expected new child PIDs, same intended identity.",
+            "Migration: exact adopted target, stable NIC identities and no unintended active source.",
+            "Recovery: old writer cannot act; credentials/export generation are correct."
+          ],
+          "notes": "A successful API response alone does not prove guest application health, traffic continuity, disk consistency or cleanup completeness. Use the maintained focused checks for the actual affected path.",
+          "evidence": [
+            "S04",
+            "S05",
+            "S08",
+            "S11",
+            "S13"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "The review found real boundary bugs",
+          "points": [
+            "State PVCs could gain a foreign GC owner from a dashboard label.",
+            "Group cleanup followed current access lists instead of recorded launch ownership.",
+            "A verified qcow2 file could select extra unverified backing/data inputs."
+          ],
+          "notes": "All three defects have merged source repairs and regression evidence in audit.md. Full runtime checks passed for each. The qcow2 fixture also passed against pinned QEMU 11.1.3. These source merges did not publish images or deploy the cluster.",
+          "evidence": [
+            "A01",
+            "A02",
+            "A04"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Release and evidence boundaries",
+          "points": [
+            "Source merge is separate from image publication.",
+            "Digest pin / identity enrollment is separate from rollout.",
+            "A dated live record describes its named versions and scope."
+          ],
+          "notes": "Do not automatically apply example VM bundles or recreate deleted test VMs. Operational notes and work evidence belong in qrab towl.",
+          "evidence": [
+            "M02",
+            "T01",
+            "L01"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Workload cutover checklist",
+          "points": [
+            "Boot + firmware + identity + management access.",
+            "Data consistency + backup/restore + one-writer recovery.",
+            "Network policy/routes/DNS + observation + data-aware rollback."
+          ],
+          "notes": "The other OpenStack cluster must supply its actual workload/backend inventory. No transparent OpenStack-to-qrab live migration or universal feature parity is assumed.",
+          "evidence": [
+            "S02",
+            "S08",
+            "S13",
+            "S15"
+          ]
+        }
+      ]
+    }
+  ]
+}

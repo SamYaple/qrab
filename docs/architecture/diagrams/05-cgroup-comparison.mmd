@@ -1,0 +1,11 @@
+flowchart LR
+    subgraph openstack["Supplied OpenStack deployment"]
+        k1["Kubernetes container cgroup"] --> libvirt["libvirt service"]
+        libvirt -.->|"manages domains outside its Pod cgroup"| h1["Host libvirt VM cgroup"]
+        h1 --> q1["QEMU guest"]
+    end
+    subgraph qrab["qrab ownership"]
+        k2["VM manager container cgroup"] --> manager["Rust manager"]
+        k2 --> q2["QEMU child"]
+        manager -->|"supervises / reaps"| q2
+    end

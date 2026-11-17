@@ -1,0 +1,14 @@
+flowchart TB
+    subgraph control["Control — desired intent and bounded commands"]
+        api["Kubernetes API"] --> operator["Operator"]
+        operator --> config["ConfigMap / annotations / Pod spec"]
+        config --> manager["Manager"]
+        manager --> qmp["Private QMP"]
+    end
+    subgraph data["Data — guest payloads"]
+        qemu["QEMU"] --> net["Kernel TAP/vhost → Cilium"]
+        qemu --> disk["libiscsi → LIO disk"]
+        qemu --> migration["Local migration socket → manager mTLS tunnel"]
+    end
+    qmp -.->|"controls"| qemu
+    manager -.->|"supervises"| qemu

@@ -1,0 +1,208 @@
+{
+  "title": "OpenStack on Kubernetes",
+  "subtitle": "Services are containerized. VM process ownership and guest networking remain separate.",
+  "note": "Supplied deployment model in the other cluster. Storage backend and detailed deployment configuration are not inferred.",
+  "boundaries": [
+    {
+      "x": 50,
+      "y": 155,
+      "w": 1500,
+      "h": 650,
+      "title": "OTHER CLUSTER  /  OPENSTACK"
+    },
+    {
+      "x": 80,
+      "y": 205,
+      "w": 1440,
+      "h": 185,
+      "title": "Kubernetes Pods \u00b7 cloud control services"
+    },
+    {
+      "x": 80,
+      "y": 445,
+      "w": 910,
+      "h": 175,
+      "title": "Node \u00b7 QEMU in libvirt-managed host cgroups"
+    },
+    {
+      "x": 80,
+      "y": 670,
+      "w": 1440,
+      "h": 110,
+      "title": "Retained platform foundation"
+    }
+  ],
+  "boxes": [
+    {
+      "x": 105,
+      "y": 260,
+      "w": 255,
+      "h": 95,
+      "kind": "replace",
+      "kicker": "REPLACE",
+      "lines": [
+        "Nova / Placement"
+      ]
+    },
+    {
+      "x": 390,
+      "y": 260,
+      "w": 230,
+      "h": 95,
+      "kind": "replace",
+      "kicker": "REPLACE",
+      "lines": [
+        "libvirt Pod"
+      ]
+    },
+    {
+      "x": 650,
+      "y": 260,
+      "w": 270,
+      "h": 95,
+      "kind": "replace",
+      "kicker": "REPLACE",
+      "lines": [
+        "Neutron / OVN control"
+      ]
+    },
+    {
+      "x": 950,
+      "y": 260,
+      "w": 225,
+      "h": 95,
+      "kind": "replace",
+      "kicker": "REPLACE",
+      "lines": [
+        "Keystone"
+      ]
+    },
+    {
+      "x": 1205,
+      "y": 260,
+      "w": 285,
+      "h": 95,
+      "kind": "build",
+      "kicker": "FINISH REPLACEMENT",
+      "lines": [
+        "Glance / Cinder"
+      ]
+    },
+    {
+      "x": 130,
+      "y": 505,
+      "w": 365,
+      "h": 80,
+      "kind": "foundation",
+      "kicker": "KEEP THE HYPERVISOR",
+      "lines": [
+        "QEMU / KVM VM"
+      ]
+    },
+    {
+      "x": 600,
+      "y": 505,
+      "w": 330,
+      "h": 80,
+      "kind": "replace",
+      "kicker": "REPLACE GUEST FABRIC",
+      "lines": [
+        "OVN / OVS"
+      ]
+    },
+    {
+      "x": 1040,
+      "y": 485,
+      "w": 440,
+      "h": 115,
+      "kind": "foundation",
+      "kicker": "KEEP THE CAPABILITY",
+      "lines": [
+        "Backing storage",
+        "Backend unspecified"
+      ]
+    },
+    {
+      "x": 100,
+      "y": 715,
+      "w": 440,
+      "h": 48,
+      "kind": "foundation",
+      "kicker": "",
+      "lines": [
+        "Kubernetes / kubelet / runtime"
+      ]
+    },
+    {
+      "x": 560,
+      "y": 715,
+      "w": 440,
+      "h": 48,
+      "kind": "foundation",
+      "kicker": "",
+      "lines": [
+        "Cilium \u00b7 Kubernetes networking"
+      ]
+    },
+    {
+      "x": 1020,
+      "y": 715,
+      "w": 440,
+      "h": 48,
+      "kind": "foundation",
+      "kicker": "",
+      "lines": [
+        "frr-k8s / FRR \u00b7 BGP"
+      ]
+    }
+  ],
+  "arrows": [
+    {
+      "points": [
+        [
+          505,
+          355
+        ],
+        [
+          505,
+          415
+        ],
+        [
+          310,
+          415
+        ],
+        [
+          310,
+          505
+        ]
+      ],
+      "label": "libvirt controls QEMU"
+    },
+    {
+      "points": [
+        [
+          785,
+          355
+        ],
+        [
+          785,
+          505
+        ]
+      ],
+      "label": ""
+    },
+    {
+      "points": [
+        [
+          495,
+          545
+        ],
+        [
+          600,
+          545
+        ]
+      ],
+      "label": "packets"
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+{
+  "title": "Storage control and disk I/O are separate",
+  "subtitle": "Provisioning reaches narrow storage authority. QEMU opens its own guest block-data connection.",
+  "note": "CHAP authenticates access. Hard fencing, transport encryption and eventual data destruction are separate controls.",
+  "boundaries": [
+    {
+      "x": 70,
+      "y": 190,
+      "w": 1460,
+      "h": 195,
+      "title": "PROVISIONING / AUTHORIZATION"
+    },
+    {
+      "x": 70,
+      "y": 455,
+      "w": 1460,
+      "h": 195,
+      "title": "GUEST BLOCK I/O"
+    }
+  ],
+  "boxes": [
+    {
+      "x": 100,
+      "y": 250,
+      "w": 360,
+      "h": 95,
+      "kind": "qrab",
+      "kicker": "CONTROL CLIENT",
+      "lines": [
+        "Operator"
+      ]
+    },
+    {
+      "x": 620,
+      "y": 250,
+      "w": 360,
+      "h": 95,
+      "kind": "foundation",
+      "kicker": "SEPARATE SERVICE",
+      "lines": [
+        "Storage API"
+      ]
+    },
+    {
+      "x": 1120,
+      "y": 250,
+      "w": 360,
+      "h": 95,
+      "kind": "foundation",
+      "kicker": "NARROW ROOT HELPER",
+      "lines": [
+        "qrab-iscsi-target"
+      ]
+    },
+    {
+      "x": 100,
+      "y": 515,
+      "w": 360,
+      "h": 95,
+      "kind": "qrab",
+      "kicker": "VIRTUAL DISK",
+      "lines": [
+        "Guest virtio block"
+      ]
+    },
+    {
+      "x": 620,
+      "y": 515,
+      "w": 360,
+      "h": 95,
+      "kind": "foundation",
+      "kicker": "NATIVE BACKEND",
+      "lines": [
+        "QEMU libiscsi"
+      ]
+    },
+    {
+      "x": 1120,
+      "y": 515,
+      "w": 360,
+      "h": 95,
+      "kind": "foundation",
+      "kicker": "DURABLE BYTES",
+      "lines": [
+        "LIO / ZFS"
+      ]
+    },
+    {
+      "x": 120,
+      "y": 720,
+      "w": 1360,
+      "h": 85,
+      "kind": "build",
+      "kicker": "SEPARATE IDENTITY VOLUME",
+      "lines": [
+        "UEFI/vTPM state uses a small filesystem PVC, distinct from guest root/data LUNs"
+      ]
+    }
+  ],
+  "arrows": [
+    {
+      "points": [
+        [
+          460,
+          295
+        ],
+        [
+          620,
+          295
+        ]
+      ],
+      "label": "scoped API"
+    },
+    {
+      "points": [
+        [
+          980,
+          295
+        ],
+        [
+          1120,
+          295
+        ]
+      ],
+      "label": "fixed verbs"
+    },
+    {
+      "points": [
+        [
+          460,
+          560
+        ],
+        [
+          620,
+          560
+        ]
+      ],
+      "label": "virtio"
+    },
+    {
+      "points": [
+        [
+          980,
+          560
+        ],
+        [
+          1120,
+          560
+        ]
+      ],
+      "label": "iSCSI / CHAP"
+    },
+    {
+      "points": [
+        [
+          1300,
+          345
+        ],
+        [
+          1300,
+          515
+        ]
+      ],
+      "label": "export / fence"
+    }
+  ]
+}

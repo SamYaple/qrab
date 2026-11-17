@@ -1,0 +1,22 @@
+flowchart TB
+    subgraph pod["VM Pod — manager identity"]
+        mgr["Manager SVID / VM UID"]
+        qemu["QEMU + software vTPM"]
+    end
+    issuer["TPM issuer — VM-bound DevID certificates"]
+    subgraph guest["Guest — distinct workload identity"]
+        tpm["vTPM DevID / private key material"]
+        agent["In-guest SPIRE agent"]
+        workloads["Registered guest workloads / selectors"]
+        relay["Loopback relay → virtio-serial"]
+    end
+    server["SPIRE server / guest registrations"]
+    mgr -->|"mTLS provisioning request"| issuer
+    issuer -->|"certificates"| mgr
+    mgr -.->|"prepare identity media / retain VM identity"| qemu
+    qemu -.-> tpm
+    tpm --> agent --> workloads
+    agent -->|"end-to-end agent/server TLS"| relay
+    relay -->|"opaque bounded bytes via manager"| server
+    mgr -.-> note["Manager identity is never the guest workload identity"]
+    workloads -.-> note

@@ -51,6 +51,11 @@ See the [connection atlas](docs/connections.md) for the complete stream inventor
 transport/encryption status, SPIFFE/SPIRE and OIDC boundaries, diagrams and
 capture points across VM, network, storage and management paths.
 
+See the [architecture and OpenStack comparison](docs/architecture/README.md)
+for current/desired ownership, service replacements, code maps, diagrams and
+presentation variants. The [offline reader](docs/architecture/atlas.html)
+includes the diagram gallery and downloadable decks/handbook.
+
 See [iscsi.md](docs/iscsi.md) for native network disks, fencing and retained-data
 cleanup, and [migration.md](docs/migration.md) for live migration.
 See [operator.md](docs/operator.md) for CR-driven launch and persistent UEFI/TPM

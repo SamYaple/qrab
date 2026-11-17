@@ -1,0 +1,13 @@
+flowchart TB
+    user["Authorized user / automation"]
+    subgraph intent["Declarative lifecycle"]
+        cr["VirtualMachine spec"] --> operator["Operator convergence"] --> pod["Pod / config / resources"]
+    end
+    subgraph action["Bounded VM action"]
+        redfish["Redfish action + user role"] --> manager["Local manager control"] --> qmp["Private typed QMP / QGA"]
+    end
+    user --> cr
+    user --> redfish
+    pod -.->|"starts / configures"| manager
+    qmp --> guest["QEMU / guest outcome"]
+    guest -.->|"observations; no automatic desired-state equivalence"| operator

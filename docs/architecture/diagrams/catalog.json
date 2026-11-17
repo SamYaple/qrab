@@ -1,0 +1,382 @@
+{
+  "source_baseline": "5f361b7",
+  "checked_date": "2026-11-17",
+  "mermaid_version": "12.3.0",
+  "diagrams": [
+    {
+      "id": "00-openstack-overview",
+      "source": "00-openstack-overview.json",
+      "title": "OpenStack: simple boundary overview",
+      "status": "supplied baseline / target disposition",
+      "caption": "The simplest presentation view: cloud services run in Pods, libvirt still owns host-cgroup guests, and OVN owns their fabric. Text labels identify what the qrab target keeps, replaces and still needs to finish. Arrows are selected control and guest paths, not a complete service call graph.",
+      "evidence": [
+        "U01",
+        "U02"
+      ]
+    },
+    {
+      "id": "00-qrab-overview",
+      "source": "00-qrab-overview.json",
+      "title": "qrab: simple target boundary overview",
+      "status": "implemented ownership + desired replacement scope",
+      "caption": "The matching presentation view: Kubernetes owns intent, manager owns QEMU inside its container, and a separate anchor gives each NIC a Cilium identity. The shared platform remains. The overview omits detailed storage/control paths and does not claim all replacement capabilities are complete.",
+      "evidence": [
+        "S02",
+        "S04",
+        "S08",
+        "S13",
+        "S15",
+        "S20"
+      ]
+    },
+    {
+      "id": "00-migration-overview",
+      "source": "00-migration-overview.json",
+      "title": "Migration: simple ownership and stream overview",
+      "status": "implemented / conceptual presentation model",
+      "caption": "A slide-sized view of VM-state, switch-control and node-conntrack boundaries. Source and target managers represent the same immutable VM; node peers have separate node identities. This omits detailed preparation, route forwarding and cleanup; use the sequence/state diagrams for those.",
+      "evidence": [
+        "S11",
+        "S12",
+        "S14"
+      ]
+    },
+    {
+      "id": "00-storage-overview",
+      "source": "00-storage-overview.json",
+      "title": "Storage: simple control and I/O overview",
+      "status": "implemented responsibility model",
+      "caption": "A slide-sized split of scoped provisioning and native guest disk I/O. The root helper owns exports/fences; guest block bytes flow directly through QEMU libiscsi. UEFI/vTPM state remains a separate filesystem volume.",
+      "evidence": [
+        "S05",
+        "S13",
+        "S14"
+      ]
+    },
+    {
+      "id": "01-openstack-boundaries",
+      "title": "OpenStack: current deployment boundaries",
+      "status": "supplied baseline",
+      "caption": "The operator-supplied model: Kubernetes hosts the services; libvirt still owns host-cgroup VMs, and OVN owns guest networking. Cilium and FRR are shared platform foundations.",
+      "evidence": [
+        "U01",
+        "U02"
+      ]
+    },
+    {
+      "id": "02-qrab-boundaries",
+      "title": "qrab: target ownership on the current source",
+      "status": "implemented + desired",
+      "caption": "Kubernetes owns declarative intent; a manager owns QEMU inside its container, and separate NIC anchors connect guests to Cilium. Storage provisioning and guest I/O are different paths.",
+      "evidence": [
+        "S02",
+        "S03",
+        "S04",
+        "S08",
+        "S13"
+      ]
+    },
+    {
+      "id": "03-service-replacements",
+      "title": "Where OpenStack responsibilities move",
+      "status": "comparison",
+      "caption": "Replace the service control planes, preserve their required work. Image and volume replacements are constrained foundations with remaining scope.",
+      "evidence": [
+        "S02",
+        "S08",
+        "S13",
+        "S15",
+        "U01",
+        "U02",
+        "U03",
+        "U04"
+      ]
+    },
+    {
+      "id": "04-process-containment",
+      "title": "Processes, containers and privileged helpers",
+      "status": "implemented",
+      "caption": "QEMU and swtpm are manager children. Restricted VM/anchor Pods rely on separate privileged device and network helpers; privilege does not disappear.",
+      "evidence": [
+        "S02",
+        "S04",
+        "S06",
+        "S21"
+      ]
+    },
+    {
+      "id": "05-cgroup-comparison",
+      "title": "Containerized libvirt versus a container-owned VM",
+      "status": "comparison",
+      "caption": "The OpenStack side is the supplied deployment model. The qrab side shows direct QEMU supervision within the manager container cgroup.",
+      "evidence": [
+        "S02",
+        "S04"
+      ]
+    },
+    {
+      "id": "06-two-networks-to-one",
+      "title": "Two network planes become one Cilium fabric",
+      "status": "comparison",
+      "caption": "Reusing Cilium removes the OVN guest fabric while preserving distinct endpoint identities for management and every guest NIC.",
+      "evidence": [
+        "S08",
+        "S09",
+        "U02"
+      ]
+    },
+    {
+      "id": "07-control-vs-data",
+      "title": "Control messages and guest payloads",
+      "status": "implemented",
+      "caption": "Kubernetes config and private QMP control the VM. Packets and block I/O do not pass through the operator; VM migration has its own payload tunnel.",
+      "evidence": [
+        "S03",
+        "S06",
+        "S10",
+        "S11",
+        "S14"
+      ]
+    },
+    {
+      "id": "08-identity-questions",
+      "title": "Five identity questions with different answers",
+      "status": "implemented + desired",
+      "caption": "A human subject, an action grant, a service SVID, a guest workload and a CHAP export are different scopes. None is a universal credential.",
+      "evidence": [
+        "S18",
+        "S19",
+        "S20",
+        "S23",
+        "S14"
+      ]
+    },
+    {
+      "id": "09-launch-sequence",
+      "title": "A VM launch crosses explicit owners",
+      "status": "implemented",
+      "caption": "A conditional storage owner gate protects native disks. The kubelet starts the manager; the manager requests local NIC descriptors and publishes no API updates itself.",
+      "evidence": [
+        "S02",
+        "S03",
+        "S04",
+        "S09",
+        "S10",
+        "S13"
+      ]
+    },
+    {
+      "id": "10-power-state",
+      "title": "Power off is not Pod deletion",
+      "status": "implemented",
+      "caption": "The manager survives an in-place power off. A fresh power-on cycle starts new QEMU/swtpm children while retaining the intended VM identity.",
+      "evidence": [
+        "S04",
+        "S05",
+        "S06"
+      ]
+    },
+    {
+      "id": "11-guest-packet-path",
+      "title": "A guest packet through its NIC identity",
+      "status": "implemented",
+      "caption": "Kernel TAP/vhost queues carry packets through the anchor netns. netd grants descriptors and plumbs resources; its Unix control stream does not relay packets.",
+      "evidence": [
+        "S08",
+        "S09",
+        "S10"
+      ]
+    },
+    {
+      "id": "12-storage-control-data",
+      "title": "Storage provisioning versus disk I/O",
+      "status": "implemented",
+      "caption": "Delegated API authorization reaches narrow root storage verbs. QEMU independently opens its CHAP-authorized LIO session for guest block I/O.",
+      "evidence": [
+        "S13",
+        "S14"
+      ]
+    },
+    {
+      "id": "13-image-import",
+      "title": "From verified source to a sealed clone origin",
+      "status": "implemented",
+      "caption": "The image controller orchestrates token-free inspect/write Jobs and separately authorized storage stages. Retirement prevents new clones; it does not erase existing guest disks.",
+      "evidence": [
+        "S13",
+        "S14",
+        "S15"
+      ]
+    },
+    {
+      "id": "14-disk-fencing",
+      "title": "Disk export ownership and hard fencing",
+      "status": "conceptual contract",
+      "caption": "Conceptual lifecycle, not a verbatim enumeration of API phases. Fencing is complete only after backend barriers; irreversible destruction has separate authority.",
+      "evidence": [
+        "S13",
+        "S14"
+      ]
+    },
+    {
+      "id": "15-migration-streams",
+      "title": "Migration moves more than RAM",
+      "status": "implemented",
+      "caption": "VM state, switchover control, node conntrack and forwarded guest packets are separate streams. Shared guest disk blocks are not copied through the manager tunnel.",
+      "evidence": [
+        "S11",
+        "S12",
+        "S14"
+      ]
+    },
+    {
+      "id": "16-migration-sequence",
+      "title": "Prepare, transfer, switch and adopt",
+      "status": "implemented",
+      "caption": "Target anchors are prepared as fenced standbys. The final pause transfers endpoint authority; operator adoption follows the documented migrated source outcome.",
+      "evidence": [
+        "S08",
+        "S09",
+        "S11",
+        "S12"
+      ]
+    },
+    {
+      "id": "17-migration-state",
+      "title": "A single-use migration lifecycle",
+      "status": "implemented",
+      "caption": "Unsupported claims or a powered-off source refuse admission. Failure cleanup must preserve safe ownership; success adopts the exact target.",
+      "evidence": [
+        "S11"
+      ]
+    },
+    {
+      "id": "18-management-request",
+      "title": "A user action across two authorization layers",
+      "status": "implemented",
+      "caption": "Workload mTLS identifies service peers; the stored user token and VM role authorize the action. Manager then controls private QMP through a bounded local API.",
+      "evidence": [
+        "S06",
+        "S17",
+        "S19",
+        "S20"
+      ]
+    },
+    {
+      "id": "19-console-request",
+      "title": "The authenticated graphical console chain",
+      "status": "implemented",
+      "caption": "Console access is admin-scoped. Private VNC is reached through the manager control socket, BMC admission and exact-VM authenticated proxy hops.",
+      "evidence": [
+        "S06",
+        "S17",
+        "S18"
+      ]
+    },
+    {
+      "id": "20-guest-identity",
+      "title": "A guest identity is not the manager identity",
+      "status": "implemented / optional",
+      "caption": "The optional guest SPIRE agent uses VM-bound software-TPM credentials. The relay carries opaque agent/server TLS bytes and does not issue identities.",
+      "evidence": [
+        "S20",
+        "S23",
+        "S24"
+      ]
+    },
+    {
+      "id": "21-deletion-ownership",
+      "title": "Deletion, retention and destruction have different owners",
+      "status": "implemented + audited contract",
+      "caption": "A VM may collect only its proven owned resources. Manual/foreign/unproven state stays retained, and backing bytes follow a separate storage reclaim contract.",
+      "evidence": [
+        "S03",
+        "S05",
+        "S13",
+        "S14",
+        "S16",
+        "S23"
+      ]
+    },
+    {
+      "id": "22-resource-resize",
+      "title": "Admit capacity before QEMU hotplug",
+      "status": "implemented",
+      "caption": "Kubelet Applied describes container resources; manager checks effective cgroups before QMP growth. Guest CPU/memory onlining remains a separate step.",
+      "evidence": [
+        "S02",
+        "S03",
+        "S04"
+      ]
+    },
+    {
+      "id": "23-failure-domains",
+      "title": "Which outage affects which operation",
+      "status": "source-derived expectations",
+      "caption": "These are architectural expectations, not availability guarantees. Established kernel resources can outlive their daemon; new changes still need their control-plane owners.",
+      "evidence": [
+        "S03",
+        "S04",
+        "S09",
+        "S13",
+        "S20"
+      ]
+    },
+    {
+      "id": "24-release-boundaries",
+      "title": "Source, images and rollout are separate operations",
+      "status": "maintenance contract",
+      "caption": "A validated source merge does not publish images or deploy a cluster. Release and live verification remain separately authorized steps.",
+      "evidence": [
+        "M02",
+        "T01"
+      ]
+    },
+    {
+      "id": "25-image-single-file",
+      "title": "A digest does not authenticate extra image dependencies",
+      "status": "audited import contract",
+      "caption": "The image source digest covers one downloaded file. Backing-file and external-data declarations must be refused before parsing/conversion can select extra inputs. QEMU still owns full image-format validation.",
+      "evidence": [
+        "S15"
+      ]
+    },
+    {
+      "id": "26-declarative-vs-action",
+      "title": "Desired state and a VM action are different paths",
+      "status": "implemented",
+      "caption": "A spec change is reconciled through Kubernetes. A bounded Redfish action reaches local QMP/QGA through the manager; powering off in place is not equivalent to deleting the Pod.",
+      "evidence": [
+        "S02",
+        "S03",
+        "S06",
+        "S19"
+      ]
+    },
+    {
+      "id": "27-network-handoff-state",
+      "title": "Endpoint authority during a live move",
+      "status": "conceptual source-derived state model",
+      "caption": "The target is prepared but fenced. Activation/source standby occurs in the final pause, followed by adoption and a routing/forwarding grace period. This is a conceptual ownership model, not a new API enum or guarantee for every failure.",
+      "evidence": [
+        "S08",
+        "S09",
+        "S11",
+        "S12"
+      ]
+    },
+    {
+      "id": "28-auth-is-not-a-role",
+      "title": "Service admission and user authorization are both required",
+      "status": "implemented workload management mode",
+      "caption": "Exact workload identity admits the calling service. The user credential and VM role independently authorize management. This diagram excludes standalone development/alternative native credential entrypoints.",
+      "evidence": [
+        "S17",
+        "S18",
+        "S19",
+        "S20"
+      ]
+    }
+  ],
+  "reviewed_through": "69ef4274d6ba973bb696371c97fb0716a1e4206c"
+}

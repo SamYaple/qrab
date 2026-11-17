@@ -1,0 +1,18 @@
+stateDiagram-v2
+    [*] --> Starting: manager starts
+    Starting --> Running: QEMU and QMP healthy
+    Running --> Stopping: graceful or forced power off
+    Stopping --> Off: QEMU reaped cleanly
+    Off --> Starting: Redfish On / manager action
+    Running --> Starting: cold restart after reaping
+    Running --> Exited: migration handed over
+    Running --> Failed: QEMU / swtpm / QMP failure
+    Off --> Exited: Pod shutdown
+    Stopping --> Failed: unclean native storage release
+    Exited --> [*]
+    Failed --> [*]
+    note right of Off
+        Manager and management remain reachable
+        QEMU is absent; Pod can remain Ready
+        spec.running=false is a different lifecycle
+    end note

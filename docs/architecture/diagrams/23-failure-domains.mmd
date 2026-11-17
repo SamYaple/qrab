@@ -1,0 +1,10 @@
+flowchart TB
+    api["Kubernetes API outage"] --> changes["New reconciliation / placement impaired"]
+    op["Operator outage"] --> changes
+    mgr["One manager / QEMU failure"] --> one["That VM execution impaired"]
+    netd["One netd outage"] --> attach["Local attachment / handoff impaired"]
+    netd -.-> held["Existing kernel queues can outlive daemon"]
+    cilium["Cilium / node datapath failure"] --> traffic["Affected endpoint traffic impaired"]
+    storage["Storage target failure"] --> io["All dependent guest I/O impaired"]
+    idp["IdP / SPIRE failure"] --> auth["New login / SVID renewal impaired; expiry still applies"]
+    node["Node loss"] --> fence["Safe recovery requires ownership / storage fencing"]

@@ -1,0 +1,32 @@
+sequenceDiagram
+    actor User
+    participant API as Kubernetes API
+    participant Op as VM operator
+    participant Store as Storage service
+    participant Kube as Scheduler / kubelet
+    participant Mgr as VM manager
+    participant Netd as Node netd
+    participant Q as QEMU
+    User->>API: Create VirtualMachine
+    API-->>Op: Watch notification
+    Op->>API: Reread / validate / establish ownership
+    opt Provisioned disks
+        Op->>Store: Create or clone / export with fresh generation
+        Store-->>Op: Exact disk binding
+    end
+    Op->>API: Render config + gated VM Pod / record owner UID
+    Op->>API: Open scheduling gate when safe
+    API->>Kube: Admit and place Pod
+    Kube->>Mgr: Start manager container
+    Mgr->>Mgr: Acquire state lease / prepare identity and sockets
+    opt Guest NICs
+        Op->>API: Create co-located NIC anchors / scoped route intent
+        Netd->>Netd: Plumb authorized anchor namespaces
+        Mgr->>Netd: Request own TAP/vhost descriptors
+        Netd-->>Mgr: SCM_RIGHTS FD grant
+    end
+    Mgr->>Q: Spawn child with private QMP and granted descriptors
+    Q-->>Mgr: QMP greeting / events
+    Mgr-->>Kube: Local probe results
+    Kube-->>API: Pod status
+    Op->>API: VM status from current observations

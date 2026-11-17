@@ -1,0 +1,19 @@
+stateDiagram-v2
+    [*] --> Provisioned: create or clone
+    Provisioned --> Preparing: generate credential before export
+    Preparing --> Exported: exact VM initiator / generation
+    Exported --> Exported: online grow only
+    Exported --> Fencing: remove / replace / recover / delete
+    Preparing --> Fencing: interrupted or uncertain export
+    Fencing --> Fenced: backend kernel barriers complete
+    Fenced --> Preparing: new credential generation
+    Fenced --> Retired: explicit retirement
+    Retired --> [*]: separate authorized destruction
+    note right of Fencing
+        Timeout or Pod deletion is not completion
+        No replacement writer until fence succeeds
+    end note
+    note right of Retired
+        Retired is not destroyed
+        Retained data needs a separate owner
+    end note

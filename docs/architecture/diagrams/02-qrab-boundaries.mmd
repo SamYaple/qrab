@@ -1,0 +1,32 @@
+flowchart TB
+    user["Users / automation"]
+    subgraph cluster["qrab cluster — current source architecture / desired ownership"]
+        api["Kubernetes API / RBAC / admission"]
+        operator["qrab operator — VM + migration reconciliation"]
+        kube["Scheduler / kubelet / container runtime"]
+        subgraph vm["VM Pod — management network identity"]
+            manager["Rust manager — QEMU supervisor"]
+            qemu["QEMU + swtpm — container cgroup"]
+            sidecars["BMC / Redfish — user management"]
+        end
+        subgraph nic["NIC anchor Pod — separate guest network identity"]
+            tap["Kernel TAP / vhost-net / routing"]
+        end
+        netd["Node qrab-netd — privileged attachment helper"]
+        cilium["Cilium — endpoint policy and datapath"]
+        frr["frr-k8s / FRR — BGP routing"]
+    end
+    idp["Existing OIDC provider / SPIRE"]
+    storage["Storage service + LIO / ZFS"]
+    fabric["Physical network / BGP peers"]
+    user --> api --> operator
+    operator -->|"Pod / config intent"| kube --> vm
+    user --> sidecars -->|"local control socket"| manager --> qemu
+    netd -.->|"plumb and grant FDs"| tap
+    manager -.->|"authorized local FD request"| netd
+    qemu -->|"virtio / kernel queues"| tap --> cilium --> fabric
+    operator -.->|"scoped route intent"| frr
+    frr -.->|"BGP advertisements"| fabric
+    qemu -->|"native iSCSI I/O"| storage
+    operator -.->|"authorized provisioning"| storage
+    idp -.-> sidecars

@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant Op as Operator
+    participant S as Source manager
+    participant T as Target manager
+    participant SN as Source netd / anchor
+    participant TN as Target netd / anchor
+    Op->>Op: Validate source / target / claims / active migration
+    Op->>TN: Render standby anchor Pod / wait for netd readiness
+    Op->>T: Create target Pod + empty identity PVC + config
+    T->>S: Exact-VM mTLS hello
+    S-->>T: Machine / identity / disk offer
+    T->>TN: Request prepared standby TAP descriptors
+    TN->>SN: Authenticated scoped conntrack precopy
+    T-->>S: Ready with incoming QEMU
+    S->>T: QEMU RAM/device/identity state stream
+    S->>SN: At final pause: forward stragglers
+    S->>T: Activate target NIC
+    T->>TN: Activate Cilium endpoint
+    T-->>S: Activation acknowledged
+    S->>SN: Source endpoint standby
+    S->>T: Continue / finish QEMU transfer
+    TN->>SN: Conntrack delta pull
+    S-->>Op: Source exits cleanly as migrated
+    Op->>Op: Adopt target UID / state claim / placement
+    Op->>SN: Retire old anchor after forwarding grace

@@ -1,0 +1,7 @@
+flowchart LR
+    source["Source change / dedicated worktree"] --> checks["Relevant tests / runtime checks"]
+    checks --> merge["Merge source / synchronize main"]
+    merge -.->|"separate authorized operation"| build["Build / publish immutable images"]
+    build -.->|"separate authorized operation"| enroll["Pin digests / enroll workload identities"]
+    enroll -.->|"separate authorized operation"| rollout["Apply / roll out / verify live behavior"]
+    rollout --> evidence["Dated deployment and acceptance evidence"]

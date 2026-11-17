@@ -1,0 +1,24 @@
+[
+  {
+    "file": "ovn-services.png",
+    "url": "https://docs.openstack.org/neutron/2026.1/_images/ovn-services.png",
+    "source_page": "https://docs.openstack.org/neutron/2026.1/admin/ovn/refarch/refarch.html",
+    "sha256": "adecc9390abe175edd41b3f91cc893f8bb38482e1da091a70f44671e3554353b",
+    "retrieved": "2026-11-17",
+    "modifications": "none",
+    "attribution": "OpenStack contributors",
+    "license_page_declaration": "Creative Commons Attribution 3.0, except where otherwise noted",
+    "license_url": "https://creativecommons.org/licenses/by/3.0/"
+  },
+  {
+    "file": "ovn-architecture1.png",
+    "url": "https://docs.openstack.org/neutron/2026.1/_images/ovn-architecture1.png",
+    "source_page": "https://docs.openstack.org/neutron/2026.1/admin/ovn/refarch/refarch.html",
+    "sha256": "f5ae3ccb0e4fd90b08b009e182db9724ab51c78d3d7444b740feeb227912a77e",
+    "retrieved": "2026-11-17",
+    "modifications": "none",
+    "attribution": "OpenStack contributors",
+    "license_page_declaration": "Creative Commons Attribution 3.0, except where otherwise noted",
+    "license_url": "https://creativecommons.org/licenses/by/3.0/"
+  }
+]

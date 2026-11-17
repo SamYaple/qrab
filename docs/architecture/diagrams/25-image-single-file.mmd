@@ -1,0 +1,7 @@
+flowchart LR
+    source["Downloaded image bytes"] --> digest["Expected SHA-256 matches"]
+    digest --> dependency{"Self-contained input?"}
+    dependency -->|"raw or standalone qcow2"| qemu["QEMU validates / converts"]
+    dependency -->|"backing file / external data declaration"| reject["Refuse before qemu-img"]
+    qemu --> raw["Raw bytes from verified source only"]
+    other["Other local files / network objects"] -.->|"outside the source digest"| reject

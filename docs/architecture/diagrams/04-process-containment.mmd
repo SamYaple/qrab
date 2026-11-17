@@ -1,0 +1,27 @@
+flowchart TB
+    subgraph node["Linux node / trusted kernel"]
+        kube["kubelet / container runtime"]
+        plugin["KVM device plugin — privileged device contract"]
+        netd["qrab-netd — privileged network contract"]
+        subgraph pod["VM Pod — no API token / no host networking"]
+            subgraph container["Manager container / its cgroup"]
+                manager["qrab-manager"]
+                qemu["QEMU child"]
+                tpm["swtpm child"]
+            end
+            bmc["BMC sidecar"]
+            redfish["Redfish sidecar"]
+            control["Shared bounded control socket"]
+        end
+        anchor["Restricted NIC anchor Pod / own netns"]
+        kvm["Kernel /dev/kvm"]
+    end
+    kube --> container
+    plugin -.->|"CDI device injection"| container
+    manager -->|"spawn / signal / reap"| qemu
+    manager -->|"spawn / signal / reap"| tpm
+    bmc --> control
+    redfish --> control --> manager
+    qemu --> kvm
+    netd -.->|"TAP/vhost FD grants"| container
+    netd -.->|"namespace plumbing"| anchor

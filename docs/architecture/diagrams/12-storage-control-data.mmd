@@ -1,0 +1,15 @@
+flowchart TB
+    subgraph provisioning["Provisioning / authorization"]
+        operator["Operator SVID"] --> exchange["Exchange shim / delegated bearer"]
+        exchange --> service["Storage service — scoped verbs"]
+        service --> helper["Root qrab-iscsi-target"]
+        helper --> zfs["ZFS zvols / image snapshots"]
+        helper --> lio["LIO export / ACL / hard fence"]
+    end
+    subgraph io["Guest I/O — separate connection"]
+        guest["Guest virtio block device"] --> qemu["QEMU libiscsi"]
+        secret["Mounted per-export CHAP secret file"] -.-> qemu
+        qemu -->|"iSCSI + CHAP"| target["LIO target"] --> bytes["ZFS zvol bytes"]
+    end
+    lio -.->|"configures / fences"| target
+    zfs -.->|"backs"| bytes

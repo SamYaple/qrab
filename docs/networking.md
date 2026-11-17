@@ -841,8 +841,12 @@ What is tested, and how:
   address only to the node of another anchor of the same VM's same NIC
   holding that address, judged from the API server's Pods, and the target
   imports only that NIC's entries whose other side is not local to its node.
-  The exchange itself is plain TCP between nodes, as trusted as their iBGP
-  sessions. Connections from anything not on one of the node's host links
+  The exchange uses TLS 1.3 with SPIFFE mTLS and exact per-node identities,
+  resolved from current API-backed anchor node/host-IP metadata. A claimed
+  node name or an on-link address is not sufficient authentication, and there
+  is no plaintext fallback. See [peer enrollment](#conntrack-peer-spiffe-enrollment)
+  and the [connection atlas N9](connections.md#guest-network-and-migration-connections).
+  Connections from anything not on one of the node's host links
   (Pods, guests, routed hosts) are dropped before any read or API lookup,
   at most four are served at once, and a seeded fuzz test sends 200 random
   requests. A port that cannot be bound is retried, never fatal.

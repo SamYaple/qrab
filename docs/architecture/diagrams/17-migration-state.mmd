@@ -1,0 +1,10 @@
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> TargetStarting: source eligible / prerequisites accepted
+    Pending --> Failed: powered off / invalid target / unshared claim
+    TargetStarting --> Migrating: incoming target ready
+    TargetStarting --> Failed: target fails / timeout / source replaced
+    Migrating --> Succeeded: source reports migrated / target adopted
+    Migrating --> Failed: source or target failure / cancellation / timeout
+    Succeeded --> [*]: remove temporary resources and old owner
+    Failed --> [*]: clean target side; preserve safe source ownership

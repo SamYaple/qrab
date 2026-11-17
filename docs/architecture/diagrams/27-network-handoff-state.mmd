@@ -1,0 +1,12 @@
+stateDiagram-v2
+    [*] --> SourceActive
+    SourceActive --> TargetPrepared: standby anchor has same IP / drops traffic
+    TargetPrepared --> Copying: target ready / conntrack precopy
+    Copying --> GuestPaused: QEMU pre-switchover
+    GuestPaused --> TargetActive: forward route / activate target / fence source
+    TargetActive --> Adopted: QEMU transfer complete / exact target adopted
+    Adopted --> RetiredSource: make-before-break routes / forwarding grace
+    RetiredSource --> [*]
+    TargetPrepared --> SourceActive: abort / remove target
+    Copying --> SourceActive: abort / preserve source
+    GuestPaused --> SourceActive: undo failed switch before continuing source

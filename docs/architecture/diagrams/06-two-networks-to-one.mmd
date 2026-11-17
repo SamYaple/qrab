@@ -1,0 +1,13 @@
+flowchart LR
+    subgraph before["OpenStack cluster — two network planes"]
+        os["OpenStack service Pods"] --> ck["Cilium Pod networking"]
+        guest1["Guest NIC"] --> ovn["OVN / OVS guest fabric"]
+    end
+    subgraph after["qrab cluster — one Cilium fabric / separate identities"]
+        mgmt["VM management Pod"] --> cm["Cilium management identity"]
+        guest2["Guest NIC"] --> anchor["TAP in NIC anchor Pod"] --> cg["Cilium guest-NIC identity"]
+        cm --> fabric["Existing Cilium fabric"]
+        cg --> fabric
+    end
+    ovn -.->|"guest fabric replaced"| cg
+    ck -.->|"platform retained"| fabric

@@ -1,0 +1,12 @@
+flowchart TB
+    delete["Delete VirtualMachine / exact UID"] --> drain["Stop / drain process; fence native exports"]
+    drain --> resources["Collect owned Pods / ConfigMaps / credential Secrets"]
+    delete --> groups["Dashboard finalizer deletes launch-owned access groups"]
+    delete --> identity["Guest identity registrations / bounded agent eviction"]
+    resources --> claim{"State PVC ownership proven?"}
+    claim -->|"exact same-launch dashboard claim / existing VM owner"| gc["Kubernetes GC may delete owned claim"]
+    claim -->|"manual / foreign / unproven"| keep["Leave claim retained"]
+    drain --> disks["Guest disk bytes retained after fencing"]
+    gc --> pv["Backing PV/data follow separate reclaim contract"]
+    disks --> destroy["Separate storage retirement/destruction authority"]
+    pv --> destroy

@@ -1,0 +1,8 @@
+flowchart LR
+    req["Management request"] --> tls{"Exact service peer?"}
+    tls -->|"yes"| token{"Valid user credential?"}
+    token -->|"yes"| role{"VM role allows action?"}
+    role -->|"yes"| operation["Bounded manager operation"]
+    tls -->|"no"| refuse["Refuse"]
+    token -->|"no"| refuse
+    role -->|"no"| refuse

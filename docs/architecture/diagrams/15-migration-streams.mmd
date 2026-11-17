@@ -1,0 +1,21 @@
+flowchart TB
+    subgraph source["Source node"]
+        qs["Source QEMU"]
+        ms["Source manager"]
+        ns["Source netd"]
+        as["Active NIC anchor"]
+    end
+    subgraph destination["Target node"]
+        qt["Target QEMU"]
+        mt["Target manager"]
+        nt["Target netd"]
+        at["Standby → active NIC anchor"]
+    end
+    disks["Shared LIO / ZFS guest disks"]
+    qs -->|"local VM state socket"| ms
+    ms -->|"1. VM state / exact same-VM mTLS"| mt -->|"local VM state socket"| qt
+    ms -.->|"2. switchover control / same-VM mTLS"| mt
+    ns -->|"3. scoped conntrack / exact node mTLS"| nt
+    as -->|"temporary guest-packet forwarding"| at
+    qs -->|"disk I/O — not copied in VM state tunnel"| disks
+    qt --> disks

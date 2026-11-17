@@ -1,0 +1,7 @@
+flowchart LR
+    user["Authorized console admin"] -->|"HTTPS / WSS"| edge["Ingress"]
+    edge -->|"workload mTLS"| dashboard["Dashboard / server-side session"]
+    dashboard -->|"exact-VM mTLS + user bearer"| bmc["VM BMC / console admission"]
+    bmc -->|"bounded local control / raw RFB after ACK"| manager["Manager"]
+    manager -->|"private Unix VNC socket"| qemu["QEMU framebuffer / input"]
+    bmc -.->|"protocol feature filter"| filter["Default-off risky audio/USB admission"]

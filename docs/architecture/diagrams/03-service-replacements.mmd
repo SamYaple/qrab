@@ -1,0 +1,20 @@
+flowchart LR
+    subgraph old["OpenStack services to replace"]
+        nova["Nova / Placement / libvirt"]
+        neutron["Neutron / OVN"]
+        keystone["Keystone"]
+        glance["Glance"]
+        cinder["Cinder"]
+    end
+    subgraph target["Target responsibility owners"]
+        execution["Kubernetes + operator + manager + QEMU"]
+        network["Cilium + anchors + netd + FRR"]
+        identity["Kubernetes auth/RBAC + OIDC + SPIRE"]
+        images["BaseImage + import Jobs + sealed generations"]
+        volumes["Disk reconciler + storage service + fencing"]
+    end
+    nova --> execution
+    neutron --> network
+    keystone --> identity
+    glance -->|"partial implementation; finish scope"| images
+    cinder -->|"partial implementation; finish scope"| volumes

@@ -1,0 +1,16 @@
+flowchart LR
+    subgraph vm["VM Pod / manager container"]
+        guest["Guest virtio-net"]
+        qemu["QEMU holds queue descriptors"]
+    end
+    subgraph anchor["NIC anchor Pod / separate network namespace"]
+        tap["Kernel vhost-net / TAP"]
+        route["Guest /32 route + fixed gateway"]
+        endpoint["Cilium endpoint / NIC policy identity"]
+    end
+    outside["Cluster / LAN / world"]
+    netd["Node netd — setup and FD grants only"]
+    guest -->|"virtqueues"| tap --> route --> endpoint --> outside
+    qemu -.->|"descriptor ownership"| tap
+    netd -.->|"plumbs"| anchor
+    netd -.->|"SCM_RIGHTS"| qemu

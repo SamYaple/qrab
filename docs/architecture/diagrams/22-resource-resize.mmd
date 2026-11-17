@@ -1,0 +1,20 @@
+sequenceDiagram
+    actor User
+    participant API as Kubernetes API
+    participant Op as Operator
+    participant K as Kubelet / runtime
+    participant M as Manager
+    participant Q as QEMU / guest
+    User->>API: Raise CPU / memory desired size
+    API-->>Op: Current generation
+    Op->>Op: Check boot ceilings / plan live resize or restart
+    Op->>API: Patch Pod resize subresource
+    API->>K: Updated resource limits
+    K-->>M: Project limits and apply cgroup resources
+    M->>M: Verify effective cgroup capacity first
+    M->>Q: QMP CPU/memory hotplug within boot headroom
+    Q-->>M: Observed topology
+    K-->>API: Pod resize conditions / applied container limits
+    Op->>API: Read Pod state / publish kubelet-side resize status
+    Note over M,Q: QEMU hotplug is separate from kubelet Applied status
+    Note over Q: Guest CPU/memory onlining remains guest behavior

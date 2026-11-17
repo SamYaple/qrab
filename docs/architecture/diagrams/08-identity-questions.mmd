@@ -1,0 +1,9 @@
+flowchart TB
+    human["Who is the human?"] --> oidc["OIDC provider / verified subject"]
+    action["May this actor perform this action?"] --> roles["Kubernetes RBAC/admission OR VM application roles"]
+    service["Which service is calling?"] --> spiffe["SPIFFE/SPIRE + exact peer policy"]
+    guest["Which code is inside this VM?"] --> guestid["Guest SPIRE agent / vTPM / registered selectors"]
+    storage["Which disk export may it open?"] --> chap["VM-derived initiator + per-export CHAP / ACL"]
+    roles -.-> note["Authentication, authorization and fencing are distinct"]
+    chap -.-> note
+    spiffe -.-> note

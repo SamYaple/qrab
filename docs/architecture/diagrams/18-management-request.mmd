@@ -1,0 +1,19 @@
+sequenceDiagram
+    actor User as Browser user
+    participant Edge as Ingress
+    participant Dash as Dashboard
+    participant RF as VM Redfish
+    participant M as Manager
+    participant Q as QEMU
+    User->>Edge: HTTPS + opaque session / CSRF on mutation
+    Edge->>Dash: Exact workload mTLS
+    Dash->>Dash: Verify session / VM visibility / action role
+    Dash->>RF: Exact-VM mTLS + server-stored user ID token
+    RF->>RF: Verify workload peer AND user authorization
+    RF->>M: Bounded local control operation
+    M->>Q: Typed private QMP command
+    Q-->>M: Result / independent events
+    M-->>RF: Typed outcome
+    RF-->>Dash: Redfish response
+    Dash-->>User: Authorized result
+    Note over Dash,RF: Workload identity does not replace the human role

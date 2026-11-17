@@ -1,0 +1,123 @@
+{
+  "title": "Migration transfers ownership through separate streams",
+  "subtitle": "The same VM moves between nodes. VM state, switch control and node conntrack have different owners.",
+  "note": "Arrows show logical payload direction. Disks remain shared; temporary forwarded guest packets are another distinct stream.",
+  "boundaries": [
+    {
+      "x": 60,
+      "y": 195,
+      "w": 510,
+      "h": 465,
+      "title": "SOURCE NODE"
+    },
+    {
+      "x": 1030,
+      "y": 195,
+      "w": 510,
+      "h": 465,
+      "title": "TARGET NODE"
+    }
+  ],
+  "boxes": [
+    {
+      "x": 100,
+      "y": 260,
+      "w": 430,
+      "h": 130,
+      "kind": "qrab",
+      "kicker": "SAME VM IDENTITY",
+      "lines": [
+        "Manager + local QEMU",
+        "Current execution owner"
+      ]
+    },
+    {
+      "x": 1070,
+      "y": 260,
+      "w": 430,
+      "h": 130,
+      "kind": "qrab",
+      "kicker": "SAME VM IDENTITY",
+      "lines": [
+        "Manager + local QEMU",
+        "Prepared incoming owner"
+      ]
+    },
+    {
+      "x": 100,
+      "y": 490,
+      "w": 430,
+      "h": 120,
+      "kind": "qrab",
+      "kicker": "NODE IDENTITY",
+      "lines": [
+        "Node netd",
+        "Scoped VM / NIC state"
+      ]
+    },
+    {
+      "x": 1070,
+      "y": 490,
+      "w": 430,
+      "h": 120,
+      "kind": "qrab",
+      "kicker": "NODE IDENTITY",
+      "lines": [
+        "Node netd",
+        "Scoped VM / NIC state"
+      ]
+    },
+    {
+      "x": 410,
+      "y": 725,
+      "w": 780,
+      "h": 80,
+      "kind": "foundation",
+      "kicker": "SHARED STORAGE",
+      "lines": [
+        "Guest disk blocks are not copied in the VM-state tunnel"
+      ]
+    }
+  ],
+  "arrows": [
+    {
+      "points": [
+        [
+          530,
+          295
+        ],
+        [
+          1070,
+          295
+        ]
+      ],
+      "label": "1  VM state \u00b7 exact same-VM mTLS"
+    },
+    {
+      "points": [
+        [
+          530,
+          355
+        ],
+        [
+          1070,
+          355
+        ]
+      ],
+      "label": "2  Switch control \u00b7 separate connection"
+    },
+    {
+      "points": [
+        [
+          530,
+          550
+        ],
+        [
+          1070,
+          550
+        ]
+      ],
+      "label": "3  Conntrack \u00b7 exact-node mTLS"
+    }
+  ]
+}

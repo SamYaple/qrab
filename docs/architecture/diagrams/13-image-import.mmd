@@ -1,0 +1,11 @@
+flowchart LR
+    cr["BaseImage / immutable generation"] --> inspect["Token-free inspect Job"]
+    source["HTTPS source + expected SHA-256"] --> inspect
+    inspect --> verified["Verified format / virtual size"]
+    verified --> stage["Storage stage + export"]
+    stage --> write["Token-free write Job / bounded conversion"]
+    write --> seal["Storage fences / hashes / seals generation"]
+    seal --> catalog["Sealed catalog entry"]
+    catalog --> clone["Per-VM CoW disk clone"]
+    cr -.-> retire["Retire generation: stop new clones"]
+    retire -.-> catalog

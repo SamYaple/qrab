@@ -1,0 +1,33 @@
+flowchart TB
+    user["Users / automation"]
+    subgraph cluster["OpenStack cluster — deployment supplied by the operator"]
+        direction TB
+        subgraph services["Kubernetes Pods — cloud services"]
+            identity["Keystone"]
+            compute["Nova + Placement"]
+            networking["Neutron + OVN control"]
+            artifacts["Glance + Cinder"]
+            libvirt["libvirt Pod"]
+        end
+        subgraph host["Node — traditional VM process ownership"]
+            domains["Host cgroups managed by libvirt"]
+            qemu["QEMU / KVM guests"]
+            ovn["OVN / OVS guest datapath"]
+        end
+        kube["Kubernetes API / scheduler / kubelet / runtime"]
+        cilium["Cilium — Kubernetes networking"]
+        frr["frr-k8s / FRR — BGP routing"]
+    end
+    storage["Backing storage — backend unspecified"]
+    fabric["Physical network / BGP peers"]
+    user --> compute
+    user -.-> identity
+    compute --> libvirt
+    compute -.-> networking
+    compute -.-> artifacts
+    libvirt --> domains --> qemu
+    qemu --> ovn --> fabric
+    qemu --> storage
+    kube -.-> services
+    services -.-> cilium
+    frr -.->|"route advertisements"| fabric
