@@ -26,6 +26,9 @@ const PASS: Duration = Duration::from_secs(15);
 const LOADS_EVERY: Duration = Duration::from_secs(15 * 60);
 const LOGICALS_EVERY: Duration = Duration::from_secs(6 * 3600);
 
+#[cfg(test)]
+mod tests;
+
 pub fn log(event: &str, detail: serde_json::Value) {
     println!("{}", json!({"event": event, "detail": detail}));
 }
@@ -344,12 +347,25 @@ impl Broker {
         if profile.status.as_ref() == Some(status) {
             return;
         }
+        let (Some(uid), Some(version)) = (
+            profile.uid().filter(|value| !value.is_empty()),
+            profile.resource_version().filter(|value| !value.is_empty()),
+        ) else {
+            log(
+                "status_refused",
+                json!({"profile": profile.name_any(), "reason":"missing observed UID or resourceVersion"}),
+            );
+            return;
+        };
         if let Err(error) = self
             .profiles
             .patch_status(
                 &profile.name_any(),
                 &PatchParams::default(),
-                &Patch::Merge(json!({"status": status})),
+                &Patch::Merge(json!({
+                    "metadata":{"uid":uid,"resourceVersion":version},
+                    "status": status,
+                })),
             )
             .await
         {
