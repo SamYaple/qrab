@@ -19,6 +19,7 @@ them together does not automatically establish a live workload outcome.
 | In-guest qrab agent | Direct-kernel demo with one explicit disposable ext4 fixture | Exactly one selected filesystem freezes/thaws, frozen update is refused, later fixed update hook succeeds | No multi-disk/application-consistent backup or arbitrary guest execution claim |
 | Real two-manager migration | Pinned local image assets, current manager/test binaries, TCG, private fixture Workload APIs and no guest NICs | Guest resumes at target; source exits migrated; later target cold boot preserves the source TPM identity | No Cilium handoff, native guest LUNs, production SPIRE or cross-cluster/OpenStack migration |
 | Local KVM/container containment | Disposable rootless container, explicit KVM, current manager binary and pinned image assets | Manager/QEMU/swtpm are direct parent/children in one constrained cgroup; guest boots and all original processes exit cleanly | No Kubernetes scheduling, device-plugin, namespace/tenant, Cilium/BGP or guest-LUN certification |
+| Local KVM resource growth | Same isolated model, projected-limit stand-ins and actual container cgroup updates | Intent waits for admission; odd capacity never rounds allocation up; CPU/memory grow in the same QEMU and guest onlines both | No real kubelet/API resize, broad guest compatibility, live shrink or sizing/performance recommendation |
 | Original socket-peer fixture | Private child process and Unix connection on a supporting local kernel | Peer authority does not become a replacement numeric process after exit | No live VM grant or node rollout |
 | Kernel networking fixtures | Throwaway user/network namespaces, real TAP/FD transfer, routes, DHCP lease updates/bind failures and namespace replacement | The exercised local kernel mechanisms work in isolated fixtures | Dummy uplinks replace Cilium; the later T05 run also exercises WireGuard/NAT-PMP |
 | Manager NIC fixture | Stand-in netd and QMP peers, actual manager reconciliation | Namespace token change causes ordered NIC-only detach/attach with the same MAC/root port | Guest hot-unplug and traffic continuity require their own acceptance |
@@ -120,6 +121,39 @@ This strengthens the source-derived process/cgroup comparison. A local
 libpod cgroup is not a Kubernetes placement/device-plugin acceptance test,
 and the VM had no guest NICs or native guest LUNs. The OpenStack side remains
 the deployment model supplied by the user, rather than an inspected cluster.
+
+### Follow resource growth through four observations
+
+A separate KVM fixture at source `c91da70` used the operator's 1000-millicore
+and 512 MiB overhead contract. It began with a one-vCPU/512 MiB guest in a
+two-core/1 GiB container and boot-time headroom for growth. It changed the
+projected-limit stand-ins before changing the real kernel cgroup. Podman
+updated the local container limits; no Kubernetes objects or kubelet were
+involved.
+
+| Point | Desired guest | Cgroup permits guest | Manager requests | virtio-mem plugged |
+| --- | --- | --- | --- | --- |
+| Boot | 1 CPU / 512 MiB | 1 CPU / 512 MiB | 1 CPU / 512 MiB | Not queried |
+| Intent arrives first | 2 CPUs / 1024 MiB | 1 CPU / 512 MiB | 1 CPU / 512 MiB | Not queried |
+| Odd applied budget | 2 CPUs / 1024 MiB | 2 CPUs / 1023 MiB | 2 CPUs / 1022 MiB | 510 MiB |
+| Full admission | 2 CPUs / 1024 MiB | 2 CPUs / 1024 MiB | 2 CPUs / 1024 MiB | 512 MiB |
+
+The boot configuration requested zero additional device memory; the manager
+had not queried its plugged size in the first two observations. The odd-budget
+row exercises A16 against real QEMU: one residual MiB cannot
+authorize another 2 MiB block. The manager remained `waiting_for_limits`
+until full admission. Its QEMU PID stayed unchanged. After the final device
+acknowledgement, the guest separately reported two CPUs and a full additional
+512 MiB in `MemTotal`, with one boot marker. Clean shutdown and held pidfds
+confirmed original-process exit.
+
+The first harness predicate accepted a substantial memory increase too early:
+it could see the intermediate 510 MiB guest marker after QMP already reported
+512 MiB plugged. A fresh-state run tightened the final guest-memory wait and
+observed the full increase. This is why applied container limits, requested
+memory, driver-plugged memory and guest onlining are recorded separately.
+Values describe this fixture, rather than a workload sizing recommendation
+or a measured performance benefit.
 
 The networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. Read the emitted skip reasons: a test function that

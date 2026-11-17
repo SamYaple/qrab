@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "3f1ac7c2704e55736f3e91f42ff1b5721965e31d",
+  "reviewed_through": "c91da7080dc35bb359e5e9a156ceee24537fc4a5",
   "decks": [
     {
       "id": "leadership",
@@ -563,6 +563,16 @@
           "evidence": [
             "S13",
             "T08"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "48-memory-block-budget",
+          "notes": "A16: checked logical memory could be rounded up afterward, exceeding capacity or a logical ceiling by one MiB. The actual QMP regression fails before. Fixed source c91da70 floors whole2MiB requests, reports actual memory, and uses restart for exact unrepresentable growth. Alignment is relative to captured boot size. Reservation and guest onlining remain separate.",
+          "evidence": [
+            "S02",
+            "S04",
+            "T12"
           ]
         },
         {
@@ -1453,7 +1463,7 @@
             "Disk capacity grows at the backend before QMP block resize.",
             "Guest onlining and filesystem growth need their own evidence."
           ],
-          "notes": "Applied container resize is not guest onlining. Current source has upward growth and boot ceilings; broad shrink/restart and volume attachment semantics should be checked against the capability ledger.",
+          "notes": "Applied container resize is not guest onlining. Current source has upward growth and boot ceilings; broad shrink/restart and volume attachment semantics should be checked against the capability ledger. Memory grows in whole2MiB increments relative to boot; an exact unrepresentable increment takes controlled restart (A16/T12).",
           "evidence": [
             "S02",
             "S04",

@@ -45,10 +45,17 @@ The operator plans growth against boot-time ceilings. Kubernetes must admit
 and apply the manager container resources first. Manager reads projected
 limits and effective cgroup capacity before QMP hotplug. The operator's
 `resize.phase=Applied` reflects kubelet-side container resize, not a proof
-that the guest has onlined every CPU or byte of RAM. Shrink or growth beyond
-the supported ceiling uses a restart path. (S02–S04.)
+that the guest has onlined every CPU or byte of RAM. Shrink, growth beyond the
+supported ceiling and memory increments that cannot fit whole 2 MiB blocks
+relative to boot use a restart path. The block-budget repair is A16 in
+[the audit](audit.md). (S02–S04.)
 
 ![Resource growth](diagrams/rendered/light/22-resource-resize.svg)
+
+The [dated local KVM growth check](verification.md#follow-resource-growth-through-four-observations)
+exercises the cgroup/QMP/guest portion of this sequence, including an odd
+applied budget. It uses projected-file stand-ins and local container updates,
+rather than the Kubernetes API/kubelet portion.
 
 Disk growth has another chain: grow LIO/zvol capacity, project capacity intent,
 perform QMP block resize, then let the guest grow its own partition/filesystem.

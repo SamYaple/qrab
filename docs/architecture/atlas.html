@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 3f1ac7c2704e · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>30 document views · 51 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through c91da7080dc3 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>30 document views · 52 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -3485,6 +3485,7 @@ them together does not automatically establish a live workload outcome.
 | in-guest qrab agent | direct-kernel demo with one explicit disposable ext4 fixture | exactly one selected filesystem freezes/thaws, frozen update is refused, later fixed update hook succeeds | no multi-disk/application-consistent backup or arbitrary guest execution claim |
 | real two-manager migration | pinned local image assets, current manager/test binaries, tcg, private fixture workload apis and no guest nics | guest resumes at target; source exits migrated; later target cold boot preserves the source tpm identity | no cilium handoff, native guest luns, production spire or cross-cluster/openstack migration |
 | local kvm/container containment | disposable rootless container, explicit kvm, current manager binary and pinned image assets | manager/qemu/swtpm are direct parent/children in one constrained cgroup; guest boots and all original processes exit cleanly | no kubernetes scheduling, device-plugin, namespace/tenant, cilium/bgp or guest-lun certification |
+| local kvm resource growth | same isolated model, projected-limit stand-ins and actual container cgroup updates | intent waits for admission; odd capacity never rounds allocation up; cpu/memory grow in the same qemu and guest onlines both | no real kubelet/api resize, broad guest compatibility, live shrink or sizing/performance recommendation |
 | original socket-peer fixture | private child process and unix connection on a supporting local kernel | peer authority does not become a replacement numeric process after exit | no live vm grant or node rollout |
 | kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp lease updates/bind failures and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplinks replace cilium; the later t05 run also exercises wireguard/nat-pmp |
 | manager nic fixture | stand-in netd and qmp peers, actual manager reconciliation | namespace token change causes ordered nic-only detach/attach with the same mac/root port | guest hot-unplug and traffic continuity require their own acceptance |
@@ -3586,6 +3587,39 @@ this strengthens the source-derived process/cgroup comparison. a local
 libpod cgroup is not a kubernetes placement/device-plugin acceptance test,
 and the vm had no guest nics or native guest luns. the openstack side remains
 the deployment model supplied by the user, rather than an inspected cluster.
+
+### follow resource growth through four observations
+
+a separate kvm fixture at source `c91da70` used the operator&#x27;s 1000-millicore
+and 512 mib overhead contract. it began with a one-vcpu/512 mib guest in a
+two-core/1 gib container and boot-time headroom for growth. it changed the
+projected-limit stand-ins before changing the real kernel cgroup. podman
+updated the local container limits; no kubernetes objects or kubelet were
+involved.
+
+| point | desired guest | cgroup permits guest | manager requests | virtio-mem plugged |
+| --- | --- | --- | --- | --- |
+| boot | 1 cpu / 512 mib | 1 cpu / 512 mib | 1 cpu / 512 mib | not queried |
+| intent arrives first | 2 cpus / 1024 mib | 1 cpu / 512 mib | 1 cpu / 512 mib | not queried |
+| odd applied budget | 2 cpus / 1024 mib | 2 cpus / 1023 mib | 2 cpus / 1022 mib | 510 mib |
+| full admission | 2 cpus / 1024 mib | 2 cpus / 1024 mib | 2 cpus / 1024 mib | 512 mib |
+
+the boot configuration requested zero additional device memory; the manager
+had not queried its plugged size in the first two observations. the odd-budget
+row exercises a16 against real qemu: one residual mib cannot
+authorize another 2 mib block. the manager remained `waiting_for_limits`
+until full admission. its qemu pid stayed unchanged. after the final device
+acknowledgement, the guest separately reported two cpus and a full additional
+512 mib in `memtotal`, with one boot marker. clean shutdown and held pidfds
+confirmed original-process exit.
+
+the first harness predicate accepted a substantial memory increase too early:
+it could see the intermediate 510 mib guest marker after qmp already reported
+512 mib plugged. a fresh-state run tightened the final guest-memory wait and
+observed the full increase. this is why applied container limits, requested
+memory, driver-plugged memory and guest onlining are recorded separately.
+values describe this fixture, rather than a workload sizing recommendation
+or a measured performance benefit.
 
 the networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. read the emitted skip reasons: a test function that
@@ -3694,6 +3728,12 @@ them together does not automatically establish a live workload outcome.</p>
 <td>Disposable rootless container, explicit KVM, current manager binary and pinned image assets</td>
 <td>Manager/QEMU/swtpm are direct parent/children in one constrained cgroup; guest boots and all original processes exit cleanly</td>
 <td>No Kubernetes scheduling, device-plugin, namespace/tenant, Cilium/BGP or guest-LUN certification</td>
+</tr>
+<tr>
+<td>Local KVM resource growth</td>
+<td>Same isolated model, projected-limit stand-ins and actual container cgroup updates</td>
+<td>Intent waits for admission; odd capacity never rounds allocation up; CPU/memory grow in the same QEMU and guest onlines both</td>
+<td>No real kubelet/API resize, broad guest compatibility, live shrink or sizing/performance recommendation</td>
 </tr>
 <tr>
 <td>Original socket-peer fixture</td>
@@ -3809,6 +3849,69 @@ connection remain separate observations.</p>
 libpod cgroup is not a Kubernetes placement/device-plugin acceptance test,
 and the VM had no guest NICs or native guest LUNs. The OpenStack side remains
 the deployment model supplied by the user, rather than an inspected cluster.</p>
+<h3 id="verification--follow-resource-growth-through-four-observations">Follow resource growth through four observations</h3>
+<p>A separate KVM fixture at source <code>c91da70</code> used the operator's 1000-millicore
+and 512 MiB overhead contract. It began with a one-vCPU/512 MiB guest in a
+two-core/1 GiB container and boot-time headroom for growth. It changed the
+projected-limit stand-ins before changing the real kernel cgroup. Podman
+updated the local container limits; no Kubernetes objects or kubelet were
+involved.</p>
+<table>
+<thead>
+<tr>
+<th>Point</th>
+<th>Desired guest</th>
+<th>Cgroup permits guest</th>
+<th>Manager requests</th>
+<th>virtio-mem plugged</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Boot</td>
+<td>1 CPU / 512 MiB</td>
+<td>1 CPU / 512 MiB</td>
+<td>1 CPU / 512 MiB</td>
+<td>Not queried</td>
+</tr>
+<tr>
+<td>Intent arrives first</td>
+<td>2 CPUs / 1024 MiB</td>
+<td>1 CPU / 512 MiB</td>
+<td>1 CPU / 512 MiB</td>
+<td>Not queried</td>
+</tr>
+<tr>
+<td>Odd applied budget</td>
+<td>2 CPUs / 1024 MiB</td>
+<td>2 CPUs / 1023 MiB</td>
+<td>2 CPUs / 1022 MiB</td>
+<td>510 MiB</td>
+</tr>
+<tr>
+<td>Full admission</td>
+<td>2 CPUs / 1024 MiB</td>
+<td>2 CPUs / 1024 MiB</td>
+<td>2 CPUs / 1024 MiB</td>
+<td>512 MiB</td>
+</tr>
+</tbody>
+</table>
+<p>The boot configuration requested zero additional device memory; the manager
+had not queried its plugged size in the first two observations. The odd-budget
+row exercises A16 against real QEMU: one residual MiB cannot
+authorize another 2 MiB block. The manager remained <code>waiting_for_limits</code>
+until full admission. Its QEMU PID stayed unchanged. After the final device
+acknowledgement, the guest separately reported two CPUs and a full additional
+512 MiB in <code>MemTotal</code>, with one boot marker. Clean shutdown and held pidfds
+confirmed original-process exit.</p>
+<p>The first harness predicate accepted a substantial memory increase too early:
+it could see the intermediate 510 MiB guest marker after QMP already reported
+512 MiB plugged. A fresh-state run tightened the final guest-memory wait and
+observed the full increase. This is why applied container limits, requested
+memory, driver-plugged memory and guest onlining are recorded separately.
+Values describe this fixture, rather than a workload sizing recommendation
+or a measured performance benefit.</p>
 <p>The networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. Read the emitted skip reasons: a test function that
 returns early is not evidence that its privileged or optional path ran.
@@ -3888,10 +3991,17 @@ the operator plans growth against boot-time ceilings. kubernetes must admit
 and apply the manager container resources first. manager reads projected
 limits and effective cgroup capacity before qmp hotplug. the operator&#x27;s
 `resize.phase=applied` reflects kubelet-side container resize, not a proof
-that the guest has onlined every cpu or byte of ram. shrink or growth beyond
-the supported ceiling uses a restart path. (s02–s04.)
+that the guest has onlined every cpu or byte of ram. shrink, growth beyond the
+supported ceiling and memory increments that cannot fit whole 2 mib blocks
+relative to boot use a restart path. the block-budget repair is a16 in
+[the audit](audit.md). (s02–s04.)
 
 ![resource growth](diagrams/rendered/light/22-resource-resize.svg)
+
+the [dated local kvm growth check](verification.md#follow-resource-growth-through-four-observations)
+exercises the cgroup/qmp/guest portion of this sequence, including an odd
+applied budget. it uses projected-file stand-ins and local container updates,
+rather than the kubernetes api/kubelet portion.
 
 disk growth has another chain: grow lio/zvol capacity, project capacity intent,
 perform qmp block resize, then let the guest grow its own partition/filesystem.
@@ -4001,9 +4111,15 @@ through child reaping. (S04, S05, S13.)</p>
 and apply the manager container resources first. Manager reads projected
 limits and effective cgroup capacity before QMP hotplug. The operator's
 <code>resize.phase=Applied</code> reflects kubelet-side container resize, not a proof
-that the guest has onlined every CPU or byte of RAM. Shrink or growth beyond
-the supported ceiling uses a restart path. (S02–S04.)</p>
+that the guest has onlined every CPU or byte of RAM. Shrink, growth beyond the
+supported ceiling and memory increments that cannot fit whole 2 MiB blocks
+relative to boot use a restart path. The block-budget repair is A16 in
+<a href="#doc-audit">the audit</a>. (S02–S04.)</p>
 <p><img src="diagrams/rendered/light/22-resource-resize.svg" alt="Resource growth" /></p>
+<p>The <a href="#verification--follow-resource-growth-through-four-observations">dated local KVM growth check</a>
+exercises the cgroup/QMP/guest portion of this sequence, including an odd
+applied budget. It uses projected-file stand-ins and local container updates,
+rather than the Kubernetes API/kubelet portion.</p>
 <p>Disk growth has another chain: grow LIO/zvol capacity, project capacity intent,
 perform QMP block resize, then let the guest grow its own partition/filesystem.
 The operator does not open a network QMP endpoint for either workflow.</p>
@@ -4487,7 +4603,7 @@ cluster&#x27;s enabled features or api microversions.
 | declaratively stop | set `spec.running: false` through the authorized api | operator removes the vm pod; this is a different lifecycle from in-place off |
 | reboot or power cycle | the requested redfish reset action, bounded manager command, private qmp/guest cooperation | check the selected action&#x27;s outcome; a hard reset, guest shutdown and a new qemu process are different events |
 | pause/resume | authorized vm power/control action | paused qemu still exists and retains resources; application progress has stopped |
-| resize | update the supported vm resource intent; operator/kubelet admit container growth before manager hotplug | `resize.phase=applied` is kubelet-side evidence; guest cpu/memory onlining needs guest evidence |
+| resize | update vm resource intent; operator/kubelet admit container growth before manager hotplug | whole 2 mib memory increments relative to boot grow in place; other exact sizes restart. `applied` is kubelet-side evidence; guest onlining needs its own evidence |
 | live migrate | immutable, single-use qrab migration resource | exact target adoption, one intended network owner and preserved disk/state identity; eligibility is constrained |
 | rebuild, rescue, shelve or cold move | no general equivalent is established by this atlas | define the required recovery/data/identity behavior before promising this workflow |
 
@@ -4617,8 +4733,8 @@ cluster's enabled features or API microversions.</p>
 </tr>
 <tr>
 <td>Resize</td>
-<td>Update the supported VM resource intent; operator/kubelet admit container growth before manager hotplug</td>
-<td><code>resize.phase=Applied</code> is kubelet-side evidence; guest CPU/memory onlining needs guest evidence</td>
+<td>Update VM resource intent; operator/kubelet admit container growth before manager hotplug</td>
+<td>Whole 2 MiB memory increments relative to boot grow in place; other exact sizes restart. <code>Applied</code> is kubelet-side evidence; guest onlining needs its own evidence</td>
 </tr>
 <tr>
 <td>Live migrate</td>
@@ -4795,7 +4911,7 @@ not silently reclassified as boundary bugs.
 | qemu supervision without libvirt | implemented | validate chosen release/machine/firmware and workload behavior | s04–s07 |
 | vm-specific container resources | implemented | required cpu topology, numa, pinning, hugepages and device-placement policies are separate scope decisions | s02, s04, s21 |
 | in-place power / management availability | implemented | distinguish guest off, paused, pod stopped and runtime failed | s04, s06, s19 |
-| cpu/memory growth | implemented / constrained | boot ceilings, kubelet resource admission and guest onlining; no live shrink claim | s02–s04 |
+| cpu/memory growth | implemented / constrained | boot ceilings, kubelet admission, whole 2 mib memory increments relative to boot and guest onlining; unrepresentable sizes restart, no live shrink claim | s02–s04, t12 |
 | authenticated browser / redfish / console | implemented | verify actual issuer/audience/role policy, expiry and deployed service enrollment | s17–s20 |
 | human identity without keystone | implemented foundation | agree api rbac, vm application roles and namespace administration model | s16, s18–s20, m01 |
 | workload identity / rotation | implemented foundation | platform spire enrollment, service-specific peer policies and expiry evidence | s20, l01 |
@@ -4876,8 +4992,8 @@ not silently reclassified as boundary bugs.</p>
 <tr>
 <td>CPU/memory growth</td>
 <td>Implemented / constrained</td>
-<td>Boot ceilings, kubelet resource admission and guest onlining; no live shrink claim</td>
-<td>S02–S04</td>
+<td>Boot ceilings, kubelet admission, whole 2 MiB memory increments relative to boot and guest onlining; unrepresentable sizes restart, no live shrink claim</td>
+<td>S02–S04, T12</td>
 </tr>
 <tr>
 <td>Authenticated browser / Redfish / console</td>
@@ -7137,6 +7253,38 @@ storage fence: deleting a secret still does not close an existing disk session.
 **merged source:** `506b7c4a128fc96f954887747a7ba576bb4e5c4e`.
 **tracking:** qrab `work/disk-secret-cleanup-object-authority`.
 
+## a16 — memory block rounding could exceed the checked budget
+
+**location:** manager `hotplug::grow` and operator `resources::plan_resize`.
+**repair baseline:** `ed54bf0`.
+
+the manager first bounded a logical mib goal, then rounded the extra memory
+up to a 2 mib virtio-mem block. with a 512 mib boot, desired 514 mib and
+applied guest capacity 513 mib, it sent a 2 mib qmp request while recording a
+1 mib increase. the request exceeded the checked capacity by 1 mib. allowed
+odd logical ceilings had the same problem. the private qmp regression failed
+before the repair on the actual outgoing `qom-set` path.
+
+![budget the actual device blocks](diagrams/rendered/light/48-memory-block-budget.svg)
+
+the request now rounds down to complete blocks within the desired, applied
+and logical maximum bounds, and records the actual requested size. reserved
+address headroom may still round up because it is not plugged guest memory.
+unrepresentable desired growth reports an actionable restart state. the
+operator uses controlled recreation at the exact desired boot size, checking
+alignment before its steady shortcut so an old already-applied container limit
+does not hide the mismatch. alignment is relative to the captured boot size,
+including odd boot sizes.
+
+regressions exercise the qmp path for applied capacity, desired size and
+ceiling, with even/odd boots and normal whole-block growth; operator tests
+cover restart, exact aligned growth and recovery of old applied limits. the
+targeted suites, full runtime gate and strict clippy pass. no production image
+or rollout is implied by this source repair.
+
+**merged source:** `c91da7080dc35bb359e5e9a156ceee24537fc4a5`.
+**tracking:** qrab `work/virtio-memory-growth-budget-alignment`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -7621,6 +7769,31 @@ These tests establish local client behavior, not a production rollout or a
 storage fence: deleting a Secret still does not close an existing disk session.</p>
 <p><strong>Merged source:</strong> <code>506b7c4a128fc96f954887747a7ba576bb4e5c4e</code>.
 <strong>Tracking:</strong> qrab <code>work/disk-secret-cleanup-object-authority</code>.</p>
+<h2 id="audit--a16--memory-block-rounding-could-exceed-the-checked-budget">A16 — memory block rounding could exceed the checked budget</h2>
+<p><strong>Location:</strong> manager <code>hotplug::grow</code> and operator <code>resources::plan_resize</code>.
+<strong>Repair baseline:</strong> <code>ed54bf0</code>.</p>
+<p>The manager first bounded a logical MiB goal, then rounded the extra memory
+up to a 2 MiB virtio-mem block. With a 512 MiB boot, desired 514 MiB and
+applied guest capacity 513 MiB, it sent a 2 MiB QMP request while recording a
+1 MiB increase. The request exceeded the checked capacity by 1 MiB. Allowed
+odd logical ceilings had the same problem. The private QMP regression failed
+before the repair on the actual outgoing <code>qom-set</code> path.</p>
+<p><img src="diagrams/rendered/light/48-memory-block-budget.svg" alt="Budget the actual device blocks" /></p>
+<p>The request now rounds down to complete blocks within the desired, applied
+and logical maximum bounds, and records the actual requested size. Reserved
+address headroom may still round up because it is not plugged guest memory.
+Unrepresentable desired growth reports an actionable restart state. The
+operator uses controlled recreation at the exact desired boot size, checking
+alignment before its Steady shortcut so an old already-applied container limit
+does not hide the mismatch. Alignment is relative to the captured boot size,
+including odd boot sizes.</p>
+<p>Regressions exercise the QMP path for applied capacity, desired size and
+ceiling, with even/odd boots and normal whole-block growth; operator tests
+cover restart, exact aligned growth and recovery of old applied limits. The
+targeted suites, full runtime gate and strict Clippy pass. No production image
+or rollout is implied by this source repair.</p>
+<p><strong>Merged source:</strong> <code>c91da7080dc35bb359e5e9a156ceee24537fc4a5</code>.
+<strong>Tracking:</strong> qrab <code>work/virtio-memory-growth-budget-alignment</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -7735,6 +7908,10 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 | t10 | [real two-manager migration fixture](../../projects/manager/tests/pod_migration.rs) | explicit local tcg guest resume, source migrated outcome and persisted tpm identity after a later cold boot | nic/cilium/bgp handoff, guest luns, production spire or openstack transfer |
 
 | t11 | [direct supervision](../../projects/manager/src/pod/process.rs), [resource accounting](../../projects/manager/src/pod/resources.rs), dated local kvm/container fixture described in [verification](verification.md) | current manager, qemu and swtpm share one bounded local cgroup; guest boot/ping and original-process exit observed | kubernetes placement/device injection, either cluster&#x27;s tenant isolation, cilium/bgp or backend disk acceptance |
+
+| t12 | [manager block-budget regression](../../projects/manager/src/pod/hotplug.rs), [operator resize decisions](../../projects/operator/tests/resize.rs) | actual outgoing qmp requests stay within whole-block capacity/intent/ceiling; exact unrepresentable sizes take the restart path | a deployed resize, arbitrary guest onlining or live shrink |
+
+| t13 | [manager growth](../../projects/manager/src/pod/hotplug.rs), dated local kvm growth record in [verification](verification.md) | real cgroup changes gate cpu/memory requests; an odd budget floors device blocks safely; the same guest then onlines both resources | kubernetes/kubelet placement/admission, arbitrary guest cooperation, live shrink or performance guarantees |
 
 ## external sources
 
@@ -7984,6 +8161,8 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T09 | <a href="../../projects/manager/tests/pod_runtime.rs">Real manager launcher</a>, <a href="../../projects/manager/tests/pod_uefi.rs">UEFI/vTPM lifecycle</a>, <a href="../../projects/manager/tests/pod_guest_agent.rs">guest-agent fixture</a> | Explicit local TCG guest boot, process cleanup, retained software-TPM identity, corruption refusal and one-filesystem freeze/thaw | KVM, Kubernetes/Cilium/BGP, hardware attestation, backend storage or application backup acceptance |</p>
 <p>| T10 | <a href="../../projects/manager/tests/pod_migration.rs">Real two-manager migration fixture</a> | Explicit local TCG guest resume, source migrated outcome and persisted TPM identity after a later cold boot | NIC/Cilium/BGP handoff, guest LUNs, production SPIRE or OpenStack transfer |</p>
 <p>| T11 | <a href="../../projects/manager/src/pod/process.rs">Direct supervision</a>, <a href="../../projects/manager/src/pod/resources.rs">resource accounting</a>, dated local KVM/container fixture described in <a href="#doc-verification">verification</a> | Current manager, QEMU and swtpm share one bounded local cgroup; guest boot/ping and original-process exit observed | Kubernetes placement/device injection, either cluster's tenant isolation, Cilium/BGP or backend disk acceptance |</p>
+<p>| T12 | <a href="../../projects/manager/src/pod/hotplug.rs">Manager block-budget regression</a>, <a href="../../projects/operator/tests/resize.rs">operator resize decisions</a> | Actual outgoing QMP requests stay within whole-block capacity/intent/ceiling; exact unrepresentable sizes take the restart path | A deployed resize, arbitrary guest onlining or live shrink |</p>
+<p>| T13 | <a href="../../projects/manager/src/pod/hotplug.rs">Manager growth</a>, dated local KVM growth record in <a href="#doc-verification">verification</a> | Real cgroup changes gate CPU/memory requests; an odd budget floors device blocks safely; the same guest then onlines both resources | Kubernetes/kubelet placement/admission, arbitrary guest cooperation, live shrink or performance guarantees |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.
@@ -8151,7 +8330,7 @@ boundary, not an authenticated public management service.</p>
 <h3>Deletion, retention and destruction have different owners</h3><div class="scope">implemented + audited contract · S03, S05, S13, S14, S16, S23</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/21-deletion-ownership.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="21-deletion-ownership" src="diagrams/rendered/light/21-deletion-ownership.svg" alt="Deletion, retention and destruction have different owners"></a>
 <p>A VM may collect only its proven owned resources. Manual/foreign/unproven state stays retained, and backing bytes follow a separate storage reclaim contract.</p><a href="diagrams/21-deletion-ownership.mmd">Editable source</a> · <a href="diagrams/rendered/png/21-deletion-ownership.png">PNG</a></section><section class="diagram-card" data-filter="22-resource-resize admit capacity before qemu hotplug implemented kubelet applied describes container resources; manager checks effective cgroups before qmp growth. guest cpu/memory onlining remains a separate step.">
-<h3>Admit capacity before QEMU hotplug</h3><div class="scope">implemented · S02, S03, S04</div>
+<h3>Admit capacity before QEMU hotplug</h3><div class="scope">implemented · S02, S03, S04, T13</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/22-resource-resize.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="22-resource-resize" src="diagrams/rendered/light/22-resource-resize.svg" alt="Admit capacity before QEMU hotplug"></a>
 <p>Kubelet Applied describes container resources; manager checks effective cgroups before QMP growth. Guest CPU/memory onlining remains a separate step.</p><a href="diagrams/22-resource-resize.mmd">Editable source</a> · <a href="diagrams/rendered/png/22-resource-resize.png">PNG</a></section><section class="diagram-card" data-filter="23-failure-domains which outage affects which operation source-derived expectations these are architectural expectations, not availability guarantees. established kernel resources can outlive their daemon; new changes still need their control-plane owners.">
 <h3>Which outage affects which operation</h3><div class="scope">source-derived expectations · S03, S04, S09, S13, S20</div>
@@ -8228,7 +8407,10 @@ boundary, not an authenticated public management service.</p>
 <p>A test-only metadata patch checks the intended VM/disk without reading Secret data. Conditional deletion carries the checked object UID/version, so a colliding name, replacement or rotation cannot authorize the wrong cleanup.</p><a href="diagrams/46-secret-cleanup-authority.mmd">Editable source</a> · <a href="diagrams/rendered/png/46-secret-cleanup-authority.png">PNG</a></section><section class="diagram-card" data-filter="47-container-kvm-proof observed local kvm/container boundary dated local fixture / not cluster certification an explicit kvm fixture observes manager pid1 and direct qemu/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. it does not establish kubernetes placement, guest networking or storage-backend acceptance.">
 <h3>Observed local KVM/container boundary</h3><div class="scope">dated local fixture / not cluster certification · S04, S05, S06, T11</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/47-container-kvm-proof.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="47-container-kvm-proof" src="diagrams/rendered/light/47-container-kvm-proof.svg" alt="Observed local KVM/container boundary"></a>
-<p>An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. It does not establish Kubernetes placement, guest networking or storage-backend acceptance.</p><a href="diagrams/47-container-kvm-proof.json">Editable source</a> · <a href="diagrams/rendered/png/47-container-kvm-proof.png">PNG</a></section></div></article></main></div><script>
+<p>An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. It does not establish Kubernetes placement, guest networking or storage-backend acceptance.</p><a href="diagrams/47-container-kvm-proof.json">Editable source</a> · <a href="diagrams/rendered/png/47-container-kvm-proof.png">PNG</a></section><section class="diagram-card" data-filter="48-memory-block-budget budget whole memory-device blocks before qmp implemented boundary repair / source and wire evidence a one-mib residual budget cannot authorize a two-mib device block. the manager now budgets actual whole blocks and reports the true requested size; exact unrepresentable increments use controlled restart. values illustrate the regression, rather than deployed workload sizing.">
+<h3>Budget whole memory-device blocks before QMP</h3><div class="scope">implemented boundary repair / source and wire evidence · S02, S04, T12</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/48-memory-block-budget.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="48-memory-block-budget" src="diagrams/rendered/light/48-memory-block-budget.svg" alt="Budget whole memory-device blocks before QMP"></a>
+<p>A one-MiB residual budget cannot authorize a two-MiB device block. The manager now budgets actual whole blocks and reports the true requested size; exact unrepresentable increments use controlled restart. Values illustrate the regression, rather than deployed workload sizing.</p><a href="diagrams/48-memory-block-budget.json">Editable source</a> · <a href="diagrams/rendered/png/48-memory-block-budget.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

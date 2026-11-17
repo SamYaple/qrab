@@ -263,7 +263,7 @@ A VM may collect only its proven owned resources. Manual/foreign/unproven state 
 
 ## 22-resource-resize: Admit capacity before QEMU hotplug
 
-**Scope:** implemented. **Evidence:** S02, S03, S04.
+**Scope:** implemented. **Evidence:** S02, S03, S04, T13.
 
 Kubelet Applied describes container resources; manager checks effective cgroups before QMP growth. Guest CPU/memory onlining remains a separate step.
 
@@ -520,3 +520,13 @@ An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in 
 ![Observed local KVM/container boundary](diagrams/rendered/light/47-container-kvm-proof.svg)
 
 [Editable source](diagrams/47-container-kvm-proof.json) · [Light SVG](diagrams/rendered/light/47-container-kvm-proof.svg) · [Dark SVG](diagrams/rendered/dark/47-container-kvm-proof.svg) · [Print SVG](diagrams/rendered/print/47-container-kvm-proof.svg) · [PNG](diagrams/rendered/png/47-container-kvm-proof.png)
+
+## 48-memory-block-budget: Budget whole memory-device blocks before QMP
+
+**Scope:** implemented boundary repair / source and wire evidence. **Evidence:** S02, S04, T12.
+
+A one-MiB residual budget cannot authorize a two-MiB device block. The manager now budgets actual whole blocks and reports the true requested size; exact unrepresentable increments use controlled restart. Values illustrate the regression, rather than deployed workload sizing.
+
+![Budget whole memory-device blocks before QMP](diagrams/rendered/light/48-memory-block-budget.svg)
+
+[Editable source](diagrams/48-memory-block-budget.json) · [Light SVG](diagrams/rendered/light/48-memory-block-budget.svg) · [Dark SVG](diagrams/rendered/dark/48-memory-block-budget.svg) · [Print SVG](diagrams/rendered/print/48-memory-block-budget.svg) · [PNG](diagrams/rendered/png/48-memory-block-budget.png)

@@ -1,0 +1,16 @@
+{
+  "title": "Budget whole device blocks before asking QEMU",
+  "subtitle": "Example: boot 512 MiB / desired 514 MiB / applied guest capacity 513 MiB / device blocks 2 MiB",
+  "note": "Source/wire regression at c91da70. Reserved address space and guest onlining remain separate from the request budget.",
+  "boundaries": [],
+  "boxes": [
+    {"x":80,"y":190,"w":1440,"h":125,"kind":"foundation","kicker":"CHECKED LOGICAL BUDGET","lines":["Only 1 MiB remains available for growth"]},
+    {"x":80,"y":390,"w":650,"h":230,"kind":"replace","kicker":"BEFORE / ROUNDING AFTER THE CHECK","lines":["Logical goal: 513 MiB","Round 1 MiB up to one 2 MiB block","QEMU request: 514 MiB / reported current: 513 MiB","Request exceeds the checked capacity by 1 MiB"]},
+    {"x":870,"y":390,"w":650,"h":230,"kind":"qrab","kicker":"AFTER / CHECK THE ACTUAL WHOLE BLOCKS","lines":["No whole block fits yet","Keep the guest request at 512 MiB","Wait for applied capacity of 514 MiB","Then request exactly one 2 MiB block"]},
+    {"x":80,"y":700,"w":1440,"h":100,"kind":"build","kicker":"EXACT SIZES BETWEEN THE BLOCKS","lines":["A desired 513 MiB from a 512 MiB boot uses controlled restart, which can apply that exact boot size."]}
+  ],
+  "arrows": [
+    {"points":[[405,315],[405,390]]},
+    {"points":[[1195,315],[1195,390]]}
+  ]
+}

@@ -23,7 +23,7 @@ cluster's enabled features or API microversions.
 | Declaratively stop | Set `spec.running: false` through the authorized API | Operator removes the VM Pod; this is a different lifecycle from in-place Off |
 | Reboot or power cycle | The requested Redfish reset action, bounded manager command, private QMP/guest cooperation | Check the selected action's outcome; a hard reset, guest shutdown and a new QEMU process are different events |
 | Pause/resume | Authorized VM power/control action | Paused QEMU still exists and retains resources; application progress has stopped |
-| Resize | Update the supported VM resource intent; operator/kubelet admit container growth before manager hotplug | `resize.phase=Applied` is kubelet-side evidence; guest CPU/memory onlining needs guest evidence |
+| Resize | Update VM resource intent; operator/kubelet admit container growth before manager hotplug | Whole 2 MiB memory increments relative to boot grow in place; other exact sizes restart. `Applied` is kubelet-side evidence; guest onlining needs its own evidence |
 | Live migrate | Immutable, single-use qrab migration resource | Exact target adoption, one intended network owner and preserved disk/state identity; eligibility is constrained |
 | Rebuild, rescue, shelve or cold move | No general equivalent is established by this atlas | Define the required recovery/data/identity behavior before promising this workflow |
 

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "186e51a4e396494ef3a7e22f66c054b22a9e3ee9c79f184171a1ade5ee1186f4",
+  "catalog_sha256": "e2a11b6cfec9678202b080de747477d5ac95e8fc0f275b856ef615e4df924d42",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -611,6 +611,18 @@
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "3041267ba6fa35942a06ce47faaa9eb14194fcf04a203c8e55ce9985cfcc6407",
+      "width": 1600
+    },
+    "48-memory-block-budget": {
+      "height": 900,
+      "outputs": {
+        "dark/48-memory-block-budget.svg": "13512948f9ee2f32c80509bbe55e3a19b894a83cce1628d179d037053ac766ef",
+        "light/48-memory-block-budget.svg": "4059f4174a546fc902b88f624149645ae51c4df75b9d51fad1c83f72d04ff44e",
+        "png/48-memory-block-budget.png": "7ef5a35e111ceaf8c246c1b239f3484b8007e43b5c59653493f62888355707e2",
+        "print/48-memory-block-budget.svg": "0d456eb3cb889cfd65df1db3c975eaa880002951ec1354cf8ae621453cc2ef2d"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "61cbd65c5a8acd7584c0e0eaa9d4f5687b68940c768b75451e97570904350a03",
       "width": 1600
     }
   },

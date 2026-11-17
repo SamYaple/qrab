@@ -60,6 +60,10 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 
 | T11 | [Direct supervision](../../projects/manager/src/pod/process.rs), [resource accounting](../../projects/manager/src/pod/resources.rs), dated local KVM/container fixture described in [verification](verification.md) | Current manager, QEMU and swtpm share one bounded local cgroup; guest boot/ping and original-process exit observed | Kubernetes placement/device injection, either cluster's tenant isolation, Cilium/BGP or backend disk acceptance |
 
+| T12 | [Manager block-budget regression](../../projects/manager/src/pod/hotplug.rs), [operator resize decisions](../../projects/operator/tests/resize.rs) | Actual outgoing QMP requests stay within whole-block capacity/intent/ceiling; exact unrepresentable sizes take the restart path | A deployed resize, arbitrary guest onlining or live shrink |
+
+| T13 | [Manager growth](../../projects/manager/src/pod/hotplug.rs), dated local KVM growth record in [verification](verification.md) | Real cgroup changes gate CPU/memory requests; an odd budget floors device blocks safely; the same guest then onlines both resources | Kubernetes/kubelet placement/admission, arbitrary guest cooperation, live shrink or performance guarantees |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to

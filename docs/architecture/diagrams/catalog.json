@@ -307,7 +307,8 @@
       "evidence": [
         "S02",
         "S03",
-        "S04"
+        "S04",
+        "T13"
       ]
     },
     {
@@ -605,7 +606,19 @@
         "S06",
         "T11"
       ]
+    },
+    {
+      "id": "48-memory-block-budget",
+      "source": "48-memory-block-budget.json",
+      "title": "Budget whole memory-device blocks before QMP",
+      "status": "implemented boundary repair / source and wire evidence",
+      "caption": "A one-MiB residual budget cannot authorize a two-MiB device block. The manager now budgets actual whole blocks and reports the true requested size; exact unrepresentable increments use controlled restart. Values illustrate the regression, rather than deployed workload sizing.",
+      "evidence": [
+        "S02",
+        "S04",
+        "T12"
+      ]
     }
   ],
-  "reviewed_through": "3f1ac7c2704e55736f3e91f42ff1b5721965e31d"
+  "reviewed_through": "c91da7080dc35bb359e5e9a156ceee24537fc4a5"
 }

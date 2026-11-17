@@ -518,6 +518,38 @@ storage fence: deleting a Secret still does not close an existing disk session.
 **Merged source:** `506b7c4a128fc96f954887747a7ba576bb4e5c4e`.
 **Tracking:** qrab `work/disk-secret-cleanup-object-authority`.
 
+## A16 — memory block rounding could exceed the checked budget
+
+**Location:** manager `hotplug::grow` and operator `resources::plan_resize`.
+**Repair baseline:** `ed54bf0`.
+
+The manager first bounded a logical MiB goal, then rounded the extra memory
+up to a 2 MiB virtio-mem block. With a 512 MiB boot, desired 514 MiB and
+applied guest capacity 513 MiB, it sent a 2 MiB QMP request while recording a
+1 MiB increase. The request exceeded the checked capacity by 1 MiB. Allowed
+odd logical ceilings had the same problem. The private QMP regression failed
+before the repair on the actual outgoing `qom-set` path.
+
+![Budget the actual device blocks](diagrams/rendered/light/48-memory-block-budget.svg)
+
+The request now rounds down to complete blocks within the desired, applied
+and logical maximum bounds, and records the actual requested size. Reserved
+address headroom may still round up because it is not plugged guest memory.
+Unrepresentable desired growth reports an actionable restart state. The
+operator uses controlled recreation at the exact desired boot size, checking
+alignment before its Steady shortcut so an old already-applied container limit
+does not hide the mismatch. Alignment is relative to the captured boot size,
+including odd boot sizes.
+
+Regressions exercise the QMP path for applied capacity, desired size and
+ceiling, with even/odd boots and normal whole-block growth; operator tests
+cover restart, exact aligned growth and recovery of old applied limits. The
+targeted suites, full runtime gate and strict Clippy pass. No production image
+or rollout is implied by this source repair.
+
+**Merged source:** `c91da7080dc35bb359e5e9a156ceee24537fc4a5`.
+**Tracking:** qrab `work/virtio-memory-growth-budget-alignment`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's
