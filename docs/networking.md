@@ -817,9 +817,16 @@ What is tested, and how:
   `queues` is bounded before any descriptor is opened. At most 16 control
   connections are served at once.
 - **Who gets descriptors** (unit tests and `contrib/check-nic-security.sh`):
-  qrab-netd authenticates the peer by `SO_PEERCRED` → cgroup → Pod, and hands
-  a VM Pod only its own NICs; a NIC the VM lacks is refused, and a tap QEMU
-  already holds is refused too.
+  qrab-netd authenticates the peer by `SO_PEERCRED` → host-view cgroup v2 →
+  API-owned Pod, and hands a VM Pod only its own NICs. The cgroup record must
+  be one `0::` entry with an exact Pod component under kubelet's standard
+  `/kubepods.slice` (systemd/QoS slices) or `/kubepods` (cgroupfs/QoS) root.
+  A Pod UID embedded in a user scope or delegated subtree grants nothing;
+  extra records, malformed components, namespace-relative paths, custom roots
+  and cgroup v1 fail closed. The same check selects anchor namespace processes,
+  so a host lookalike cannot become an anchor. The privileged `hostPID` netd
+  DaemonSet must retain the host's unified cgroup view. A NIC the VM lacks is
+  refused, and a tap QEMU already holds is refused too.
 - **What a guest can reach** (`contrib/check-nic-security.sh`, live
   2026-11-15): a guest in a group admitting only world egress reached the
   world but not its own VM Pod's BMC (8080), Redfish (8081) or migration

@@ -755,18 +755,21 @@ mod tests {
             "0::/kubepods.slice/kubepods-pod{}.slice/cri-containerd-x.scope\n",
             uid.replace('-', "_")
         );
-        // pid 7: the sandbox, no volumes; pid 9: the anchor container.
-        for pid in ["7", "9", "11"] {
+        // pid 5: a host-user lookalike; pid 7: the sandbox, no volumes;
+        // pid 9: the actual anchor container; pid 11: unrelated host service.
+        for pid in ["5", "7", "9", "11"] {
             let dir = proc_root.path().join(pid);
             std::fs::create_dir_all(dir.join("root")).unwrap();
-            let owner = if pid == "11" {
-                "0::/system.slice/other.scope\n".to_owned()
-            } else {
-                cgroup.clone()
+            let owner = match pid {
+                "5" => format!("0::/user.slice/user-1002.slice/user@1002.service/app.slice/qrab-audit-pod{uid}.scope\n"),
+                "11" => "0::/system.slice/other.scope\n".to_owned(),
+                _ => cgroup.clone(),
             };
             std::fs::write(dir.join("cgroup"), owner).unwrap();
         }
+        assert_eq!(pod_uid_of(proc_root.path(), 5), None);
         assert_eq!(pids_of_pod(proc_root.path(), uid), [7, 9]);
+        assert_eq!(pid_of_pod(proc_root.path(), uid), Some(7));
         assert!(read_tunnel(proc_root.path(), uid)
             .unwrap_err()
             .contains("No such file"));
