@@ -44,6 +44,11 @@ PID/cgroup/Pod resolution and the VM's own NIC relationship. This depends on
 controlled Pod metadata/API writers in the management namespace; labels are
 not authentication credentials against an arbitrary namespace administrator.
 
+The source audit tightened that local identity boundary: only an exact Pod
+component in the host's standard kubelet-owned unified-cgroup-v2 hierarchy
+counts. A `pod<UUID>` substring in a host user scope is not a Pod credential.
+The same rule protects anchor namespace-process selection. See [A05](audit.md).
+
 ## Stable identity requires control, not another overlay
 
 Each plain NIC uses a stable /32, deterministic guest MAC and fixed link-local

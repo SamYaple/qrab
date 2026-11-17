@@ -376,7 +376,17 @@
         "S19",
         "S20"
       ]
+    },
+    {
+      "id": "29-local-pod-authority",
+      "title": "Local attachment authority starts with a real Pod hierarchy",
+      "status": "audited local authorization contract",
+      "caption": "A kernel peer PID is mapped through a validated host unified cgroup and the API-owned Pod to its own VM/NIC. An arbitrary host scope with a Pod-looking UUID does not establish authority. This omits process-lifetime and FD-transfer implementation details.",
+      "evidence": [
+        "S09",
+        "S10"
+      ]
     }
   ],
-  "reviewed_through": "69ef4274d6ba973bb696371c97fb0716a1e4206c"
+  "reviewed_through": "4625eefabb3743b3ec775b4f547a6b873cd162bf"
 }

@@ -330,3 +330,13 @@ Exact workload identity admits the calling service. The user credential and VM r
 ![Service admission and user authorization are both required](diagrams/rendered/light/28-auth-is-not-a-role.svg)
 
 [Editable source](diagrams/28-auth-is-not-a-role.mmd) · [Light SVG](diagrams/rendered/light/28-auth-is-not-a-role.svg) · [Dark SVG](diagrams/rendered/dark/28-auth-is-not-a-role.svg) · [Print SVG](diagrams/rendered/print/28-auth-is-not-a-role.svg) · [PNG](diagrams/rendered/png/28-auth-is-not-a-role.png)
+
+## 29-local-pod-authority: Local attachment authority starts with a real Pod hierarchy
+
+**Scope:** audited local authorization contract. **Evidence:** S09, S10.
+
+A kernel peer PID is mapped through a validated host unified cgroup and the API-owned Pod to its own VM/NIC. An arbitrary host scope with a Pod-looking UUID does not establish authority. This omits process-lifetime and FD-transfer implementation details.
+
+![Local attachment authority starts with a real Pod hierarchy](diagrams/rendered/light/29-local-pod-authority.svg)
+
+[Editable source](diagrams/29-local-pod-authority.mmd) · [Light SVG](diagrams/rendered/light/29-local-pod-authority.svg) · [Dark SVG](diagrams/rendered/dark/29-local-pod-authority.svg) · [Print SVG](diagrams/rendered/print/29-local-pod-authority.svg) · [PNG](diagrams/rendered/png/29-local-pod-authority.png)

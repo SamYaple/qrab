@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "2915e32db39b3b8d6a93f18ee10b97f495ff127063c6d9913eb30f460eb708a4",
+  "catalog_sha256": "88966db373db71a0b42f98e7d29946601256e2a5d9c4376048ae4ed6937fefe8",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -384,6 +384,18 @@
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "8774d1a961bbef9557d575d3e67b66550d253d2b79b77160353371db4b2d6769",
       "width": 1293
+    },
+    "29-local-pod-authority": {
+      "height": 269,
+      "outputs": {
+        "dark/29-local-pod-authority.svg": "8651174a03d106a31395a2c1bab4d57cecd9f001df383e198714c6644c4d8c61",
+        "light/29-local-pod-authority.svg": "c16611e7b3b9581b088e3fcbe73070587aef52e021b1f349ebf2097c9fd9eb6a",
+        "png/29-local-pod-authority.png": "3937050ec2eb318a4c2f05a18024b6ca33c4436c5a39939d168bce6ee70f2581",
+        "print/29-local-pod-authority.svg": "2513c7d6644f0fe4656f3c43bcd00d8c437efaedd72c33a33f18ab7c60e87aef"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "a05c422da570710cc44e4ce42c768a59367a2b99fa0add6e76f6b110519ea068",
+      "width": 1568
     }
   },
   "mermaid_version": "12.3.0"

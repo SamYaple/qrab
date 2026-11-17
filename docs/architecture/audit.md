@@ -141,6 +141,41 @@ not arbitrary BaseImage sources. The general inspect/write Job interface is
 the repaired boundary. Prepared backing chains must be flattened in their
 trusted preparation environment before import.
 
+## A05 — host cgroup names could impersonate Pod identity
+
+**Affected source:** netd `cgroup::pod_uid` and its use by socket-caller and
+anchor-process lookup. **Repair baseline:** `93b9792`.
+
+The old helper searched every cgroup path component for a `pod<UUID>`
+substring. An unprivileged host user can create a transient user scope whose
+name contains that text. A harmless local `systemd-run --user --scope`
+fixture produced exactly such a kernel-reported path, and the old parser
+returned its fake Pod UID. netd's caller mapping and anchor process selection
+used that result as authority. A kernel-reported string still needs its
+hierarchy and component semantics validated.
+
+The repair accepts one host-view unified-cgroup-v2 `0::` record and exact Pod
+components under kubelet's standard `/kubepods.slice` or `/kubepods` roots,
+including their valid QoS paths. It rejects user/delegated roots, partial
+names, extra records and unrooted views. The same corrected mapping protects
+anchor PID selection, so a lower-numbered host lookalike cannot be chosen
+instead of the real Pod process. Custom roots and cgroup-v1/multi-record
+views fail closed; the node daemon requires the documented host unified view.
+
+The regression failed before the fix and passes after it. Coverage includes
+both drivers/all QoS classes, nested lookalikes, malformed/multiple records
+and fake-proc caller/anchor selection. The netd suite, client-only
+`--no-default-features` check and full runtime check passed. A bounded
+read-only inspection confirmed the deployed netd's standard host-rooted
+systemd view. No live VM descriptor grant, NIC control or namespace/network
+mutation was attempted; unprivileged kernel-netns tests are not claimed as
+live datapath proof.
+
+**Merged source:** `4625eefabb3743b3ec775b4f547a6b873cd162bf`.
+**Tracking:** qrab `work/netd-cgroup-hierarchy-authentication`.
+Primary main was synchronized. The source repair was not published in a
+runtime image or rolled out.
+
 ## Checks and limits
 
 The initial `5f361b7` runtime baseline passed before the repair. Future

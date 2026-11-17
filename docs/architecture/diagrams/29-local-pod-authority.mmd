@@ -1,0 +1,8 @@
+flowchart LR
+    socket["Local Unix connection"] --> pid["Kernel peer PID"]
+    pid --> root{"Trusted host cgroup?"}
+    root -->|"one unified record / exact kubelet Pod component"| pod["API-owned local Pod UID"]
+    root -->|"host user scope / delegated lookalike / extra records"| refuse["Refuse identity"]
+    pod --> nic{"Own VM / own NIC?"}
+    nic -->|"yes"| grant["Bounded control / FD grant"]
+    nic -->|"no"| refuse

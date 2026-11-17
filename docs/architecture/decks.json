@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "69ef4274d6ba973bb696371c97fb0716a1e4206c",
+  "reviewed_through": "4625eefabb3743b3ec775b4f547a6b873cd162bf",
   "decks": [
     {
       "id": "leadership",
@@ -171,15 +171,16 @@
           "kind": "points",
           "title": "The review found real boundary bugs",
           "points": [
-            "State PVCs could gain a foreign GC owner from a dashboard label.",
-            "Group cleanup followed current access lists instead of recorded launch ownership.",
-            "A verified qcow2 file could select extra unverified backing/data inputs."
+            "Cleanup used labels/access lists as lifecycle ownership.",
+            "A verified qcow2 file could select unverified backing/data inputs.",
+            "A host cgroup name could masquerade as a Kubernetes Pod identity."
           ],
-          "notes": "All three defects have merged source repairs and regression evidence in audit.md. Full runtime checks passed for each. The qcow2 fixture also passed against pinned QEMU 11.1.3. These source merges did not publish images or deploy the cluster.",
+          "notes": "Four source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies and node cgroup identity. Full runtime checks passed for each; the qcow2 fixture also passed on pinned QEMU 11.1.3. No runtime image publication or rollout followed these source merges.",
           "evidence": [
             "A01",
             "A02",
-            "A04"
+            "A04",
+            "A05"
           ]
         },
         {
@@ -479,15 +480,16 @@
           "kind": "points",
           "title": "The review found real boundary bugs",
           "points": [
-            "State PVCs could gain a foreign GC owner from a dashboard label.",
-            "Group cleanup followed current access lists instead of recorded launch ownership.",
-            "A verified qcow2 file could select extra unverified backing/data inputs."
+            "Cleanup used labels/access lists as lifecycle ownership.",
+            "A verified qcow2 file could select unverified backing/data inputs.",
+            "A host cgroup name could masquerade as a Kubernetes Pod identity."
           ],
-          "notes": "All three defects have merged source repairs and regression evidence in audit.md. Full runtime checks passed for each. The qcow2 fixture also passed against pinned QEMU 11.1.3. These source merges did not publish images or deploy the cluster.",
+          "notes": "Four source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies and node cgroup identity. Full runtime checks passed for each; the qcow2 fixture also passed on pinned QEMU 11.1.3. No runtime image publication or rollout followed these source merges.",
           "evidence": [
             "A01",
             "A02",
-            "A04"
+            "A04",
+            "A05"
           ]
         },
         {
@@ -724,15 +726,16 @@
           "kind": "points",
           "title": "The review found real boundary bugs",
           "points": [
-            "State PVCs could gain a foreign GC owner from a dashboard label.",
-            "Group cleanup followed current access lists instead of recorded launch ownership.",
-            "A verified qcow2 file could select extra unverified backing/data inputs."
+            "Cleanup used labels/access lists as lifecycle ownership.",
+            "A verified qcow2 file could select unverified backing/data inputs.",
+            "A host cgroup name could masquerade as a Kubernetes Pod identity."
           ],
-          "notes": "All three defects have merged source repairs and regression evidence in audit.md. Full runtime checks passed for each. The qcow2 fixture also passed against pinned QEMU 11.1.3. These source merges did not publish images or deploy the cluster.",
+          "notes": "Four source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies and node cgroup identity. Full runtime checks passed for each; the qcow2 fixture also passed on pinned QEMU 11.1.3. No runtime image publication or rollout followed these source merges.",
           "evidence": [
             "A01",
             "A02",
-            "A04"
+            "A04",
+            "A05"
           ]
         },
         {
