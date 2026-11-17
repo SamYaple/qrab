@@ -1,0 +1,15 @@
+{
+  "title": "A namesake cannot validate another boot image",
+  "subtitle": "Conflicting-root configuration reproduced through the actual manager CLI check, using disposable files",
+  "note": "Configuration check only; no guest launched. Standard operator roots match. Trusted immutable media publication remains required.",
+  "boundaries": [],
+  "boxes": [
+    {"x":80,"y":220,"w":650,"h":240,"kind":"foundation","kicker":"CHECKED UNDER QRAB_MEDIA_ROOT","lines":["/approved-media/installer.img","1 byte passes a 4-byte size cap","Old validation checked this namesake"]},
+    {"x":870,"y":220,"w":650,"h":240,"kind":"replace","kicker":"CONFIGURED QEMU BOOT PATH","lines":["/var/lib/qrab-media/installer.img","34 bytes exceed that 4-byte size cap","Old configuration check still accepted it"]},
+    {"x":80,"y":570,"w":1440,"h":160,"kind":"qrab","kicker":"REPAIR / VALIDATE THE ACTUAL PATH","lines":["Resolve the configured QEMU boot path.","Require the same canonical image path that passed media policy validation.","Matching-root size and escape checks keep their established behavior."]}
+  ],
+  "arrows": [
+    {"points":[[405,460],[405,570]]},
+    {"points":[[1195,460],[1195,570]]}
+  ]
+}

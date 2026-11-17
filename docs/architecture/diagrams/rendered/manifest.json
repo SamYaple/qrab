@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "e2a11b6cfec9678202b080de747477d5ac95e8fc0f275b856ef615e4df924d42",
+  "catalog_sha256": "7302d01d77397614186b6318629d91807c1584c133738712cdbba3dfda027a1a",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -623,6 +623,18 @@
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "61cbd65c5a8acd7584c0e0eaa9d4f5687b68940c768b75451e97570904350a03",
+      "width": 1600
+    },
+    "49-boot-media-path": {
+      "height": 900,
+      "outputs": {
+        "dark/49-boot-media-path.svg": "84a38e79c02dabb951ab2e15b80df35c9c244b2207da6d4a322c78eb7668e0de",
+        "light/49-boot-media-path.svg": "638935ae823c7b468847cec0761c39fb978ae166117123939467edc4a756f0a5",
+        "png/49-boot-media-path.png": "6c409cef8fd4d0670130b5e6dcb7e0a55c7a299dc16bc711ebdd66eea6e49c75",
+        "print/49-boot-media-path.svg": "b3d86484d799a8366f2d1a5c5ce584be8296b375a956bd2161a4333a37c79854"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "a817c0122fe7b4bbaf7c582053f6ef2d5c68439789149d90a906d52c069397e9",
       "width": 1600
     }
   },

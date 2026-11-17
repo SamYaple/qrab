@@ -530,3 +530,13 @@ A one-MiB residual budget cannot authorize a two-MiB device block. The manager n
 ![Budget whole memory-device blocks before QMP](diagrams/rendered/light/48-memory-block-budget.svg)
 
 [Editable source](diagrams/48-memory-block-budget.json) · [Light SVG](diagrams/rendered/light/48-memory-block-budget.svg) · [Dark SVG](diagrams/rendered/dark/48-memory-block-budget.svg) · [Print SVG](diagrams/rendered/print/48-memory-block-budget.svg) · [PNG](diagrams/rendered/png/48-memory-block-budget.png)
+
+## 49-boot-media-path: Bind boot-media validation to the actual path
+
+**Scope:** implemented configuration-boundary repair. **Evidence:** S04, T14.
+
+A disposable CLI check demonstrates how conflicting roots validated a namesake instead of the actual boot path. The repaired check requires a matching canonical image path. Standard operator roots already match; immutable trusted publication remains part of the contract.
+
+![Bind boot-media validation to the actual path](diagrams/rendered/light/49-boot-media-path.svg)
+
+[Editable source](diagrams/49-boot-media-path.json) · [Light SVG](diagrams/rendered/light/49-boot-media-path.svg) · [Dark SVG](diagrams/rendered/dark/49-boot-media-path.svg) · [Print SVG](diagrams/rendered/print/49-boot-media-path.svg) · [PNG](diagrams/rendered/png/49-boot-media-path.png)

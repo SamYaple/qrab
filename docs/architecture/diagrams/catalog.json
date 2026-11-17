@@ -618,7 +618,18 @@
         "S04",
         "T12"
       ]
+    },
+    {
+      "id": "49-boot-media-path",
+      "source": "49-boot-media-path.json",
+      "title": "Bind boot-media validation to the actual path",
+      "status": "implemented configuration-boundary repair",
+      "caption": "A disposable CLI check demonstrates how conflicting roots validated a namesake instead of the actual boot path. The repaired check requires a matching canonical image path. Standard operator roots already match; immutable trusted publication remains part of the contract.",
+      "evidence": [
+        "S04",
+        "T14"
+      ]
     }
   ],
-  "reviewed_through": "c91da7080dc35bb359e5e9a156ceee24537fc4a5"
+  "reviewed_through": "a3b5cdd2c9f0f01e661f6b4f64e33c378f85b708"
 }

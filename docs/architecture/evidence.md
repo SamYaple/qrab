@@ -64,6 +64,8 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 
 | T13 | [Manager growth](../../projects/manager/src/pod/hotplug.rs), dated local KVM growth record in [verification](verification.md) | Real cgroup changes gate CPU/memory requests; an odd budget floors device blocks safely; the same guest then onlines both resources | Kubernetes/kubelet placement/admission, arbitrary guest cooperation, live shrink or performance guarantees |
 
+| T14 | [Media path policy and regression](../../projects/manager/src/pod/media.rs), isolated CLI configuration check described in [the audit](audit.md) | Actual boot path must resolve to the canonical image that passed the configured policy; matching-root size behavior retained | A guest boot, a claimed exploit of standard operator rendering or mutable/untrusted media-publisher safety |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to

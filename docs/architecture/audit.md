@@ -550,6 +550,37 @@ or rollout is implied by this source repair.
 **Merged source:** `c91da7080dc35bb359e5e9a156ceee24537fc4a5`.
 **Tracking:** qrab `work/virtio-memory-growth-budget-alignment`.
 
+## A17 — a boot-media namesake could validate another path
+
+**Location:** manager `MediaPolicy::validate_boot_disk`.
+**Repair baseline:** `1ec4cf0`.
+
+For an operator-approved boot path, validation checked the same basename under
+`QRAB_MEDIA_ROOT`, while QEMU's arguments used the original
+`/var/lib/qrab-media` path. Conflicting roots could therefore validate one file
+and select another. In a disposable read-only container, the actual CLI
+configuration check accepted a 34-byte boot file under a four-byte policy
+because a one-byte namesake passed that policy elsewhere. No guest was
+launched and the files were synthetic.
+
+![Bind validation to the actual boot path](diagrams/rendered/light/49-boot-media-path.svg)
+
+The check now resolves the actual QEMU boot path and requires the same
+canonical image path that passed media validation. A hermetic regression fails
+before and passes after. The full CLI matrix now refuses the conflicting
+roots, preserves a matching-root allowed-size case and preserves the existing
+matching-root size refusal. The media suite, full runtime gate and strict
+Clippy pass.
+
+This is a conflicting-configuration repair. Standard operator rendering already
+uses matching roots; no live exploit is claimed. The existing trusted media
+publisher must keep approved paths immutable through QEMU's open. A per-VM
+read-only mount does not make another writer's storage a snapshot, and this
+patch does not add descriptor-based media transfer.
+
+**Merged source:** `a3b5cdd2c9f0f01e661f6b4f64e33c378f85b708`.
+**Tracking:** qrab `work/boot-media-exact-path-policy`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's
