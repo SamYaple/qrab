@@ -651,7 +651,14 @@ impl Agent {
             _ => None,
         };
         if let Some(state) = state {
-            sys::cilium_handoff(&self.cilium, &endpoint, state).map_err(|e| e.to_string())?;
+            qrab_netd::cilium::handoff(
+                &self.cilium,
+                &endpoint,
+                authz::owner(anchor).ok_or("anchor has no VM owner")?,
+                authz::nic(anchor).ok_or("anchor has no NIC identity")?,
+                state,
+            )
+            .map_err(|e| e.to_string())?;
             return Ok(format!("{endpoint} is {state}"));
         }
         let ip: std::net::Ipv4Addr = anchor

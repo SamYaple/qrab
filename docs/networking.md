@@ -869,6 +869,14 @@ What is tested, and how:
   paths and a fixed trusted PATH. Later PID reuse or a same-name process cannot
   redirect tool execution. The socket directory must remain root-controlled;
   the read-only Cilium hostPath is an existing platform trust boundary.
+
+  Endpoint handoff first verifies the local API's exact VM-owner, NIC,
+  component/name and namespace identity labels, then mutates the unique CNI
+  attachment ID returned by that lookup. It does not resolve a reusable CEP
+  name a second time for mutation or fall back to numeric/deprecated IDs.
+  The current Cilium fork must expose that unique field and preserve these
+  operator identity labels; incomplete/ambiguous identity fails closed. Local
+  HTTP is bounded by response/header size and total read deadlines.
 - **What a guest can reach** (`contrib/check-nic-security.sh`, live
   2026-11-15): a guest in a group admitting only world egress reached the
   world but not its own VM Pod's BMC (8080), Redfish (8081) or migration

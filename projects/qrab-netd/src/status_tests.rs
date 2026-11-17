@@ -498,3 +498,68 @@ async fn disabling_applied_forwarding_reports_unmapped_even_after_cache_reset() 
         .result
         .is_err());
 }
+
+#[tokio::test]
+async fn a_same_name_cilium_endpoint_for_another_vm_is_never_mutated() {
+    use std::{
+        io::{BufRead, BufReader},
+        os::unix::net::UnixListener,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("cilium.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let served = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut first = String::new();
+        reader.read_line(&mut first).unwrap();
+        let mut length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
+                break;
+            }
+            if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                length = value.trim().parse::<usize>().unwrap();
+            }
+        }
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).unwrap();
+        let response = serde_json::to_vec(&json!({"status":{
+            "external-identifiers":{"cni-attachment-id":"foreign-attachment:eth0"},
+            "identity":{"labels":[
+                "k8s:app.kubernetes.io/name=qrab", "k8s:app.kubernetes.io/component=vm-nic",
+                "k8s:qrab.yapplesauce.com/owner-uid=another-vm", "k8s:qrab.yapplesauce.com/nic=lan", "k8s:io.kubernetes.pod.namespace=qrab"
+            ]}
+        }}))
+        .unwrap();
+        write!(
+            stream,
+            "HTTP/1.0 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            response.len()
+        )
+        .unwrap();
+        stream.write_all(&response).unwrap();
+        first.starts_with("PATCH ")
+    });
+    let server = Server::new(pod(OLD, "11"));
+    let (store, _writer) = reflector::store();
+    let mut agent = agent(server.api.clone(), store);
+    Arc::get_mut(&mut agent).unwrap().cilium = path;
+    let result = agent.control(
+        &pod(OLD, "11"),
+        &wire::Request {
+            nic: "lan".into(),
+            queues: 0,
+            op: wire::Op::Prepare,
+            via: None,
+        },
+    );
+    let mutated = served.join().unwrap();
+    assert!(
+        result.is_err(),
+        "handoff must refuse a reused foreign endpoint name"
+    );
+    assert!(!mutated);
+}

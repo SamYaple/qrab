@@ -655,33 +655,6 @@ pub fn forwards() -> io::Result<Vec<Ipv4Addr>> {
     Ok(found)
 }
 
-/// Ask the node's Cilium agent to move an endpoint through the handoff
-/// states (`prepare`, `active`, `standby`; forks/cilium P3) over its local
-/// API socket. `endpoint` is `cep-name:<namespace>/<pod>`.
-pub fn cilium_handoff(socket: &Path, endpoint: &str, state: &str) -> io::Result<()> {
-    use std::io::Read;
-    let mut stream = std::os::unix::net::UnixStream::connect(socket)?;
-    // prepare regenerates the endpoint and may take up to a minute.
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(90)))?;
-    let body = format!("{{\"state\":\"{state}\"}}");
-    let id = endpoint.replace('/', "%2F");
-    write!(
-        stream,
-        "PATCH /v1/endpoint/{id}/handoff HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    )?;
-    let mut reply = String::new();
-    stream.read_to_string(&mut reply)?;
-    let status = reply.split_whitespace().nth(1).unwrap_or("");
-    if status.starts_with('2') {
-        return Ok(());
-    }
-    let detail = reply.split("\r\n\r\n").nth(1).unwrap_or("").trim();
-    Err(io::Error::other(format!(
-        "cilium handoff {state} for {endpoint}: HTTP {status} {detail}"
-    )))
-}
-
 /// Offset of the reply's DHCP message type value (option 53 comes first).
 const HEADER_KIND_OFFSET: usize = 242;
 
@@ -874,74 +847,4 @@ mod tests {
         );
     }
     use super::*;
-    use std::io::{BufRead, BufReader, Read};
-
-    /// A stand-in for the Cilium agent socket: records one request and
-    /// answers with `status`.
-    fn agent(status: &'static str) -> (tempfile::TempDir, std::thread::JoinHandle<String>) {
-        let dir = tempfile::tempdir().unwrap();
-        let listener =
-            std::os::unix::net::UnixListener::bind(dir.path().join("cilium.sock")).unwrap();
-        let served = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut head = String::new();
-            let mut length = 0;
-            loop {
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
-                    length = value.trim().parse().unwrap();
-                }
-                if line == "\r\n" {
-                    break;
-                }
-                head.push_str(&line);
-            }
-            let mut body = vec![0; length];
-            reader.read_exact(&mut body).unwrap();
-            write!(
-                stream,
-                "HTTP/1.1 {status}\r\nContent-Length: 5\r\n\r\nnope!"
-            )
-            .unwrap();
-            format!("{head}{}", String::from_utf8(body).unwrap())
-        });
-        (dir, served)
-    }
-
-    #[test]
-    fn handoff_patches_the_endpoint_by_cep_name() {
-        let (dir, served) = agent("200 OK");
-        cilium_handoff(
-            &dir.path().join("cilium.sock"),
-            "cep-name:qrab/web-nic-lan-kube02",
-            "active",
-        )
-        .unwrap();
-        let request = served.join().unwrap();
-        assert!(
-            request.starts_with(
-                "PATCH /v1/endpoint/cep-name:qrab%2Fweb-nic-lan-kube02/handoff HTTP/1.1\r\n"
-            ),
-            "{request}"
-        );
-        assert!(request.ends_with("{\"state\":\"active\"}"), "{request}");
-    }
-
-    #[test]
-    fn a_refused_handoff_reports_the_agents_answer() {
-        let (dir, served) = agent("409 Conflict");
-        let error = cilium_handoff(
-            &dir.path().join("cilium.sock"),
-            "cep-name:qrab/x",
-            "standby",
-        )
-        .unwrap_err();
-        served.join().unwrap();
-        assert_eq!(
-            error.to_string(),
-            "cilium handoff standby for cep-name:qrab/x: HTTP 409 nope!"
-        );
-    }
 }

@@ -2,6 +2,8 @@
 //! is a protected platform endpoint, not a caller-supplied locator. Its
 //! original kernel peer, rather than a process name, selects the tool context.
 use crate::process::{Process, SocketPeer};
+mod http;
+pub use http::handoff;
 use std::{
     fs::File,
     io,
