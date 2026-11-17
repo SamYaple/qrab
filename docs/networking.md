@@ -827,6 +827,22 @@ What is tested, and how:
   so a host lookalike cannot become an anchor. The privileged `hostPID` netd
   DaemonSet must retain the host's unified cgroup view. A NIC the VM lacks is
   refused, and a tap QEMU already holds is refused too.
+  The original Unix peer is pinned with `SO_PEERPIDFD` and checked through
+  admission, so a numeric PID reused after peer exit cannot name another Pod.
+  This requires Linux 6.5+ with `SO_PEERPIDFD`; netd probes it at startup and
+  refuses unsupported kernels instead of falling back to numeric identity.
+  Proc directories are opened before membership checks, and namespace,
+  resolver and mounted VPN reads use those held directory descriptors.
+  Namespace entry and DHCP use an already-open namespace file, without later
+  reopening `/proc/<pid>` after authorization. Default tests replace private
+  fake-proc directories to check the binding. The explicit peer-exit fixture
+  uses only a private Unix socket/child on a supported kernel:
+
+  ```sh
+  cargo test --locked -p qrab-netd original_socket_peer_exit_cannot_become_a_replacement_process -- --ignored --nocapture
+  ```
+
+  These local tests do not grant live VM descriptors or mutate live namespaces.
 - **What a guest can reach** (`contrib/check-nic-security.sh`, live
   2026-11-15): a guest in a group admitting only world egress reached the
   world but not its own VM Pod's BMC (8080), Redfish (8081) or migration

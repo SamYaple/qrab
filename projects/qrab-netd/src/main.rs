@@ -7,11 +7,14 @@ use kube::{
     Client, ResourceExt,
 };
 use qrab_netd::{
-    authz, natpmp, peer, peer_tls, plan::NicPlan, sys, wire, PLUMBED_CONDITION,
-    PORT_FORWARD_CONDITION, SOCKET_DIR, SOCKET_NAME,
+    authz, natpmp, peer, peer_tls,
+    plan::NicPlan,
+    process::{Process, SocketPeer},
+    sys, wire, PLUMBED_CONDITION, PORT_FORWARD_CONDITION, SOCKET_DIR, SOCKET_NAME,
 };
 use std::{
     collections::HashMap,
+    fs::File,
     os::unix::{fs::PermissionsExt, net::UnixStream},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -125,7 +128,7 @@ impl Agent {
                 }
             };
             let result = match self.netns(&pod) {
-                Ok((_, ns)) => sys::in_netns(&ns, move || Ok(sys::map_forwarded_port(gateway)))
+                Ok((_, ns)) => sys::in_namespace(ns, move || Ok(sys::map_forwarded_port(gateway)))
                     .unwrap_or_else(|e| Err(e.to_string())),
                 Err(error) => Err(error),
             };
@@ -175,23 +178,26 @@ impl Agent {
         }
     }
 
-    fn netns(&self, pod: &Pod) -> Result<(i32, PathBuf), String> {
+    fn netns(&self, pod: &Pod) -> Result<(Process, File), String> {
         let uid = pod.uid().ok_or("Pod has no UID")?;
-        let pid =
-            sys::pid_of_pod(&self.proc_root, &uid).ok_or("no running process of the anchor yet")?;
-        Ok((pid, sys::netns_of(&self.proc_root, pid)))
+        for process in sys::processes_of_pod(&self.proc_root, &uid) {
+            if let Ok(namespace) = process.network_namespace() {
+                return Ok((process, namespace));
+            }
+        }
+        Err("no running process of the anchor yet".into())
     }
 
     fn plumb(&self, pod: &Pod) -> Result<String, String> {
         let mut plan = NicPlan::for_anchor(pod)?;
-        let (pid, ns) = self.netns(pod)?;
+        let (process, ns) = self.netns(pod)?;
         if NicPlan::is_vpn(pod) {
             plan = plan.with_tunnel(sys::read_tunnel(
                 &self.proc_root,
                 &pod.uid().unwrap_or_default(),
             )?);
         }
-        let resolver = sys::pod_resolver(&self.proc_root, pid);
+        let resolver = sys::pod_resolver(&process);
         let summary = match &plan.vpn {
             Some(tunnel) => format!(
                 "tap {} routes {} only through wg0 to {}",
@@ -205,8 +211,10 @@ impl Agent {
             None => Some(qrab_netd::GUEST_GATEWAY),
         };
         let vpn = plan.vpn.is_some();
-        let mtu =
-            sys::in_netns(&ns, move || sys::apply(&plan, resolver)).map_err(|e| e.to_string())?;
+        let mtu = sys::in_namespace(ns.try_clone().map_err(|e| e.to_string())?, move || {
+            sys::apply(&plan, resolver)
+        })
+        .map_err(|e| e.to_string())?;
         // One DHCP responder per anchor, for guests that configure by DHCP.
         let uid = pod.uid().unwrap_or_default();
         if let std::collections::hash_map::Entry::Vacant(slot) =
@@ -228,15 +236,18 @@ impl Agent {
     }
 
     fn grant(&self, stream: &UnixStream) -> Result<String, String> {
-        let pid = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::PeerCredentials)
-            .map_err(|e| e.to_string())?
-            .pid();
+        let peer = SocketPeer::capture(stream).map_err(|e| e.to_string())?;
+        let (process, uid) = peer.process(&self.proc_root).map_err(|e| e.to_string())?;
+        let pid = process.pid();
         let request = wire::read_request(stream).map_err(|e| e.to_string())?;
+        if process.pod_uid().map_err(|e| e.to_string())? != uid {
+            return Err("socket peer changed Pod while the request was read".into());
+        }
+        peer.ensure_alive().map_err(|e| e.to_string())?;
         let pods = self.store.state();
-        let requester = sys::pod_uid_of(&self.proc_root, pid).and_then(|uid| {
-            pods.iter()
-                .find(|p| p.uid().as_deref() == Some(uid.as_str()))
-        });
+        let requester = pods
+            .iter()
+            .find(|p| p.uid().as_deref() == Some(uid.as_str()));
         let anchor = authz::select_anchor(
             requester.map(|p| p.as_ref()),
             &request.nic,
@@ -278,7 +289,7 @@ impl Agent {
         }
         let (_, ns) = self.netns(anchor)?;
         let (tap, queues) = (plan.tap.clone(), request.queues);
-        let taps = sys::in_netns(&ns, move || sys::open_tap_queues(&tap, queues))
+        let taps = sys::in_namespace(ns, move || sys::open_tap_queues(&tap, queues))
             .map_err(|e| e.to_string())?;
         let vhosts = sys::open_vhost(queues).map_err(|e| e.to_string())?;
         wire::send_grant(stream, &plan.tap, &anchor_uid, &taps, &vhosts)
@@ -756,6 +767,7 @@ async fn main() -> Result<()> {
     let namespace = std::env::var("QRAB_NAMESPACE").unwrap_or_else(|_| "qrab".into());
     let proc_root =
         PathBuf::from(std::env::var("QRAB_NETD_PROC").unwrap_or_else(|_| "/proc".into()));
+    qrab_netd::process::check_peer_support().context("netd socket peer identity support")?;
     if let Err(error) = sys::check_devices() {
         log("devices_unavailable", serde_json::json!(error));
         anyhow::bail!(error);

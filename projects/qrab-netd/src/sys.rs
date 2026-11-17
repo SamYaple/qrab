@@ -2,7 +2,7 @@
 //! devices, and applying a [`NicPlan`]. Everything here needs the agent's
 //! privileges (CAP_SYS_ADMIN for setns, CAP_NET_ADMIN in the target
 //! namespace) and host PIDs.
-use crate::{cgroup, plan::NicPlan, plan::UPLINK};
+use crate::{plan::NicPlan, plan::UPLINK};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -39,13 +39,21 @@ pub fn check_devices() -> Result<(), String> {
     Ok(())
 }
 
-/// Run `f` on a thread that has joined the network namespace at `ns`.
-/// Processes it spawns inherit that namespace.
+/// Run `f` in a configured host/test namespace. Authorized Pod resources use
+/// an already-open descriptor through [`in_namespace`], not a later PID path.
 pub fn in_netns<T: Send + 'static>(
     ns: &Path,
     f: impl FnOnce() -> io::Result<T> + Send + 'static,
 ) -> io::Result<T> {
-    let ns = File::open(ns)?;
+    in_namespace(File::open(ns)?, f)
+}
+
+/// Enter an already-open namespace on a dedicated worker. Authorized Pod
+/// resources use this form, so a later numeric PID lookup cannot replace it.
+pub fn in_namespace<T: Send + 'static>(
+    ns: File,
+    f: impl FnOnce() -> io::Result<T> + Send + 'static,
+) -> io::Result<T> {
     std::thread::spawn(move || {
         nix::sched::setns(&ns, nix::sched::CloneFlags::CLONE_NEWNET).map_err(io::Error::from)?;
         f()
@@ -159,39 +167,28 @@ pub fn tap_holders(proc_root: &Path, name: &str) -> Vec<i32> {
         .collect()
 }
 
-/// The Pod UID of a process.
-pub fn pod_uid_of(proc_root: &Path, pid: i32) -> Option<String> {
-    cgroup::pod_uid(&fs::read_to_string(proc_root.join(pid.to_string()).join("cgroup")).ok()?)
-}
-
-/// A process of the Pod (any of its containers shares the namespace).
-pub fn pid_of_pod(proc_root: &Path, uid: &str) -> Option<i32> {
-    pids_of_pod(proc_root, uid).into_iter().next()
-}
-
-/// Every process of the Pod: its sandbox (pause) and its containers'. They
-/// share the network namespace but not the mount namespace.
-pub fn pids_of_pod(proc_root: &Path, uid: &str) -> Vec<i32> {
+/// Held processes of the Pod, including sandbox and containers. Membership
+/// and subsequent resource reads use the same proc directory descriptor.
+pub fn processes_of_pod(proc_root: &Path, uid: &str) -> Vec<crate::process::Process> {
     let Ok(entries) = fs::read_dir(proc_root) else {
         return Vec::new();
     };
-    let mut pids: Vec<i32> = entries
+    let mut processes: Vec<_> = entries
         .filter_map(Result::ok)
         .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
-        .filter(|pid| pod_uid_of(proc_root, *pid).as_deref() == Some(uid))
+        .filter_map(|pid| crate::process::Process::open(proc_root, pid).ok())
+        .filter(|process| process.pod_uid().ok().as_deref() == Some(uid))
         .collect();
-    pids.sort_unstable();
-    pids
-}
-
-pub fn netns_of(proc_root: &Path, pid: i32) -> PathBuf {
-    proc_root.join(pid.to_string()).join("ns/net")
+    processes.sort_unstable_by_key(crate::process::Process::pid);
+    processes
 }
 
 /// The first IPv4 nameserver the Pod's own resolver uses.
-pub fn pod_resolver(proc_root: &Path, pid: i32) -> Option<Ipv4Addr> {
+pub fn pod_resolver(process: &crate::process::Process) -> Option<Ipv4Addr> {
     crate::plan::resolver(
-        &fs::read_to_string(proc_root.join(pid.to_string()).join("root/etc/resolv.conf")).ok()?,
+        &process
+            .read_text(Path::new("root/etc/resolv.conf"), 16 * 1024)
+            .ok()?,
     )
 }
 
@@ -533,15 +530,15 @@ pub fn tunnel_digest(proc_root: &Path, pod_uid: &str) -> Option<[u8; 32]> {
 
 fn read_tunnel_text(proc_root: &Path, pod_uid: &str) -> Result<String, String> {
     let mut last = None;
-    for pid in pids_of_pod(proc_root, pod_uid) {
-        let path = proc_root
-            .join(pid.to_string())
-            .join("root")
+    for process in processes_of_pod(proc_root, pod_uid) {
+        let path = Path::new("root")
             .join(crate::vpn::VPN_MOUNT.trim_start_matches('/'))
             .join(crate::vpn::VPN_FILE);
-        match std::fs::read_to_string(&path) {
-            Ok(text) if text.len() <= crate::vpn::MAX_CONFIG => return Ok(text),
-            Ok(_) => return Err("the WireGuard config is too large".into()),
+        match process.read_text(&path, crate::vpn::MAX_CONFIG) {
+            Ok(text) => return Ok(text),
+            Err(error) if error.kind() == io::ErrorKind::FileTooLarge => {
+                return Err("the WireGuard config is too large".into())
+            }
             Err(error) => last = Some(error),
         }
     }
@@ -698,12 +695,11 @@ const HEADER_KIND_OFFSET: usize = 242;
 /// The socket keeps the namespace alive, so the caller stops it when the
 /// anchor goes.
 pub fn serve_dhcp(
-    ns: PathBuf,
+    netns: File,
     tap: String,
     lease: crate::dhcp::Lease,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> io::Result<()> {
-    let netns = File::open(&ns)?;
     std::thread::Builder::new().name(format!("dhcp-{tap}")).spawn(move || {
         let run = || -> io::Result<()> {
             nix::sched::setns(&netns, nix::sched::CloneFlags::CLONE_NEWNET).map_err(io::Error::from)?;
@@ -767,9 +763,17 @@ mod tests {
             };
             std::fs::write(dir.join("cgroup"), owner).unwrap();
         }
-        assert_eq!(pod_uid_of(proc_root.path(), 5), None);
-        assert_eq!(pids_of_pod(proc_root.path(), uid), [7, 9]);
-        assert_eq!(pid_of_pod(proc_root.path(), uid), Some(7));
+        assert!(crate::process::Process::open(proc_root.path(), 5)
+            .unwrap()
+            .pod_uid()
+            .is_err());
+        assert_eq!(
+            processes_of_pod(proc_root.path(), uid)
+                .iter()
+                .map(crate::process::Process::pid)
+                .collect::<Vec<_>>(),
+            [7, 9]
+        );
         assert!(read_tunnel(proc_root.path(), uid)
             .unwrap_err()
             .contains("No such file"));

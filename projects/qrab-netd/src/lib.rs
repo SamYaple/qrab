@@ -20,6 +20,8 @@ pub mod peer_tls;
 #[cfg(feature = "agent")]
 pub mod plan;
 #[cfg(feature = "agent")]
+pub mod process;
+#[cfg(feature = "agent")]
 pub mod sys;
 pub mod vpn;
 pub mod wire;

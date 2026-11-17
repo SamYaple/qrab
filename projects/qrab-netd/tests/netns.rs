@@ -320,7 +320,13 @@ fn the_dhcp_responder_offers_the_lease_over_a_real_link() {
         mtu: None,
     };
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    sys::serve_dhcp(anchor.path.clone(), "qtdhcp0".into(), lease, stop.clone()).unwrap();
+    sys::serve_dhcp(
+        std::fs::File::open(&anchor.path).unwrap(),
+        "qtdhcp0".into(),
+        lease,
+        stop.clone(),
+    )
+    .unwrap();
     let reply = sys::in_netns(&guest.path, move || {
         ip("link set gst0 address 02:00:00:00:00:42 up")?;
         // A real client sends from 0.0.0.0 on a raw socket; this UDP stand-in
