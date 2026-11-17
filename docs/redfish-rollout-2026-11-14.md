@@ -1,6 +1,6 @@
 # Redfish/Secure Boot POC rollout — 2026-11-14
 
-> Historical record of the 2026-11-14 release; the images named here are no longer the live ones. Current pins are in [images.lock.json](../contrib/images/images.lock.json) and [redfish-poc/vm.yaml](../contrib/kubernetes/redfish-poc/vm.yaml).
+> Historical record of the 2026-11-14 release; the images named here are no longer the live ones. Current pins are in [images.lock.json](../contrib/images/images.lock.json); the POC VM itself was removed on 2026-11-16.
 
 The integrated release is deployed in `qrab`. The public console/Redfish hostname
 remains `https://qrab-demo.yapplesauce.com`, explicitly routed to the fresh
@@ -104,11 +104,13 @@ separate repeatable allocation/checkpoint experiment and its explicit tradeoffs.
 
 ## Reproduction and remaining scope
 
-Use `contrib/kubernetes/redfish-poc` after the documented signed-media bootstrap,
-`redfish-rollout-test.py --connect-ip 10.203.1.80`, and
-`redfish-authenticated-poc.py` for interactive real-issuer tests. Baselines and
-final summaries live in ignored `target/redfish-poc-*.json`; no raw serial,
-configuration, token or private key is stored in those reports.
+The tests used the `contrib/kubernetes/redfish-poc` bundle (after the signed-media
+bootstrap), `redfish-rollout-test.py --connect-ip 10.203.1.80`, and an interactive
+real-issuer script, `redfish-authenticated-poc.py`. The bundle was removed on
+2026-11-16 and the script on 2026-11-17, together with the POC VM's volumes;
+`redfish-rollout-test.py` remains for any VM. Baselines and final summaries were
+kept in ignored `target/redfish-poc-*.json`, with no raw serial, configuration,
+token or private key.
 
 Temporary copy Pods, the stray namespace-only test CR and authentication helper
 were cleaned up; earlier user PVCs/worktrees remain untouched. The active source
