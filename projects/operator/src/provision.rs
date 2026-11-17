@@ -241,15 +241,7 @@ pub async fn converge(
 /// Hard-fence every provisioned disk this VM has or had. Kernel ACL/LUN
 /// teardown completes inside the storage service before this returns.
 pub async fn fence_all(api: &dyn StorageApi, vm: &VirtualMachine) -> Result<()> {
-    let uid = vm
-        .uid()
-        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
-    let mut ids: Vec<&str> = vm.spec.disks.iter().map(|d| d.id.as_str()).collect();
-    for disk in vm.status.iter().flat_map(|s| s.disks.iter()) {
-        if !ids.contains(&disk.id.as_str()) {
-            ids.push(&disk.id);
-        }
-    }
+    let (uid, ids) = disk_ids(vm)?;
     for id in ids {
         if api.status(&uid, id).await.map_err(storage)?.is_none() {
             continue;
@@ -267,8 +259,52 @@ pub async fn fence_all(api: &dyn StorageApi, vm: &VirtualMachine) -> Result<()> 
     Ok(())
 }
 
+/// The VM's UID and every disk ID it has in `spec.disks` or recorded status.
+fn disk_ids(vm: &VirtualMachine) -> Result<(String, Vec<&str>)> {
+    let uid = vm
+        .uid()
+        .ok_or_else(|| Error::Invalid("VM UID is required".into()))?;
+    let mut ids: Vec<&str> = vm.spec.disks.iter().map(|d| d.id.as_str()).collect();
+    for disk in vm.status.iter().flat_map(|s| s.disks.iter()) {
+        if !ids.contains(&disk.id.as_str()) {
+            ids.push(&disk.id);
+        }
+    }
+    Ok((uid, ids))
+}
+
+/// After [`fence_all`] on a deleted VM: retire every disk, so the storage
+/// host's reaper destroys it once its grace period passes. Returns the disks
+/// the storage service refused to retire, with the refusal code. They stay
+/// fenced and retained, as before retirement existed. An outage is an error.
+pub async fn retire_all(
+    api: &dyn StorageApi,
+    vm: &VirtualMachine,
+) -> Result<Vec<(String, String)>> {
+    let (uid, ids) = disk_ids(vm)?;
+    let mut refused = Vec::new();
+    for id in ids {
+        match api.status(&uid, id).await.map_err(storage)? {
+            None => continue,
+            Some(report) if report.phase == DiskPhase::Retired => continue,
+            Some(_) => {}
+        }
+        match api.retire_disk(&uid, id).await {
+            Ok(report) if report.phase == DiskPhase::Retired => {}
+            Ok(_) => {
+                return Err(Error::Storage(StorageError::Unavailable(format!(
+                    "disk {id} did not report retirement"
+                ))))
+            }
+            Err(StorageError::Refused(code)) => refused.push((id.to_string(), code)),
+            Err(error) => return Err(storage(error)),
+        }
+    }
+    Ok(refused)
+}
+
 /// Fence a disk no longer in `spec.disks` and delete its credential Secret.
-/// The zvol is retained; retirement stays an administrative storage verb.
+/// The zvol is retained and not retired, so re-adding the ID reattaches it.
 pub async fn release(
     api: &dyn StorageApi,
     credentials: &dyn CredentialStore,
@@ -417,6 +453,8 @@ pub(crate) mod fake {
         pub calls: Mutex<Vec<String>>,
         /// Simulates a daemon wrapper timeout during a slow kernel drain.
         pub fence_timeout: std::sync::atomic::AtomicBool,
+        /// Simulates an identity without `storage_retire`.
+        pub retire_forbidden: std::sync::atomic::AtomicBool,
     }
 
     impl FakeStorage {
@@ -572,6 +610,26 @@ pub(crate) mod fake {
                     .ok_or(StorageError::Refused("disk-not-found".into()))?;
                 if d.phase != DiskPhase::Provisioned && d.phase != DiskPhase::Retired {
                     d.phase = DiskPhase::Fenced;
+                }
+                Ok(Self::report(uid, id, d))
+            })
+        }
+        async fn retire_disk(&self, uid: &str, id: &str) -> StorageResult<DiskReport> {
+            let forbidden = self
+                .retire_forbidden
+                .load(std::sync::atomic::Ordering::SeqCst);
+            self.with("retire", uid, id, |m, k| {
+                if forbidden {
+                    return refused("forbidden");
+                }
+                let d = m
+                    .get_mut(&k)
+                    .ok_or(StorageError::Refused("disk-not-found".into()))?;
+                match d.phase {
+                    DiskPhase::Fenced | DiskPhase::Provisioned | DiskPhase::Retired => {
+                        d.phase = DiskPhase::Retired
+                    }
+                    _ => return refused("fence-required"),
                 }
                 Ok(Self::report(uid, id, d))
             })
@@ -943,5 +1001,59 @@ mod tests {
         fence_all(&api, &vm).await.unwrap();
         assert_eq!(api.disk(UID, "root").unwrap().phase, DiskPhase::Fenced);
         assert_eq!(api.disk(UID, "old").unwrap().phase, DiskPhase::Fenced);
+
+        // Deletion then retires both; a second pass calls nothing new.
+        api.retire_forbidden
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let refused = retire_all(&api, &vm).await.unwrap();
+        assert_eq!(
+            refused,
+            [
+                ("root".to_string(), "forbidden".to_string()),
+                ("old".into(), "forbidden".into())
+            ]
+        );
+        assert_eq!(api.disk(UID, "root").unwrap().phase, DiskPhase::Fenced);
+        api.retire_forbidden
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        assert!(retire_all(&api, &vm).await.unwrap().is_empty());
+        assert_eq!(api.disk(UID, "root").unwrap().phase, DiskPhase::Retired);
+        assert_eq!(api.disk(UID, "old").unwrap().phase, DiskPhase::Retired);
+        let before = api
+            .calls()
+            .iter()
+            .filter(|c| c.starts_with("retire"))
+            .count();
+        assert!(retire_all(&api, &vm).await.unwrap().is_empty());
+        let after = api
+            .calls()
+            .iter()
+            .filter(|c| c.starts_with("retire"))
+            .count();
+        assert_eq!(before, after, "already retired disks are not retired again");
+    }
+
+    #[tokio::test]
+    async fn retire_all_refuses_an_unfenced_disk() {
+        let api = FakeStorage::default();
+        let creds = FakeCredentials::default();
+        run(&api, &creds, &disk(64 * MIB, None), false)
+            .await
+            .unwrap();
+        let mut vm = VirtualMachine::new(
+            "vm",
+            serde_json::from_value(serde_json::json!({
+                "stateVolumeClaim":"state","console":{"publicUrl":"https://vm.example/","allowedSubjects":[]},
+                "disks":[{"id":"root","sizeBytes":67108864}]
+            }))
+            .unwrap(),
+        );
+        vm.metadata.uid = Some(UID.into());
+        assert_eq!(api.disk(UID, "root").unwrap().phase, DiskPhase::Active);
+        assert_eq!(
+            retire_all(&api, &vm).await.unwrap(),
+            [("root".to_string(), "fence-required".to_string())]
+        );
+        assert_eq!(api.disk(UID, "root").unwrap().phase, DiskPhase::Active);
     }
 }

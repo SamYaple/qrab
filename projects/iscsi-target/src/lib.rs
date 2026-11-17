@@ -324,10 +324,19 @@ pub struct Record {
     /// sealed. Its zvol may already carry the image name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seal: Option<ImportSource>,
+    /// Unix seconds when a disk was retired. `vm-disk-reap` destroys it once
+    /// this is older than the grace period; journals retired before the
+    /// field existed get the reaper's first run as their retirement time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retired_at: Option<u64>,
 }
 impl Record {
     fn validate(&self) -> Result<()> {
         self.spec.validate()?;
+        ensure!(
+            self.retired_at.is_none() || self.phase == Phase::Retired,
+            "only a retired disk records a retirement time"
+        );
         let stage = self.spec.stage.is_some();
         let legacy = self.spec.disk.is_none() && !stage;
         ensure!(
@@ -381,7 +390,10 @@ impl Record {
         Ok(())
     }
     pub fn report(&self) -> Report {
-        Report::for_spec(&self.spec, Some(self.phase), self.generation)
+        Report {
+            retired_at: self.retired_at,
+            ..Report::for_spec(&self.spec, Some(self.phase), self.generation)
+        }
     }
 }
 
@@ -405,6 +417,8 @@ pub struct Report {
     pub parent_quota_bytes: u64,
     pub root_state: String,
     pub dedicated_hba: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retired_at: Option<u64>,
 }
 impl Report {
     pub fn for_spec(spec: &Spec, phase: Option<Phase>, generation: u64) -> Self {
@@ -425,6 +439,7 @@ impl Report {
             parent_quota_bytes: PARENT_QUOTA,
             root_state: ROOT.into(),
             dedicated_hba: HBA.into(),
+            retired_at: None,
         }
     }
 }
@@ -474,6 +489,10 @@ pub trait Backend {
     fn retire(&mut self, record: &Record) -> Result<()>;
     /// Refuses while any clone hold remains; marks the image retained.
     fn retire_image(&mut self, image: &Image) -> Result<()>;
+    /// Destroys a retired disk's zvol after re-checking its ownership, GUID,
+    /// retained marker and absent export, then releases its clone hold on the
+    /// image snapshot. An absent zvol only has its hold released.
+    fn destroy_retired(&mut self, record: &Record) -> Result<()>;
     /// Opens a fenced stage's verified zvol device for reading from offset 0,
     /// past any page cache the export's writes bypassed.
     fn open_stage(&mut self, stage: &Record) -> Result<Box<dyn std::io::Read>>;
@@ -533,6 +552,7 @@ pub fn apply<B: Backend>(store: &Store, host: &mut B, spec: Spec) -> Result<Repo
                 origin_guid: None,
                 chap_password: password()?,
                 seal: None,
+                retired_at: None,
             };
             store.write(&record)?;
             record
@@ -866,6 +886,20 @@ pub(crate) mod tests {
         fn retire(&mut self, r: &Record) -> Result<()> {
             self.verify_fenced(r)?;
             self.retired.push(r.spec.key());
+            Ok(())
+        }
+        fn destroy_retired(&mut self, r: &Record) -> Result<()> {
+            self.calls.push("disk-destroy");
+            ensure!(!self.fail_destroy, "destroy failed");
+            ensure!(!self.exports.contains_key(&r.spec.key()), "export remains");
+            if self.volumes.remove(&r.spec.dataset()).is_some() {
+                self.destroyed.push(r.spec.dataset());
+            }
+            if let Some(origin) = &r.spec.origin {
+                if let Some(holds) = self.holds.get_mut(&origin.snapshot()) {
+                    holds.retain(|t| *t != r.spec.clone_hold());
+                }
+            }
             Ok(())
         }
         fn open_stage(&mut self, stage: &Record) -> Result<Box<dyn Read>> {

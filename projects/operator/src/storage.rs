@@ -127,6 +127,9 @@ pub trait StorageApi: Send + Sync {
         secret: &ChapSecret,
     ) -> StorageResult<DiskReport>;
     async fn fence(&self, vm_uid: &str, disk: &str) -> StorageResult<DiskReport>;
+    /// Removes a fenced disk's export and keeps its data. The storage host's
+    /// reaper destroys retired disks after their grace period.
+    async fn retire_disk(&self, vm_uid: &str, disk: &str) -> StorageResult<DiskReport>;
 }
 
 pub type SharedStorage = Arc<dyn StorageApi>;
@@ -636,6 +639,10 @@ impl StorageApi for HttpStorage {
     }
     async fn fence(&self, vm_uid: &str, disk: &str) -> StorageResult<DiskReport> {
         self.disk(json!({"name":"vm-disk-fence"}), vm_uid, disk, None)
+            .await
+    }
+    async fn retire_disk(&self, vm_uid: &str, disk: &str) -> StorageResult<DiskReport> {
+        self.disk(json!({"name":"vm-disk-retire"}), vm_uid, disk, None)
             .await
     }
 }

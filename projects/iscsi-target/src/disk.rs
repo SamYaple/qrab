@@ -232,6 +232,7 @@ fn provision<B: Backend>(
                 origin_guid: None,
                 chap_password: String::new(),
                 seal: None,
+                retired_at: None,
             };
             store.write(&record)?;
             record
@@ -458,8 +459,81 @@ pub fn retire<B: Backend>(store: &Store, host: &mut B, uid: &str, disk: &str) ->
     }
     host.retire(&record)?;
     record.phase = Phase::Retired;
+    record.retired_at = Some(unix_now()?);
     store.write(&record)?;
     Ok(record.report())
+}
+
+fn unix_now() -> Result<u64> {
+    Ok(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs())
+}
+
+/// One `vm-disk-reap` pass, by disk journal key.
+#[derive(Serialize, Debug, Default, PartialEq)]
+pub struct ReapReport {
+    pub older_than_days: u64,
+    pub applied: bool,
+    /// Retired without a recorded time; applying records this pass's time.
+    pub stamped: Vec<String>,
+    /// Past the grace period: destroyed when applied, listed when planned.
+    pub due: Vec<String>,
+    pub destroyed: Vec<String>,
+    pub waiting: Vec<String>,
+    /// Disks whose destroy failed, with the error. Their journals remain.
+    pub failed: Vec<(String, String)>,
+}
+
+/// Root-only: destroys every retired VM disk retired more than
+/// `older_than_days` ago, releasing its clone hold and removing its journal.
+/// Only `Retired` disk journals qualify, so a fenced, active or provisioned
+/// disk is never touched. One failing disk does not stop the others.
+pub fn reap<B: Backend>(
+    store: &Store,
+    host: &mut B,
+    older_than_days: u64,
+    now: u64,
+    apply: bool,
+) -> Result<ReapReport> {
+    let grace = older_than_days
+        .checked_mul(86_400)
+        .ok_or(Refusal("invalid-arguments"))?;
+    let _lock = store.lock()?;
+    let mut report = ReapReport {
+        older_than_days,
+        applied: apply,
+        ..Default::default()
+    };
+    for mut record in store.records()? {
+        if record.phase != Phase::Retired || record.spec.disk.is_none() {
+            continue;
+        }
+        let key = record.spec.key();
+        match record.retired_at {
+            None => {
+                if apply {
+                    record.retired_at = Some(now);
+                    store.write(&record)?;
+                }
+                report.stamped.push(key);
+            }
+            Some(at) if now.saturating_sub(at) >= grace => {
+                report.due.push(key.clone());
+                if apply {
+                    match host
+                        .destroy_retired(&record)
+                        .and_then(|()| store.remove_retired(&record))
+                    {
+                        Ok(()) => report.destroyed.push(key),
+                        Err(error) => report.failed.push((key, format!("{error:#}"))),
+                    }
+                }
+            }
+            Some(_) => report.waiting.push(key),
+        }
+    }
+    Ok(report)
 }
 
 /// Administrative: copy a fenced (quiesced) disk into a sealed image
@@ -1065,7 +1139,7 @@ pub const COMMANDS: &[&str] = &[
 
 /// Administrator-only commands, deliberately absent from [`COMMANDS`] and
 /// [`dispatch`]: the storage daemon cannot reach them.
-pub const ADMIN_COMMANDS: &[&str] = &["vm-image-import"];
+pub const ADMIN_COMMANDS: &[&str] = &["vm-image-import", "vm-disk-reap"];
 
 /// Run one administrator-only command with the wrapper's exact-argv rules.
 pub fn admin_dispatch<B: Backend>(
@@ -1074,14 +1148,31 @@ pub fn admin_dispatch<B: Backend>(
     host: &mut B,
 ) -> Result<serde_json::Value> {
     let (command, rest) = args.split_first().ok_or(Refusal("invalid-arguments"))?;
-    ensure!(command == "vm-image-import", Refusal("invalid-arguments"));
-    let v = flags(
-        rest,
-        &["--image", "--image-generation", "--source", "--sha256"],
-    )?;
-    let origin = Origin::new(v[0].into(), number(v[1])?)?;
-    let report = import(store, host, origin, Path::new(v[2]), v[3])?;
-    Ok(serde_json::json!({"ok": true, "image": report}))
+    match command.as_str() {
+        "vm-image-import" => {
+            let v = flags(
+                rest,
+                &["--image", "--image-generation", "--source", "--sha256"],
+            )?;
+            let origin = Origin::new(v[0].into(), number(v[1])?)?;
+            let report = import(store, host, origin, Path::new(v[2]), v[3])?;
+            Ok(serde_json::json!({"ok": true, "image": report}))
+        }
+        "vm-disk-reap" => {
+            let v = flags(rest, &["--older-than-days", "--mode"])?;
+            let apply = match v[1] {
+                "plan" => false,
+                "apply" => true,
+                _ => bail!(Refusal("invalid-arguments")),
+            };
+            let report = reap(store, host, number(v[0])?, unix_now()?, apply)?;
+            let ok = report.failed.is_empty();
+            let value = serde_json::json!({"ok": ok, "reap": report});
+            ensure!(ok, "{value}");
+            Ok(value)
+        }
+        _ => bail!(Refusal("invalid-arguments")),
+    }
 }
 
 /// Exact flag set per command: no repeats, extras or credential-bearing flags.
@@ -1668,6 +1759,150 @@ mod tests {
             code(image_retire(&store, &mut host, &origin)),
             "image-in-use"
         );
+    }
+
+    const DAY: u64 = 86_400;
+
+    fn retired_at(store: &Store, uid: &str, disk: &str) -> Option<u64> {
+        store.read_disk(uid, disk).unwrap().unwrap().retired_at
+    }
+
+    #[test]
+    fn retire_records_when_and_reap_waits_out_the_grace_period() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        let origin = published(&store, &mut host);
+        clone(&store, &mut host, OTHER, "root", origin.clone(), 64 * MIB).unwrap();
+        fence(&store, &mut host, OTHER, "root").unwrap();
+        let report = retire(&store, &mut host, OTHER, "root").unwrap();
+        let at = report.retired_at.expect("retire records its time");
+        assert_eq!(retired_at(&store, OTHER, "root"), Some(at));
+        let key = format!("{OTHER}.root");
+        let dataset = format!("tank/qrab-iscsi/disk-{OTHER}-root");
+
+        // Inside the grace period nothing happens, applied or not.
+        let early = reap(&store, &mut host, 7, at + 7 * DAY - 1, true).unwrap();
+        assert_eq!(early.waiting, std::slice::from_ref(&key));
+        assert!(early.destroyed.is_empty() && host.destroyed.is_empty());
+
+        // A plan lists the due disk and changes nothing.
+        let plan = reap(&store, &mut host, 7, at + 7 * DAY, false).unwrap();
+        assert_eq!(
+            (plan.due.clone(), plan.destroyed.clone()),
+            (vec![key.clone()], vec![])
+        );
+        assert!(host.volumes.contains_key(&dataset));
+
+        // Applied past the grace period: zvol, clone hold and journal go.
+        let done = reap(&store, &mut host, 7, at + 7 * DAY, true).unwrap();
+        assert_eq!(done.destroyed, [key]);
+        assert!(done.failed.is_empty());
+        assert!(!host.volumes.contains_key(&dataset));
+        assert!(store.read_disk(OTHER, "root").unwrap().is_none());
+        assert!(host.holds[&origin.snapshot()]
+            .iter()
+            .all(|t| t == "qrab-image"));
+        // Nothing descends from the image any more, so it can be retired.
+        image_retire(&store, &mut host, &origin).unwrap();
+        // A second pass is a no-op.
+        let again = reap(&store, &mut host, 7, at + 30 * DAY, true).unwrap();
+        assert_eq!(
+            again,
+            ReapReport {
+                older_than_days: 7,
+                applied: true,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn reap_touches_only_retired_disks_and_stamps_old_journals() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        // Provisioned, active and fenced disks are never candidates.
+        create(&store, &mut host, UID, "data", 64 * MIB).unwrap();
+        create(&store, &mut host, UID, "root", 64 * MIB).unwrap();
+        export(&store, &mut host, UID, "root", 1, PW1).unwrap();
+        create(&store, &mut host, OTHER, "root", 64 * MIB).unwrap();
+        export(&store, &mut host, OTHER, "root", 1, PW1).unwrap();
+        fence(&store, &mut host, OTHER, "root").unwrap();
+        let report = reap(&store, &mut host, 0, u64::MAX, true).unwrap();
+        assert_eq!(
+            report,
+            ReapReport {
+                older_than_days: 0,
+                applied: true,
+                ..Default::default()
+            }
+        );
+        assert!(host.destroyed.is_empty());
+
+        // A journal retired before retired_at existed gets this pass's time,
+        // so its grace period starts now rather than immediately expiring.
+        retire(&store, &mut host, OTHER, "root").unwrap();
+        let mut legacy = store.read_disk(OTHER, "root").unwrap().unwrap();
+        legacy.retired_at = None;
+        store.write(&legacy).unwrap();
+        let now = 1_800_000_000;
+        let plan = reap(&store, &mut host, 7, now, false).unwrap();
+        assert_eq!(plan.stamped.len(), 1);
+        assert_eq!(retired_at(&store, OTHER, "root"), None);
+        let stamped = reap(&store, &mut host, 7, now, true).unwrap();
+        assert_eq!(stamped.stamped.len(), 1);
+        assert!(stamped.destroyed.is_empty());
+        assert_eq!(retired_at(&store, OTHER, "root"), Some(now));
+        assert_eq!(
+            reap(&store, &mut host, 7, now + 7 * DAY, true)
+                .unwrap()
+                .destroyed
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_failed_destroy_keeps_the_journal_and_reports_it() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        create(&store, &mut host, UID, "root", 64 * MIB).unwrap();
+        retire(&store, &mut host, UID, "root").unwrap();
+        host.fail_destroy = true;
+        let report = reap(&store, &mut host, 0, u64::MAX, true).unwrap();
+        assert_eq!(report.failed.len(), 1);
+        assert!(report.destroyed.is_empty());
+        assert!(store.read_disk(UID, "root").unwrap().is_some());
+        // The admin command exits non-zero when anything failed.
+        let argv = argv(&["vm-disk-reap", "--older-than-days", "0", "--mode", "apply"]);
+        assert!(admin_dispatch(&argv, &store, &mut host).is_err());
+        host.fail_destroy = false;
+        let out = admin_dispatch(&argv, &store, &mut host).unwrap();
+        assert_eq!(out["reap"]["destroyed"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn reap_is_admin_only_with_exact_arguments() {
+        let (_dir, store, _) = fixture();
+        let mut host = Fake::default();
+        assert!(ADMIN_COMMANDS.contains(&"vm-disk-reap") && !COMMANDS.contains(&"vm-disk-reap"));
+        let daemon = argv(&["vm-disk-reap", "--older-than-days", "7", "--mode", "plan"]);
+        assert_eq!(
+            code(dispatch(&daemon, &mut std::io::empty(), &store, &mut host)),
+            "invalid-arguments"
+        );
+        for bad in [
+            &["vm-disk-reap", "--older-than-days", "7"][..],
+            &["vm-disk-reap", "--older-than-days", "7", "--mode", "now"],
+            &["vm-disk-reap", "--older-than-days", "-1", "--mode", "plan"],
+            &["vm-disk-reap", "--mode", "plan", "--older-than-days", "7"],
+        ] {
+            assert_eq!(
+                code(admin_dispatch(&argv(bad), &store, &mut host)),
+                "invalid-arguments"
+            );
+        }
+        let out = admin_dispatch(&daemon, &store, &mut host).unwrap();
+        assert_eq!(out["reap"]["applied"], false);
     }
 
     #[test]
@@ -2759,6 +2994,7 @@ mod tests {
             origin_guid: None,
             chap_password: String::new(),
             seal: None,
+            retired_at: None,
         };
         store.write(&interrupted).unwrap();
         host.volumes.insert(interrupted.spec.dataset(), 16 * MIB);

@@ -97,7 +97,7 @@ Activation requires root and is staged, not automatic:
    actor must already be in `TOWL_STORAGE_ALLOWED_ACTORS`) and restart it.
 3. Create the Kanidm service account and scope map for the operator subject
    (`openid storage_read storage_provision storage_clone storage_expand
-   storage_attach`; never `storage_publish`/`storage_retire`), its `may_act`
+   storage_attach storage_retire`; never `storage_publish`), its `may_act`
    grant for the exchange shim actor, and the shim policy
    `qrab-vm-disk-operator` for caller
    `spiffe://yapplesauce.com/kubernetes/qrab/qrab-operator`.
@@ -106,6 +106,11 @@ Activation requires root and is staged, not automatic:
    (`contrib/kubernetes/operator/storage-api/clusterspiffeid.yaml`) and publish
    the ingress CA as ConfigMap `qrab-storage-host-ca`; then apply the
    `contrib/kubernetes/operator/storage-api` component.
+5. Install the reap timer:
+   `sudo install -o root -g root -m 0644 contrib/storage/qrab-iscsi-reap.service contrib/storage/qrab-iscsi-reap.timer /etc/systemd/system/`,
+   then `sudo systemctl daemon-reload && sudo systemctl enable --now qrab-iscsi-reap.timer`.
+   Run `sudo qrab-iscsi-target vm-disk-reap --older-than-days 7 --mode plan`
+   first to see what the first pass will stamp or destroy.
 
 The first demo is fixed to VM UID `e309f751-5dda-4271-a0f4-4454c9527a59`, LUN0,
 128MiB, host bridge `10.203.0.1:3260`. Its target is
@@ -126,10 +131,12 @@ Recorded ZFS GUID, identity, size, geometry, reservation and target topology
 must continue to match. The legacy demo has no resize; provisioned disks grow
 only (`vm-disk-expand`), CoW clones are thin but budgeted at their logical size,
 and images are sealed snapshots. There is no foreign-adopt operation and no
-destroy of a disk or sealed image. Only two destroys exist, each limited to an
-unsealed zvol the tool created itself and checked for ownership.
-`vm-image-stage-abort` is the only one the API can reach. The other is a
-failed `vm-image-import` discarding its zvol. The existing
+destroy of a sealed image. Three destroys exist, each limited to a zvol the
+tool created itself and checked for ownership. `vm-image-stage-abort`, on an
+unsealed stage, is the only one the API can reach. A failed `vm-image-import`
+discards its zvol. The root-only `vm-disk-reap` destroys disks retired more
+than N days ago; `qrab-iscsi-reap.timer` runs it daily with N=7
+([docs/iscsi.md](../../docs/iscsi.md#the-reap-timer)). The existing
 `tank/kubernetes-block-storage` tree is unchanged.
 
 Manifests and passwords are root-owned0600 below

@@ -457,6 +457,25 @@ pub(super) async fn reconcile(
                     )
                     .await;
                 }
+                // Retired disks are destroyed by the storage host's reaper after
+                // its grace period. A refused retire keeps today's fenced, retained
+                // disk and does not hold up the deletion; an outage is retried.
+                match provision::retire_all(api, vm).await {
+                    Ok(refused) => {
+                        for (disk, code) in refused {
+                            tracing::warn!(vm=%vm.name_any(), uid=?vm.uid(), %disk, %code, "Deleted VM's disk stays fenced and retained: the storage service refused vm-disk-retire, so the reaper will not destroy it");
+                        }
+                    }
+                    Err(error) => {
+                        return blocked(
+                            vms,
+                            vm,
+                            None,
+                            &format!("Retiring fenced disks before deletion failed: {error}"),
+                        )
+                        .await;
+                    }
+                }
             }
             vm_finalizer(vms, vm, false).await?;
         }
@@ -948,7 +967,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deletion_fences_provisioned_disks_before_dropping_the_vm_finalizer() {
+    async fn deletion_fences_and_retires_provisioned_disks_before_dropping_the_vm_finalizer() {
         let mut vm = provisioned(vm());
         vm.status.as_mut().unwrap().storage_released_pod_uid = Some("pod-uid".into());
         mark_deleting(&mut vm);
@@ -958,6 +977,22 @@ mod tests {
         assert!(store.0.lock().unwrap().calls.is_empty());
         server.abort();
         let fake = exported();
+        let (store, ctx, server) = server_with(vm.clone(), None, Some(fake.clone())).await;
+        step(&store, ctx).await;
+        assert_eq!(store.0.lock().unwrap().calls, vec!["remove-vm-finalizer"]);
+        assert_eq!(
+            fake.disk("vm-uid", "root").unwrap().phase,
+            crate::storage::DiskPhase::Retired
+        );
+        assert!(
+            fake.calls().iter().position(|c| c == "fence root")
+                < fake.calls().iter().position(|c| c == "retire root")
+        );
+        server.abort();
+        // A refused retire leaves the disk fenced and does not block deletion.
+        let fake = exported();
+        fake.retire_forbidden
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let (store, ctx, server) = server_with(vm, None, Some(fake.clone())).await;
         step(&store, ctx).await;
         assert_eq!(store.0.lock().unwrap().calls, vec!["remove-vm-finalizer"]);

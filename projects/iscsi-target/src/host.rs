@@ -1,6 +1,6 @@
 use crate::{
-    valid_quota, Backend, Image, Origin, Record, Refusal, Spec, HBA, OWNER, PARENT, PARENT_QUOTA,
-    PORTAL,
+    valid_quota, Backend, Image, Origin, Phase, Record, Refusal, Spec, HBA, OWNER, PARENT,
+    PARENT_QUOTA, PORTAL,
 };
 use anyhow::{bail, ensure, Context, Result};
 use std::{
@@ -1255,6 +1255,36 @@ impl Backend for LinuxHost {
         self.check_partial(r)?;
         Self::remove_export(&r.spec)?;
         self.zfs(&["set", &format!("{STATE_PROP}=retained"), &r.spec.dataset()])?;
+        Ok(())
+    }
+    fn destroy_retired(&mut self, r: &Record) -> Result<()> {
+        let spec = &r.spec;
+        ensure!(
+            r.phase == Phase::Retired && spec.disk.is_some() && spec.stage.is_none(),
+            "only a retired VM disk is destroyed"
+        );
+        ensure!(
+            !Self::target(spec).exists() && !Self::object(spec).exists(),
+            "retired disk still has export objects"
+        );
+        let dataset = spec.dataset();
+        if self.exists(&dataset)? {
+            self.record_check(r)?;
+            let state = self.properties(&dataset, STATE_PROP)?.remove(STATE_PROP);
+            ensure!(
+                state.as_deref() == Some("retained"),
+                "retired zvol is not marked retained"
+            );
+            // Without -r: a snapshot nobody here made fails the destroy closed.
+            self.zfs_retry(&["destroy", &dataset], "destroy the retired zvol")?;
+            ensure!(!self.exists(&dataset)?, "retired zvol still exists");
+        }
+        if let Some(origin) = &spec.origin {
+            let (snapshot, tag) = (origin.snapshot(), spec.clone_hold());
+            if self.snapshot_exists(&snapshot)? && self.held(&snapshot, &tag)? {
+                self.zfs(&["release", &tag, &snapshot])?;
+            }
+        }
         Ok(())
     }
     fn open_stage(&mut self, stage: &Record) -> Result<Box<dyn Read>> {

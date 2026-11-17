@@ -465,8 +465,9 @@ without this exact provenance remains retained. Existing controller ownership
 is unchanged. Garbage collection deletes only the VM-owned claim. The
 `zfs-block` volume behind it is
 Retain-only: the PV turns Released and its zvol stays until it is destroyed on
-the storage host ([retained storage](iscsi.md#destroying-retained-data)). Provisioned guest disks retain their data
-after their connections are closed (see [retained storage](iscsi.md#destroying-retained-data)).
+the storage host ([retained storage](iscsi.md#destroying-retained-data)). Provisioned guest disks are fenced
+and retired: their data stays for a 7-day grace period, then the storage host's
+reap timer destroys it ([the reap timer](iscsi.md#the-reap-timer)).
 The confirmation form repeats the exact VM name and explains what is kept.
 Once the VM and its PVC are gone the name can be launched again.
 

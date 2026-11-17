@@ -124,9 +124,13 @@ Per disk the operator:
    Status records each disk's capacity, credential generation and phase.
 4. when a disk leaves `spec.disks`, waits until no launched VM process mounts
    it, then fences its export and deletes its Secret. The zvol is retained, and
-   re-adding the same ID reattaches that data with a new credential. Removing
-   the LIO objects (`vm-disk-retire`) stays an administrative storage verb, and
-   destroying the data is manual ([below](#destroying-retained-data)).
+   re-adding the same ID reattaches that data with a new credential.
+5. when the VM is deleted, fences every disk and then retires it
+   (`vm-disk-retire`: the LIO objects go, the data stays and the journal records
+   `retired_at`). Seven days later the storage host's reap timer destroys it
+   ([below](#destroying-retained-data)). If the storage service refuses the
+   retire (an identity without `storage_retire`), the disk stays fenced and
+   retained as before and the deletion still completes; the operator logs it.
 
 A fence that outlives the storage daemon's wrapper budget leaves the journal in
 `Fencing`; the operator reports `StorageFenceInProgress` and resumes it on the
@@ -165,13 +169,15 @@ publish it with an administrator token holding `storage_publish`:
 Publication requires a verified `Fenced` source, copies it with
 `zfs send | zfs receive` into a readonly `image-debian-g3` and holds its
 `@sealed` snapshot. Generations are immutable; publish a new generation for an
-update. The operator identity cannot publish or retire. `vm-disk-retire` (also
-administrative) removes a fenced disk's LIO objects and marks it retained.
+update. The operator identity cannot publish or retire images. `vm-disk-retire`
+removes a fenced disk's LIO objects, marks it retained and records when; the
+operator calls it for a deleted VM's disks.
 `vm-image-retire` stops new clones of a generation and marks it retained; it is
 refused while any disk journal (in any phase, including retired clones), clone
 hold or ZFS origin still descends from the sealed snapshot. The API never
 destroys a disk or a sealed image; its only destroy is
-`vm-image-stage-abort` on an unsealed stage.
+`vm-image-stage-abort` on an unsealed stage. Retired disks are destroyed only
+by the root reap timer on the storage host.
 
 To import a stock OS image such as CirrOS, a storage-host administrator runs
 the root-only `vm-image-import` command. It is not a storage-daemon verb and
@@ -304,12 +310,54 @@ recovery; never copy a TPM volume to make another identity.
 ## Destroying retained data
 
 All VM storage is Retain-only, and no API destroys a disk or a sealed image
-(only `vm-image-stage-abort` destroys an unsealed stage). Deleting a VM, or
-dropping a disk from `spec.disks`, fences the export and keeps the zvol, which
-still counts against the `tank/qrab-iscsi` quota. Throwaway VMs therefore leave
-one retained disk each; the live check scripts are tracked by towl
-`work/test-vm-disk-leak`. Destroying a disk is a root operation on the storage
-host `bb`, after you have confirmed that no VM will reattach it:
+(only `vm-image-stage-abort` destroys an unsealed stage). Dropping a disk from
+`spec.disks` fences the export and keeps the zvol, so re-adding it reattaches
+the data. Deleting a VM fences and then **retires** its disks: the data stays,
+still counting against the `tank/qrab-iscsi` quota, for a 7-day grace period.
+
+### The reap timer
+
+`qrab-iscsi-reap.timer` runs daily on the storage host `bb` (`Persistent=true`,
+up to an hour's random delay). Its service runs, as root:
+
+```sh
+/usr/local/sbin/qrab-iscsi-target vm-disk-reap --older-than-days 7 --mode apply
+```
+
+For every journal in phase `retired` whose `retired_at` is at least 7 days old,
+it re-checks the zvol's ownership marker, GUID and `retained` state and that no
+LIO objects remain, destroys the zvol without `-r` (an unknown snapshot fails
+the destroy closed), releases the clone's `qrab-clone-<uid>.<id>` hold on the
+image snapshot and removes the journal, so `vm-image-retire` no longer counts
+it. Fenced, active and provisioned disks are never candidates. A journal
+retired before `retired_at` existed is stamped with the first pass's time, so
+its grace period starts then. One failing disk does not stop the others; the
+run exits non-zero with the failures in its JSON report (`journalctl -u
+qrab-iscsi-reap`). `--mode plan` lists what would happen and changes nothing:
+
+```sh
+sudo /usr/local/sbin/qrab-iscsi-target vm-disk-reap --older-than-days 7 --mode plan
+```
+
+The command is administrator-only, like `vm-image-import`: it is not a storage
+daemon verb and no token reaches it.
+
+### By hand
+
+To destroy a disk sooner, or one that was only fenced (dropped from
+`spec.disks`, or deleted while retire was refused), first confirm that no VM
+will reattach it. Retire it, then reap with a zero grace period, which destroys
+**every** retired disk, so check the plan first:
+
+```sh
+t=/usr/local/sbin/qrab-iscsi-target
+sudo $t vm-disk-status --vm-uid VM-UID --disk ID   # phase "fenced" or "provisioned"
+sudo $t vm-disk-retire --vm-uid VM-UID --disk ID
+sudo $t vm-disk-reap --older-than-days 0 --mode plan
+sudo $t vm-disk-reap --older-than-days 0 --mode apply
+```
+
+Or, for exactly one disk, the steps the reaper takes:
 
 ```sh
 t=/usr/local/sbin/qrab-iscsi-target
@@ -324,8 +372,11 @@ sudo zfs release qrab-clone-VM-UID.ID tank/qrab-iscsi/image-NAME-gGEN@sealed
 sudo zfs destroy tank/qrab-iscsi/disk-VM-UID-ID
 ```
 
-The retired journal `/var/lib/qrab-iscsi-target/<VM-UID>.<id>.json` stays, and
-`vm-image-retire` still counts it as a descendant of the clone's image. Image
+After a manual destroy the retired journal
+`/var/lib/qrab-iscsi-target/<VM-UID>.<id>.json` stays, and `vm-image-retire`
+still counts it as a descendant of the clone's image; the reap timer removes
+it on its next pass (its zvol is already gone, so only the hold and journal
+are cleaned). Image
 generations follow the same order: `vm-image-retire`, then
 `zfs release qrab-image` on the `@sealed` snapshot, then `zfs destroy -r` the
 image dataset.

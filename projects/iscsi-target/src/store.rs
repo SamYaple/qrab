@@ -215,6 +215,21 @@ impl Store {
         File::open(&self.root)?.sync_all()?;
         Ok(())
     }
+    /// Removes a retired disk's journal once the reaper destroyed its zvol.
+    pub(crate) fn remove_retired(&self, record: &Record) -> Result<()> {
+        let (uid, disk) = (&record.spec.vm_uid, record.spec.disk.as_deref());
+        let disk = disk.ok_or_else(|| anyhow::anyhow!("not a VM disk journal"))?;
+        let Some(current) = self.read_disk(uid, disk)? else {
+            return Ok(());
+        };
+        ensure!(
+            current.phase == crate::Phase::Retired,
+            "only a retired disk journal may be removed"
+        );
+        fs::remove_file(self.manifest_path(&current.spec.key()))?;
+        File::open(&self.root)?.sync_all()?;
+        Ok(())
+    }
     /// The unsealed stage of one image generation, `stage-<name>-g<gen>.json`.
     pub fn read_stage(&self, origin: &Origin) -> Result<Option<Record>> {
         origin.validate()?;
