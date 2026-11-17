@@ -400,3 +400,44 @@ async fn late_failed_cleanup_keeps_the_current_target_and_its_anchor() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_fast_handover_records_target_uid_before_adopting_and_recovers_completion() {
+    let (store, ctx) = preparing().await;
+    assert!(moving(&store)["targetPodUid"].is_null());
+    // With no storage gate, kubelet/runtime reports may arrive before the
+    // controller first observes its newly created target.
+    store.edit(SOURCE, |pod| terminated(pod, 0, "migrated"));
+    store.edit(TARGET,|pod| {
+        pod["spec"]["nodeName"]=json!("node-b");
+        pod["status"]=json!({"phase":"Running","podIP":"10.244.2.9","conditions":[{"type":"Ready","status":"True"}],
+            "containerStatuses":[{"name":"manager","image":"x","imageID":"x","ready":true,"restartCount":0,"state":{"running":{}}}]});
+    });
+    store.step(&ctx).await;
+    assert_eq!(
+        moving(&store)["targetPodUid"],
+        store.get(TARGET).unwrap()["metadata"]["uid"],
+        "fast adoption did not first persist its target identity"
+    );
+    assert_eq!(
+        store.status()["podName"],
+        "test-vm",
+        "identity observation and adoption must be separate writes"
+    );
+    let mut newer = store.get(MOVE).unwrap();
+    newer["metadata"]["resourceVersion"] = json!("completion-conflict");
+    store
+        .1
+        .lock()
+        .unwrap()
+        .before_patch
+        .insert(MOVE.into(), newer);
+    expect_api_conflict(&store, &ctx).await;
+    assert_eq!(store.status()["podName"], "test-vm-maaaa11");
+    until(&store, &ctx, 6, |s| moving(s)["cleaned"] == true).await;
+    assert_eq!(moving(&store)["phase"], "Succeeded");
+    for path in [TARGET, TARGET_CLAIM, CONFIG] {
+        assert!(store.get(path).is_some(), "lost current resource {path}");
+    }
+    assert!(store.get(SOURCE).is_none());
+}

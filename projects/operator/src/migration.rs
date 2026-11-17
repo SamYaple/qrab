@@ -54,10 +54,9 @@ pub const MIGRATED: &str = "migrated";
 pub const SOURCE_POWERED_OFF: &str = "source-powered-off";
 /// Failure reason of a migration whose VM is powered off.
 pub const POWERED_OFF: &str = "PoweredOff";
-/// On a target Pod until it takes over: the migration that created it. A Pod
-/// still carrying it never ran the guest (its QEMU at most held the disks
-/// inactive for `-incoming`), so once its manager has exited it holds no disk
-/// session, and objects of a migration that no longer exists can be found.
+/// The migration that created a target, until operator adoption removes it.
+/// This is provenance, not proof that the guest never ran: runtime handover
+/// can finish before the operator observes and adopts the target.
 pub const TARGET_ANNOTATION: &str = "qrab.yapplesauce.com/migration-target";
 const STATE_COMPONENT: &str = "vm-state";
 
@@ -972,6 +971,14 @@ async fn step(
                 "Pod {target} is not the recorded migration target"
             )));
         }
+        // A target without storage gates can finish before our first Pod
+        // observation. Persist identity before either adoption or ungating,
+        // so a lost completion write always has a durable UID receipt.
+        if status.target_pod_uid.is_none() {
+            status.target_pod_uid = target_pod.uid();
+            set_status(api, migration, &status).await?;
+            return Ok(Some(Action::requeue(Duration::from_secs(1))));
+        }
     }
     // The source handed the guest over: the target owns it and its disks now.
     if handed_over(source) {
@@ -1178,12 +1185,6 @@ async fn step(
             &format!("Pod {target} does not belong to this VM"),
         )
         .await;
-    }
-    // Record the target's UID durably before any kubelet may run it.
-    if status.target_pod_uid.is_none() {
-        status.target_pod_uid = target_pod.uid();
-        set_status(api, migration, &status).await?;
-        return Ok(Some(Action::requeue(Duration::from_secs(1))));
     }
     if target_pod
         .spec

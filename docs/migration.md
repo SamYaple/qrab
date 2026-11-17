@@ -84,6 +84,11 @@ replaces it as the scheduling pin after a move, and the VM restarts there.
 
 ### Controller retries and object ownership
 
+The controller records a verified target UID in a separate conditional status
+step before adoption or releasing a storage scheduling gate. A target with
+no such gate may finish very quickly; its UID is still recorded before the
+handover branch publishes VM adoption, preserving the completion-retry receipt.
+
 Preparation checks the current VM controller relationship on existing target
 Pods, ConfigMaps, state PVCs and migration policies. Existing configuration
 and window policy must match the intended plan. A recorded target Pod UID
