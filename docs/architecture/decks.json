@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "8b1c4f236fde3f56c2826d5ad49b4bc1477e0408",
+  "reviewed_through": "17d7d21d86f193475ec8a8884a3ccbbcf837810d",
   "decks": [
     {
       "id": "leadership",
@@ -960,7 +960,7 @@
         {
           "kind": "diagram",
           "diagram": "34-evidence-classes",
-          "notes": "Local kernel fixtures use stand-in uplinks, not Cilium. The two VPN fixtures were skipped without tools in the recorded run; never count early returns as datapath acceptance.",
+          "notes": "Local kernel fixtures use stand-in uplinks, not Cilium. Earlier VPN skips were followed by T05: all six isolated kernel fixtures ran with temporary WireGuard tools, including kill-switch and tunnel-only NAT-PMP. This does not exercise Cilium or BGP.",
           "evidence": [
             "T01",
             "T03",

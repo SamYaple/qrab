@@ -1,0 +1,13 @@
+flowchart TB
+    desired["Desired mounted config"] --> capture["One bounded byte snapshot"]
+    capture --> parse["Parse tunnel plan"]
+    capture --> digest["Fingerprint the same bytes"]
+    parse --> effect["Apply plan in held namespace / bind responder"]
+    effect --> ready["Record successful applied context"]
+    digest --> ready
+    ready --> scope["Generation = namespace token + applied digest"]
+    scope --> renew["Renew using applied gateway"]
+    renew --> check{"Generation still current at completion?"}
+    check -->|yes| cache["Update local round / conditional API observation"]
+    check -->|no| discard["Discard late result"]
+    newer["Desired file may advance independently"] -.-> desired

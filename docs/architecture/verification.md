@@ -15,7 +15,7 @@ them together does not automatically establish a live workload outcome.
 | Real QMP smoke | Local pinned 11.1.3, machine none/TCG, private monitor sockets; compact/pretty and legacy/object monitor frontends | Generated schema/types and protocol behavior work against that real peer | No firmware, KVM, guest, disk, network or migration workload |
 | Real QGA smoke | Local qemu-ga 11.1.3, private listener/temp files and explicit RPC allowlist | Sync, info/ping, a 2 MiB typed file read and allowed exec/status work against that peer | No in-guest agent rollout or application consistency proof |
 | Original socket-peer fixture | Private child process and Unix connection on a supporting local kernel | Peer authority does not become a replacement numeric process after exit | No live VM grant or node rollout |
-| Kernel networking fixtures | Throwaway user/network namespaces, real TAP/FD transfer, routes, DHCP lease updates/bind failures and namespace replacement | The exercised local kernel mechanisms work in isolated fixtures | Dummy uplink replaces Cilium; VPN cases skipped without WireGuard tools |
+| Kernel networking fixtures | Throwaway user/network namespaces, real TAP/FD transfer, routes, DHCP lease updates/bind failures and namespace replacement | The exercised local kernel mechanisms work in isolated fixtures | Dummy uplinks replace Cilium; the later T05 run also exercises WireGuard/NAT-PMP |
 | Manager NIC fixture | Stand-in netd and QMP peers, actual manager reconciliation | Namespace token change causes ordered NIC-only detach/attach with the same MAC/root port | Guest hot-unplug and traffic continuity require their own acceptance |
 | Private netd socket faults | Fragmented JSON, descriptor timing/count/truncation, malformed input, dribble and full listen queue | Frame bounds and descriptor cleanup are regression-tested without a node daemon | No production endpoint handoff or remote packet test |
 | Limited native observation | netd host cgroup view, node kernel metadata and no-op status server dry-runs | The recorded prerequisites and API conditional-write semantics matched at that time | Not a fresh health audit or proof of every feature/image |
@@ -48,8 +48,14 @@ not advance the QEMU source baseline.
 The networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. Read the emitted skip reasons: a test function that
 returns early is not evidence that its privileged or optional path ran.
-The current record distinguishes four exercised kernel fixtures from two
-VPN fixtures that skipped for missing tooling.
+Earlier runs exercised four fixtures and skipped two VPN cases for missing
+tooling. A later explicit run with temporary wireguard-tools 1.0.20260223
+executed **all six** without skips: namespace selection/lifetime, TAP descriptor
+transfer, forwarding routes, updated DHCP, WireGuard reachability/kill-switch
+and tunnel-only NAT-PMP mapping. The provider and links were throwaway local
+fixtures, not a real VPN subscription or Cilium/BGP path. Tool source/version
+and checksums are recorded in qrab towl; no host tool installation or service
+was required.
 
 ## Reject findings that fail the real contract
 

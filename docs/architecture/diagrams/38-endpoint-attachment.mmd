@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant M as Authorized VM / NIC control
+    participant N as netd
+    participant C as Local Cilium API
+    M->>N: Own-NIC handoff request
+    N->>C: GET endpoint by CEP name
+    C-->>N: Identity labels + unique attachment A
+    N->>N: Verify VM UID / NIC / role / namespace
+    Note over N,C: The reusable name may now refer to B
+    N->>C: PATCH unique CNI attachment A
+    C-->>N: State outcome for A, or refusal if gone
+    N-->>M: Bounded result

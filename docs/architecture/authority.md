@@ -19,7 +19,10 @@ This is a useful architecture-review perspective alongside the service map.
 | Namespace path | Already-open namespace descriptor from the validated current anchor process | Entry/FD grants use that resource through completion |
 | Ready anchor Pod UID | Current namespace token backed by a held resource | A same-UID sandbox replacement invalidates stale readiness and queue binding |
 | Descriptor-bearing reply | Complete bounded frame plus owned SCM_RIGHTS resources | Fragmentation, parse errors and truncation cannot lose track of installed FDs |
-| Mounted VPN file | Read relative to the validated held process directory, with a bound | A later PID path cannot select another process's mount/root |
+| Mounted VPN file | Read relative to the validated current process, with a bound | A later PID path cannot select another mount/root |
+| Applied VPN generation | Digest and parsed plan from the same captured bytes | New desired bytes and late round results cannot retag an older applied effect |
+| Local Cilium provider | Original protected-socket peer and held mount/PID/root handles | A writable process name or later PID path cannot choose privileged tool execution |
+| Cilium endpoint name | Verified VM/NIC labels and unique CNI attachment ID | Name reuse after lookup cannot retarget mutation to a new attachment |
 | Guest address | Owned pool/endpoint and controlled route/handoff state | Standby/active authority and route retirement are explicit |
 | CHAP login | Exact export generation plus required hard fencing | Authentication does not establish that an old writer is gone |
 | Downloaded image digest | Verified standalone source and independently sealed raw generation | Metadata cannot extend integrity to unverified backing/data inputs |
@@ -79,3 +82,35 @@ libvirt, Neutron or Keystone does not complete those contracts by itself.
 The comparison should show both the simpler ownership map and the concrete
 seams that make it work. No claim about the other cluster's internal process
 handling or identity federation is inferred from this source review.
+
+## Keep desired input separate from applied observations
+
+A mutable desired file may advance while a local operation is applying a
+captured snapshot. Parse and fingerprint the same bounded bytes, then record
+the generation whose operation succeeded. Dependent work such as port renewal
+uses that applied generation. A12 covers the source repair and its private
+late-completion/snapshot regressions.
+
+![Applied snapshot and scoped completion](diagrams/rendered/light/36-applied-snapshot.svg)
+
+This fingerprint is a generation reference, not authentication. The API's
+conditional status write separately identifies the observed Pod; it does not
+make the OS, remote provider and API one transaction.
+
+## Authenticate the provider as well as the requester
+
+Exact-node TLS authorizes the network conntrack peer. It does not establish
+which local process supplies the privileged tool environment. A14 uses the
+protected local Cilium socket's original peer and held namespace/root handles
+for that second question. It preserves the scoped conntrack parser and its
+streaming-memory bounds.
+
+![Requester and provider authority](diagrams/rendered/light/37-provider-authority.svg)
+
+## Verify a logical owner, then address its immutable attachment
+
+A13 separates lookup from effect: a CEP name locates an endpoint, while the
+verified unique attachment identifies the mutation target. Caller admission
+and resource ownership checks both remain necessary.
+
+![Verified endpoint attachment](diagrams/rendered/light/38-endpoint-attachment.svg)

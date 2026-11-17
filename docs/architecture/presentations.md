@@ -133,3 +133,7 @@ guest/storage authority. Each has its own notes and evidence references.
 Use [the operating model](operating-model.md) to explain why a crate graph, a
 Pod diagram and a responsibility map differ. Use [verification](verification.md)
 for a skeptical review of what the collected tests actually establish.
+
+The latest explicit networking verification includes the previously skipped
+WireGuard cases; [verification](verification.md) distinguishes that local
+provider fixture from production VPN and Cilium/BGP acceptance.

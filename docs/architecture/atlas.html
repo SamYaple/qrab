@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 8b1c4f236fde · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>27 document views · 39 unique diagrams · 6 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 17d7d21d86f1 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>27 document views · 42 unique diagrams · 6 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -1171,7 +1171,7 @@ bmc and redfish can be shipped in one image while running as separate containers
 | [`qrab-guest-agent`](../../projects/qrab-guest-agent/) | fixed in-guest qga allowlist, freeze/thaw watchdog, boot/firmware reads and bounded update hook | arbitrary guest shell/exec service, host privilege, kubernetes credentials | `src/agent.rs`, `framing.rs`, `update.rs`, `secure_boot.rs` |
 | [`qrab-spire-relay`](../../projects/qrab-spire-relay/) | bounded guest-loopback to virtio-serial multiplexing and framing | tls termination, workload attestation or guest identity issuance | `src/guest.rs`, `wire.rs`; host side in manager `spire_relay.rs` |
 | [`qrab-kvm-device-plugin`](../../projects/kvm-device-plugin/) | kubelet device-plugin registration and cdi injection of `/dev/kvm` and the netd socket mount | qemu processes or guest packet forwarding | `src/lib.rs` |
-| [`qrab-netd`](../../projects/qrab-netd/) | privileged node-local tap/vhost grants, anchor plumbing, dhcp/vpn, handoff/conntrack operations | user/vm orchestration, guest qmp or a second cni | `src/main.rs`, `authz.rs`, `sys.rs`, `peer.rs`, `peer_tls.rs` |
+| [`qrab-netd`](../../projects/qrab-netd/) | privileged node-local tap/vhost grants, anchor plumbing, dhcp/vpn, handoff/conntrack operations | user/vm orchestration, guest qmp or a second cni | `src/main.rs`, `authz.rs`, `process.rs`, `anchor.rs`, `cilium.rs`, `sys.rs`, `peer.rs`, `peer_tls.rs` |
 | [`qrab-spiffe`](../../projects/qrab-spiffe/) | workload api consumption, exact spiffe peer policy, rotating tls and http helpers | human roles, credential exchange policy or spire server administration | `src/lib.rs`, `http.rs` |
 | [`qrab-proton`](../../projects/proton/) | workstation proton login and in-cluster vpn-profile broker | a general network controller or guest credentials | `src/login.rs`, `broker/runner.rs`, `crd.rs` |
 | [`qrab-observability`](../../projects/qrab-observability/) | api-backed vm/pod discovery, authenticated scrape and constrained prometheus-history bridge | general promql proxying or durable event/audit storage | `src/lib.rs`, `main.rs` |
@@ -1336,7 +1336,7 @@ BMC and Redfish can be shipped in one image while running as separate containers
 <td><a href="../../projects/qrab-netd/"><code>qrab-netd</code></a></td>
 <td>Privileged node-local TAP/vhost grants, anchor plumbing, DHCP/VPN, handoff/conntrack operations</td>
 <td>User/VM orchestration, guest QMP or a second CNI</td>
-<td><code>src/main.rs</code>, <code>authz.rs</code>, <code>sys.rs</code>, <code>peer.rs</code>, <code>peer_tls.rs</code></td>
+<td><code>src/main.rs</code>, <code>authz.rs</code>, <code>process.rs</code>, <code>anchor.rs</code>, <code>cilium.rs</code>, <code>sys.rs</code>, <code>peer.rs</code>, <code>peer_tls.rs</code></td>
 </tr>
 <tr>
 <td><a href="../../projects/qrab-spiffe/"><code>qrab-spiffe</code></a></td>
@@ -2446,7 +2446,10 @@ this is a useful architecture-review perspective alongside the service map.
 | namespace path | already-open namespace descriptor from the validated current anchor process | entry/fd grants use that resource through completion |
 | ready anchor pod uid | current namespace token backed by a held resource | a same-uid sandbox replacement invalidates stale readiness and queue binding |
 | descriptor-bearing reply | complete bounded frame plus owned scm_rights resources | fragmentation, parse errors and truncation cannot lose track of installed fds |
-| mounted vpn file | read relative to the validated held process directory, with a bound | a later pid path cannot select another process&#x27;s mount/root |
+| mounted vpn file | read relative to the validated current process, with a bound | a later pid path cannot select another mount/root |
+| applied vpn generation | digest and parsed plan from the same captured bytes | new desired bytes and late round results cannot retag an older applied effect |
+| local cilium provider | original protected-socket peer and held mount/pid/root handles | a writable process name or later pid path cannot choose privileged tool execution |
+| cilium endpoint name | verified vm/nic labels and unique cni attachment id | name reuse after lookup cannot retarget mutation to a new attachment |
 | guest address | owned pool/endpoint and controlled route/handoff state | standby/active authority and route retirement are explicit |
 | chap login | exact export generation plus required hard fencing | authentication does not establish that an old writer is gone |
 | downloaded image digest | verified standalone source and independently sealed raw generation | metadata cannot extend integrity to unverified backing/data inputs |
@@ -2506,6 +2509,38 @@ libvirt, neutron or keystone does not complete those contracts by itself.
 the comparison should show both the simpler ownership map and the concrete
 seams that make it work. no claim about the other cluster&#x27;s internal process
 handling or identity federation is inferred from this source review.
+
+## keep desired input separate from applied observations
+
+a mutable desired file may advance while a local operation is applying a
+captured snapshot. parse and fingerprint the same bounded bytes, then record
+the generation whose operation succeeded. dependent work such as port renewal
+uses that applied generation. a12 covers the source repair and its private
+late-completion/snapshot regressions.
+
+![applied snapshot and scoped completion](diagrams/rendered/light/36-applied-snapshot.svg)
+
+this fingerprint is a generation reference, not authentication. the api&#x27;s
+conditional status write separately identifies the observed pod; it does not
+make the os, remote provider and api one transaction.
+
+## authenticate the provider as well as the requester
+
+exact-node tls authorizes the network conntrack peer. it does not establish
+which local process supplies the privileged tool environment. a14 uses the
+protected local cilium socket&#x27;s original peer and held namespace/root handles
+for that second question. it preserves the scoped conntrack parser and its
+streaming-memory bounds.
+
+![requester and provider authority](diagrams/rendered/light/37-provider-authority.svg)
+
+## verify a logical owner, then address its immutable attachment
+
+a13 separates lookup from effect: a cep name locates an endpoint, while the
+verified unique attachment identifies the mutation target. caller admission
+and resource ownership checks both remain necessary.
+
+![verified endpoint attachment](diagrams/rendered/light/38-endpoint-attachment.svg)
 "><h1 id="authority--authority-across-resource-lifetimes">Authority across resource lifetimes</h1>
 <p>A VM operation crosses several owners: human identity, declarative intent,
 runtime process, kernel resource and storage export. Each crossing needs a
@@ -2573,8 +2608,23 @@ This is a useful architecture-review perspective alongside the service map.</p>
 </tr>
 <tr>
 <td>Mounted VPN file</td>
-<td>Read relative to the validated held process directory, with a bound</td>
-<td>A later PID path cannot select another process's mount/root</td>
+<td>Read relative to the validated current process, with a bound</td>
+<td>A later PID path cannot select another mount/root</td>
+</tr>
+<tr>
+<td>Applied VPN generation</td>
+<td>Digest and parsed plan from the same captured bytes</td>
+<td>New desired bytes and late round results cannot retag an older applied effect</td>
+</tr>
+<tr>
+<td>Local Cilium provider</td>
+<td>Original protected-socket peer and held mount/PID/root handles</td>
+<td>A writable process name or later PID path cannot choose privileged tool execution</td>
+</tr>
+<tr>
+<td>Cilium endpoint name</td>
+<td>Verified VM/NIC labels and unique CNI attachment ID</td>
+<td>Name reuse after lookup cannot retarget mutation to a new attachment</td>
 </tr>
 <tr>
 <td>Guest address</td>
@@ -2641,6 +2691,28 @@ libvirt, Neutron or Keystone does not complete those contracts by itself.
 The comparison should show both the simpler ownership map and the concrete
 seams that make it work. No claim about the other cluster's internal process
 handling or identity federation is inferred from this source review.</p>
+<h2 id="authority--keep-desired-input-separate-from-applied-observations">Keep desired input separate from applied observations</h2>
+<p>A mutable desired file may advance while a local operation is applying a
+captured snapshot. Parse and fingerprint the same bounded bytes, then record
+the generation whose operation succeeded. Dependent work such as port renewal
+uses that applied generation. A12 covers the source repair and its private
+late-completion/snapshot regressions.</p>
+<p><img src="diagrams/rendered/light/36-applied-snapshot.svg" alt="Applied snapshot and scoped completion" /></p>
+<p>This fingerprint is a generation reference, not authentication. The API's
+conditional status write separately identifies the observed Pod; it does not
+make the OS, remote provider and API one transaction.</p>
+<h2 id="authority--authenticate-the-provider-as-well-as-the-requester">Authenticate the provider as well as the requester</h2>
+<p>Exact-node TLS authorizes the network conntrack peer. It does not establish
+which local process supplies the privileged tool environment. A14 uses the
+protected local Cilium socket's original peer and held namespace/root handles
+for that second question. It preserves the scoped conntrack parser and its
+streaming-memory bounds.</p>
+<p><img src="diagrams/rendered/light/37-provider-authority.svg" alt="Requester and provider authority" /></p>
+<h2 id="authority--verify-a-logical-owner-then-address-its-immutable-attachment">Verify a logical owner, then address its immutable attachment</h2>
+<p>A13 separates lookup from effect: a CEP name locates an endpoint, while the
+verified unique attachment identifies the mutation target. Caller admission
+and resource ownership checks both remain necessary.</p>
+<p><img src="diagrams/rendered/light/38-endpoint-attachment.svg" alt="Verified endpoint attachment" /></p>
 </article><article class="doc" id="doc-operating-model" data-search="# one system, several architecture maps
 
 a service replacement table, a rust dependency graph and a pod diagram answer
@@ -3135,7 +3207,7 @@ them together does not automatically establish a live workload outcome.
 | real qmp smoke | local pinned 11.1.3, machine none/tcg, private monitor sockets; compact/pretty and legacy/object monitor frontends | generated schema/types and protocol behavior work against that real peer | no firmware, kvm, guest, disk, network or migration workload |
 | real qga smoke | local qemu-ga 11.1.3, private listener/temp files and explicit rpc allowlist | sync, info/ping, a 2 mib typed file read and allowed exec/status work against that peer | no in-guest agent rollout or application consistency proof |
 | original socket-peer fixture | private child process and unix connection on a supporting local kernel | peer authority does not become a replacement numeric process after exit | no live vm grant or node rollout |
-| kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp lease updates/bind failures and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplink replaces cilium; vpn cases skipped without wireguard tools |
+| kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp lease updates/bind failures and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplinks replace cilium; the later t05 run also exercises wireguard/nat-pmp |
 | manager nic fixture | stand-in netd and qmp peers, actual manager reconciliation | namespace token change causes ordered nic-only detach/attach with the same mac/root port | guest hot-unplug and traffic continuity require their own acceptance |
 | private netd socket faults | fragmented json, descriptor timing/count/truncation, malformed input, dribble and full listen queue | frame bounds and descriptor cleanup are regression-tested without a node daemon | no production endpoint handoff or remote packet test |
 | limited native observation | netd host cgroup view, node kernel metadata and no-op status server dry-runs | the recorded prerequisites and api conditional-write semantics matched at that time | not a fresh health audit or proof of every feature/image |
@@ -3168,8 +3240,14 @@ not advance the qemu source baseline.
 the networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. read the emitted skip reasons: a test function that
 returns early is not evidence that its privileged or optional path ran.
-the current record distinguishes four exercised kernel fixtures from two
-vpn fixtures that skipped for missing tooling.
+earlier runs exercised four fixtures and skipped two vpn cases for missing
+tooling. a later explicit run with temporary wireguard-tools 1.0.20260223
+executed **all six** without skips: namespace selection/lifetime, tap descriptor
+transfer, forwarding routes, updated dhcp, wireguard reachability/kill-switch
+and tunnel-only nat-pmp mapping. the provider and links were throwaway local
+fixtures, not a real vpn subscription or cilium/bgp path. tool source/version
+and checksums are recorded in qrab towl; no host tool installation or service
+was required.
 
 ## reject findings that fail the real contract
 
@@ -3247,7 +3325,7 @@ them together does not automatically establish a live workload outcome.</p>
 <td>Kernel networking fixtures</td>
 <td>Throwaway user/network namespaces, real TAP/FD transfer, routes, DHCP lease updates/bind failures and namespace replacement</td>
 <td>The exercised local kernel mechanisms work in isolated fixtures</td>
-<td>Dummy uplink replaces Cilium; VPN cases skipped without WireGuard tools</td>
+<td>Dummy uplinks replace Cilium; the later T05 run also exercises WireGuard/NAT-PMP</td>
 </tr>
 <tr>
 <td>Manager NIC fixture</td>
@@ -3295,8 +3373,14 @@ not advance the QEMU source baseline.</p>
 <p>The networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. Read the emitted skip reasons: a test function that
 returns early is not evidence that its privileged or optional path ran.
-The current record distinguishes four exercised kernel fixtures from two
-VPN fixtures that skipped for missing tooling.</p>
+Earlier runs exercised four fixtures and skipped two VPN cases for missing
+tooling. A later explicit run with temporary wireguard-tools 1.0.20260223
+executed <strong>all six</strong> without skips: namespace selection/lifetime, TAP descriptor
+transfer, forwarding routes, updated DHCP, WireGuard reachability/kill-switch
+and tunnel-only NAT-PMP mapping. The provider and links were throwaway local
+fixtures, not a real VPN subscription or Cilium/BGP path. Tool source/version
+and checksums are recorded in qrab towl; no host tool installation or service
+was required.</p>
 <h2 id="verification--reject-findings-that-fail-the-real-contract">Reject findings that fail the real contract</h2>
 <p>The audit initially suspected that <code>ingress: [{}]</code> in two CiliumNetworkPolicy
 examples allowed all incoming traffic, by analogy with Kubernetes
@@ -5225,6 +5309,10 @@ guest/storage authority. each has its own notes and evidence references.
 use [the operating model](operating-model.md) to explain why a crate graph, a
 pod diagram and a responsibility map differ. use [verification](verification.md)
 for a skeptical review of what the collected tests actually establish.
+
+the latest explicit networking verification includes the previously skipped
+wireguard cases; [verification](verification.md) distinguishes that local
+provider fixture from production vpn and cilium/bgp acceptance.
 "><h1 id="presentations--presentation-variants">Presentation variants</h1>
 <p>The same evidence supports different stories. Keep the simple matched
 OpenStack/qrab boundary pair at the center, and use detailed diagrams only
@@ -5419,6 +5507,9 @@ guest/storage authority. Each has its own notes and evidence references.</p>
 <p>Use <a href="#doc-operating-model">the operating model</a> to explain why a crate graph, a
 Pod diagram and a responsibility map differ. Use <a href="#doc-verification">verification</a>
 for a skeptical review of what the collected tests actually establish.</p>
+<p>The latest explicit networking verification includes the previously skipped
+WireGuard cases; <a href="#doc-verification">verification</a> distinguishes that local
+provider fixture from production VPN and Cilium/BGP acceptance.</p>
 </article><article class="doc" id="doc-upstream-diagrams" data-search="# upstream openstack diagrams as a comparison reference
 
 these unmodified images are from the openstack contributors&#x27; neutron 2026.1
@@ -5877,6 +5968,104 @@ client-only checks passed; two optional kernel vpn fixtures still skipped.
 **merged source:** `8b1c4f236fde3f56c2826d5ad49b4bc1477e0408`.
 **tracking:** qrab `work/netd-current-container-namespace`.
 
+## a12 — desired bytes and late renewal results could be mistaken for applied state
+
+**affected source:** netd vpn snapshot, ready context and nat-pmp cache.
+**repair baseline:** `3cbca19`.
+
+reconcile read a digest before plumbing independently reread/parsing the file,
+then recorded the earlier digest. an a→b→a rewrite could leave b applied while
+the stored a fingerprint falsely matched the restored desired file. renewal
+also reread desired gateway data rather than using the installed plan, and a
+late round could repopulate the uid-only cache after a namespace/config reset.
+
+one bounded read through the selected process now supplies both parsed tunnel
+and fingerprint. the successful ready context retains only its digest/gateway,
+not another private-key copy. renewal uses that applied context. its generation
+combines the held namespace token with the applied digest; cache insertion is
+conditional on the still-current generation. reverify of unchanged state
+preserves the round. old completions are discarded, a failed report cannot
+clear another generation, and disabling forwarding reports unmapped even after
+cache reset. the redundant separate digest map was removed.
+
+the late-namespace round regression failed before the change and passes after.
+controlled file snapshots cover the a→b→a case; private api/cache fixtures cover
+unchanged reverify, changed config, stale completion and disabled forwarding.
+default node tests, client-only compilation and the combined full runtime gate
+passed. all six explicit kernel fixtures also executed with temporary
+wireguard tooling, strengthening the separate mechanism evidence.
+
+the digest identifies configuration bytes; it is not a credential or proof of
+remote provider state. api status remains a conditional observation, not a
+transaction spanning kernel commands, provider replies and kubernetes.
+
+**merged source:** `3b2ea3166bcb037653a51dc4cfceee9b344ba7c3`.
+**tracking:** qrab `work/netd-applied-vpn-snapshot`.
+
+## a13 — a reusable endpoint name could retarget a handoff effect
+
+**affected source:** netd control handler and local cilium handoff api client.
+**repair baseline:** `dd2f604`.
+
+authorization selected an own-vm/nic pod snapshot, but the privileged patch
+resolved a reusable cep name without checking the endpoint returned by cilium.
+the private control-entrypoint regression accepted a same-name foreign vm
+endpoint and recorded its mutation.
+
+the client now looks up the name, verifies exact singleton vm/nic, component,
+application and namespace identity labels, requires the unique cni attachment
+identifier, and sends the mutation to that immutable alias. numeric endpoint
+ids and deprecated container ids are not fallback authority. missing or
+ambiguous ownership/attachment evidence fails closed.
+
+the foreign-endpoint regression fails before and passes after. a separate
+fixture rebinds the name to b after a valid lookup and proves only verified
+attachment a is selected. negative fixtures keep the api available and record
+that no patch occurs. local http tests cover content-length/close framing,
+truncation, header/body bounds, ambiguous framing, errors and total deadlines.
+the full runtime/client gate and final strict clippy pass.
+
+a read-only native endpoint sample exposed all five required labels and the
+unique field, matching the current fork&#x27;s api model. this is prerequisite/schema
+evidence, not a live handoff. the current fork must preserve these labels and
+unique-id support. no live endpoint, image, fork source or rollout was changed.
+
+**merged source:** `17d7d21d86f193475ec8a8884a3ccbbcf837810d`.
+**tracking:** qrab `work/netd-handoff-endpoint-incarnation`.
+
+## a14 — process names selected the privileged conntrack tool environment
+
+**affected source:** netd cilium-provider discovery and bpftool wrappers.
+**repair baseline:** `3b2ea31`.
+
+the privileged wrapper scanned `/proc/*/comm` for `cilium-agent`, then entered
+that pid&#x27;s mount/pid namespaces and ran bpftool. a process name is writable
+and does not authenticate a platform service. the private baseline selected a
+comm-only reference with no trusted-provider evidence; later numeric namespace
+lookup also separated selection from use.
+
+the provider is now the original kernel peer of the administrator-configured,
+protected cilium api socket. netd captures its pidfd, proc directory and opened
+mount/pid namespace plus root-directory handles. `nsenter` receives inherited
+handle paths, an explicit held root/working directory and a fixed trusted path.
+it performs no later `-t pid` lookup. one provider snapshot serves an export;
+conntrack scope/filter/rebase and streaming-memory contracts remain separate.
+
+the default rejection test fails before the repair and passes after. explicit
+private peer/path-replacement and namespace execution fixtures ran. the latter
+launches a helper in distinct mount and pid namespaces and verifies the test
+child&#x27;s reported namespace ids match that provider, even after fake-proc path
+replacement. it executes only readlink/test commands, not live bpf operations.
+full runtime/client checks and final strict clippy passed.
+
+a read-only native observation found the cilium directory root-owned mode755
+and its socket root-owned mode660. that protected configured path remains a
+platform trust prerequisite. no live-node exploit, bpf map, image or rollout
+was performed by this audit.
+
+**merged source:** `dd2f604ea097740c59475766487589e6b84ff6b0`.
+**tracking:** qrab `work/netd-cilium-provider-process-authority`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -5892,6 +6081,19 @@ this is test isolation, not another production authorization defect.
 
 the final combined gate used four test threads on the busy host. timing
 variance, isolated reruns and complete check logs are recorded in towl.
+
+## validation repair: trace capture needed an isolated registry
+
+the dashboard privacy case intermittently missed its positive `vm launch`
+marker under parallel tracing callsite-cache changes. its captured failure had
+neither synthetic secret marker; the same test passed alone. the test now
+runs its original assertions under a fresh child registry, verifies that
+exactly one case executed, and retains all form, storage, ui and log assertions.
+the dashboard suite, strict clippy and combined full gate pass. production
+logging code is unchanged; this is not a claimed payload-leak repair.
+
+**merged test repair:** `0642b5999aead05daeac7ee2d2f375880a77b0fc`.
+**tracking:** qrab `work/dashboard-trace-capture-isolation`.
 
 ## investigated concern rejected by the real policy contract
 
@@ -6219,6 +6421,83 @@ host cgroup. Neither is a live CRI recreation/rollout. Full runtime and
 client-only checks passed; two optional kernel VPN fixtures still skipped.</p>
 <p><strong>Merged source:</strong> <code>8b1c4f236fde3f56c2826d5ad49b4bc1477e0408</code>.
 <strong>Tracking:</strong> qrab <code>work/netd-current-container-namespace</code>.</p>
+<h2 id="audit--a12--desired-bytes-and-late-renewal-results-could-be-mistaken-for-applied-state">A12 — desired bytes and late renewal results could be mistaken for applied state</h2>
+<p><strong>Affected source:</strong> netd VPN snapshot, ready context and NAT-PMP cache.
+<strong>Repair baseline:</strong> <code>3cbca19</code>.</p>
+<p>Reconcile read a digest before plumbing independently reread/parsing the file,
+then recorded the earlier digest. An A→B→A rewrite could leave B applied while
+the stored A fingerprint falsely matched the restored desired file. Renewal
+also reread desired gateway data rather than using the installed plan, and a
+late round could repopulate the UID-only cache after a namespace/config reset.</p>
+<p>One bounded read through the selected process now supplies both parsed tunnel
+and fingerprint. The successful ready context retains only its digest/gateway,
+not another private-key copy. Renewal uses that applied context. Its generation
+combines the held namespace token with the applied digest; cache insertion is
+conditional on the still-current generation. Reverify of unchanged state
+preserves the round. Old completions are discarded, a failed report cannot
+clear another generation, and disabling forwarding reports unmapped even after
+cache reset. The redundant separate digest map was removed.</p>
+<p>The late-namespace round regression failed before the change and passes after.
+Controlled file snapshots cover the A→B→A case; private API/cache fixtures cover
+unchanged reverify, changed config, stale completion and disabled forwarding.
+Default node tests, client-only compilation and the combined full runtime gate
+passed. All six explicit kernel fixtures also executed with temporary
+WireGuard tooling, strengthening the separate mechanism evidence.</p>
+<p>The digest identifies configuration bytes; it is not a credential or proof of
+remote provider state. API status remains a conditional observation, not a
+transaction spanning kernel commands, provider replies and Kubernetes.</p>
+<p><strong>Merged source:</strong> <code>3b2ea3166bcb037653a51dc4cfceee9b344ba7c3</code>.
+<strong>Tracking:</strong> qrab <code>work/netd-applied-vpn-snapshot</code>.</p>
+<h2 id="audit--a13--a-reusable-endpoint-name-could-retarget-a-handoff-effect">A13 — a reusable endpoint name could retarget a handoff effect</h2>
+<p><strong>Affected source:</strong> netd control handler and local Cilium handoff API client.
+<strong>Repair baseline:</strong> <code>dd2f604</code>.</p>
+<p>Authorization selected an own-VM/NIC Pod snapshot, but the privileged PATCH
+resolved a reusable CEP name without checking the endpoint returned by Cilium.
+The private control-entrypoint regression accepted a same-name foreign VM
+endpoint and recorded its mutation.</p>
+<p>The client now looks up the name, verifies exact singleton VM/NIC, component,
+application and namespace identity labels, requires the unique CNI attachment
+identifier, and sends the mutation to that immutable alias. Numeric endpoint
+IDs and deprecated container IDs are not fallback authority. Missing or
+ambiguous ownership/attachment evidence fails closed.</p>
+<p>The foreign-endpoint regression fails before and passes after. A separate
+fixture rebinds the name to B after a valid lookup and proves only verified
+attachment A is selected. Negative fixtures keep the API available and record
+that no PATCH occurs. Local HTTP tests cover content-length/close framing,
+truncation, header/body bounds, ambiguous framing, errors and total deadlines.
+The full runtime/client gate and final strict Clippy pass.</p>
+<p>A read-only native endpoint sample exposed all five required labels and the
+unique field, matching the current fork's API model. This is prerequisite/schema
+evidence, not a live handoff. The current fork must preserve these labels and
+unique-ID support. No live endpoint, image, fork source or rollout was changed.</p>
+<p><strong>Merged source:</strong> <code>17d7d21d86f193475ec8a8884a3ccbbcf837810d</code>.
+<strong>Tracking:</strong> qrab <code>work/netd-handoff-endpoint-incarnation</code>.</p>
+<h2 id="audit--a14--process-names-selected-the-privileged-conntrack-tool-environment">A14 — process names selected the privileged conntrack tool environment</h2>
+<p><strong>Affected source:</strong> netd Cilium-provider discovery and bpftool wrappers.
+<strong>Repair baseline:</strong> <code>3b2ea31</code>.</p>
+<p>The privileged wrapper scanned <code>/proc/*/comm</code> for <code>cilium-agent</code>, then entered
+that PID's mount/PID namespaces and ran bpftool. A process name is writable
+and does not authenticate a platform service. The private baseline selected a
+comm-only reference with no trusted-provider evidence; later numeric namespace
+lookup also separated selection from use.</p>
+<p>The provider is now the original kernel peer of the administrator-configured,
+protected Cilium API socket. netd captures its pidfd, proc directory and opened
+mount/PID namespace plus root-directory handles. <code>nsenter</code> receives inherited
+handle paths, an explicit held root/working directory and a fixed trusted PATH.
+It performs no later <code>-t PID</code> lookup. One provider snapshot serves an export;
+conntrack scope/filter/rebase and streaming-memory contracts remain separate.</p>
+<p>The default rejection test fails before the repair and passes after. Explicit
+private peer/path-replacement and namespace execution fixtures ran. The latter
+launches a helper in distinct mount and PID namespaces and verifies the test
+child's reported namespace IDs match that provider, even after fake-proc path
+replacement. It executes only readlink/test commands, not live BPF operations.
+Full runtime/client checks and final strict Clippy passed.</p>
+<p>A read-only native observation found the Cilium directory root-owned mode755
+and its socket root-owned mode660. That protected configured path remains a
+platform trust prerequisite. No live-node exploit, BPF map, image or rollout
+was performed by this audit.</p>
+<p><strong>Merged source:</strong> <code>dd2f604ea097740c59475766487589e6b84ff6b0</code>.
+<strong>Tracking:</strong> qrab <code>work/netd-cilium-provider-process-authority</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -6231,6 +6510,16 @@ The isolated test and strict Clippy pass, followed by the combined full gate.</p
 This is test isolation, not another production authorization defect.</p>
 <p>The final combined gate used four test threads on the busy host. Timing
 variance, isolated reruns and complete check logs are recorded in towl.</p>
+<h2 id="audit--validation-repair-trace-capture-needed-an-isolated-registry">Validation repair: trace capture needed an isolated registry</h2>
+<p>The dashboard privacy case intermittently missed its positive <code>VM launch</code>
+marker under parallel tracing callsite-cache changes. Its captured failure had
+neither synthetic secret marker; the same test passed alone. The test now
+runs its original assertions under a fresh child registry, verifies that
+exactly one case executed, and retains all form, storage, UI and log assertions.
+The dashboard suite, strict Clippy and combined full gate pass. Production
+logging code is unchanged; this is not a claimed payload-leak repair.</p>
+<p><strong>Merged test repair:</strong> <code>0642b5999aead05daeac7ee2d2f375880a77b0fc</code>.
+<strong>Tracking:</strong> qrab <code>work/dashboard-trace-capture-isolation</code>.</p>
 <h2 id="audit--investigated-concern-rejected-by-the-real-policy-contract">Investigated concern rejected by the real policy contract</h2>
 <p>The audit initially suspected two <code>ingress: [{}]</code> CiliumNetworkPolicy examples
 allowed unrelated ingress. Tests of the exact importer manifest and NIC
@@ -6292,6 +6581,12 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 | t03 | [kernel namespace fixtures](../../projects/qrab-netd/tests/netns.rs), [node wire faults](../../projects/qrab-netd/src/wire.rs), [manager nic reconciliation](../../projects/manager/src/pod/nics.rs) | the explicitly exercised isolated mechanisms and stand-in ordering | cilium/bgp, guest hot-unplug or application continuity acceptance |
 
 | t04 | [node status writers](../../projects/qrab-netd/src/main.rs) and [private api regressions](../../projects/qrab-netd/src/status_tests.rs) | exact pod uid/version conditional writes; explicit no-op native server dry-run verifies immutable uid and stale-version refusal | persisted node rollout, guest readiness or disk fencing |
+
+| t05 | [isolated vpn/kernel fixtures](../../projects/qrab-netd/tests/netns.rs) with temporary official wireguard-tools 1.0.20260223 | all six explicit namespace fixtures executed without skips, including real wireguard kill-switch and tunnel-only nat-pmp | production provider, cilium/bgp or guest workload acceptance |
+
+| t06 | [cilium provider capture/execution fixtures](../../projects/qrab-netd/src/cilium.rs) and [held process resources](../../projects/qrab-netd/src/process.rs) | explicit original-peer/path replacement and distinct mount/pid namespace execution | live cilium bpftool/map behavior, release or rollout |
+
+| t07 | [endpoint ownership/http fixtures](../../projects/qrab-netd/src/cilium/http.rs), [actual control handler regression](../../projects/qrab-netd/src/status_tests.rs) | exact identity labels, unique attachment mutation and bounded local http | live handoff/traffic continuity or acceptance on every cilium release |
 
 ## external sources
 
@@ -6531,6 +6826,9 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T02 | <a href="../../projects/qapi-protocol/tests/live_qemu.rs">Real QMP fixture</a>, <a href="../../projects/qapi-protocol/tests/live_qga.rs">real QGA fixture</a> and <a href="../../contrib/images/prepare-source.py">source preparation</a> | Explicit local 11.1.3 peer checks described in <a href="#doc-verification">verification</a> | Guest boot, KVM, storage or a deployed release |
 | T03 | <a href="../../projects/qrab-netd/tests/netns.rs">Kernel namespace fixtures</a>, <a href="../../projects/qrab-netd/src/wire.rs">node wire faults</a>, <a href="../../projects/manager/src/pod/nics.rs">manager NIC reconciliation</a> | The explicitly exercised isolated mechanisms and stand-in ordering | Cilium/BGP, guest hot-unplug or application continuity acceptance |</p>
 <p>| T04 | <a href="../../projects/qrab-netd/src/main.rs">Node status writers</a> and <a href="../../projects/qrab-netd/src/status_tests.rs">private API regressions</a> | Exact Pod UID/version conditional writes; explicit no-op native server dry-run verifies immutable UID and stale-version refusal | Persisted node rollout, guest readiness or disk fencing |</p>
+<p>| T05 | <a href="../../projects/qrab-netd/tests/netns.rs">Isolated VPN/kernel fixtures</a> with temporary official wireguard-tools 1.0.20260223 | All six explicit namespace fixtures executed without skips, including real WireGuard kill-switch and tunnel-only NAT-PMP | Production provider, Cilium/BGP or guest workload acceptance |</p>
+<p>| T06 | <a href="../../projects/qrab-netd/src/cilium.rs">Cilium provider capture/execution fixtures</a> and <a href="../../projects/qrab-netd/src/process.rs">held process resources</a> | Explicit original-peer/path replacement and distinct mount/PID namespace execution | Live Cilium bpftool/map behavior, release or rollout |</p>
+<p>| T07 | <a href="../../projects/qrab-netd/src/cilium/http.rs">Endpoint ownership/HTTP fixtures</a>, <a href="../../projects/qrab-netd/src/status_tests.rs">actual control handler regression</a> | Exact identity labels, unique attachment mutation and bounded local HTTP | Live handoff/traffic continuity or acceptance on every Cilium release |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.
@@ -6724,7 +7022,16 @@ boundary, not an authenticated public management service.</p>
 <p>Source, manifest, local real-peer fixture and named live observation answer different questions. Desired state and the user-supplied OpenStack baseline remain separately labeled. No progression to deployed acceptance is implied.</p><a href="diagrams/34-evidence-classes.json">Editable source</a> · <a href="diagrams/rendered/png/34-evidence-classes.png">PNG</a></section><section class="diagram-card" data-filter="35-current-container-authority current container identity selects the held resource audited current-container/resource contract a still-live older same-uid process is not the current anchor container. the api-observed running container, trusted direct cgroup and held process/namespace resources must agree. same-namespace process refresh preserves the attachment token; unresolved startup waits.">
 <h3>Current container identity selects the held resource</h3><div class="scope">audited current-container/resource contract · S08, S09, S10, U10</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/35-current-container-authority.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="35-current-container-authority" src="diagrams/rendered/light/35-current-container-authority.svg" alt="Current container identity selects the held resource"></a>
-<p>A still-live older same-UID process is not the current anchor container. The API-observed running container, trusted direct cgroup and held process/namespace resources must agree. Same-namespace process refresh preserves the attachment token; unresolved startup waits.</p><a href="diagrams/35-current-container-authority.json">Editable source</a> · <a href="diagrams/rendered/png/35-current-container-authority.png">PNG</a></section></div></article></main></div><script>
+<p>A still-live older same-UID process is not the current anchor container. The API-observed running container, trusted direct cgroup and held process/namespace resources must agree. Same-namespace process refresh preserves the attachment token; unresolved startup waits.</p><a href="diagrams/35-current-container-authority.json">Editable source</a> · <a href="diagrams/rendered/png/35-current-container-authority.png">PNG</a></section><section class="diagram-card" data-filter="36-applied-snapshot desired input, applied generation and late completion audited applied-snapshot contract a captured byte snapshot supplies both parsed plan and fingerprint. dependent renewal uses the successful applied generation, and late results cannot replace another local generation. this does not imply a transaction across kernel, provider and api, or make the digest a credential.">
+<h3>Desired input, applied generation and late completion</h3><div class="scope">audited applied-snapshot contract · S09, T03</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/36-applied-snapshot.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="36-applied-snapshot" src="diagrams/rendered/light/36-applied-snapshot.svg" alt="Desired input, applied generation and late completion"></a>
+<p>A captured byte snapshot supplies both parsed plan and fingerprint. Dependent renewal uses the successful applied generation, and late results cannot replace another local generation. This does not imply a transaction across kernel, provider and API, or make the digest a credential.</p><a href="diagrams/36-applied-snapshot.mmd">Editable source</a> · <a href="diagrams/rendered/png/36-applied-snapshot.png">PNG</a></section><section class="diagram-card" data-filter="37-provider-authority authenticate requester and local tool provider separately audited provider/process-resource contract network peer admission does not authenticate a local tool namespace. the protected cilium socket original peer and held resource handles select that provider. private fixtures exercise the binding and namespace transition without changing live bpf maps.">
+<h3>Authenticate requester and local tool provider separately</h3><div class="scope">audited provider/process-resource contract · S09, S12, T06</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/37-provider-authority.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="37-provider-authority" src="diagrams/rendered/light/37-provider-authority.svg" alt="Authenticate requester and local tool provider separately"></a>
+<p>Network peer admission does not authenticate a local tool namespace. The protected Cilium socket original peer and held resource handles select that provider. Private fixtures exercise the binding and namespace transition without changing live BPF maps.</p><a href="diagrams/37-provider-authority.mmd">Editable source</a> · <a href="diagrams/rendered/png/37-provider-authority.png">PNG</a></section><section class="diagram-card" data-filter="38-endpoint-attachment verify the owner and pin the endpoint attachment audited local handoff resource contract the name locates a resource, exact labels establish own-vm/nic ownership, and unique cni attachment identity selects the effect. name rebinding cannot retarget the patch. this is a local api contract, not a live migration/traffic outcome.">
+<h3>Verify the owner and pin the endpoint attachment</h3><div class="scope">audited local handoff resource contract · S09, S11, T07</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/38-endpoint-attachment.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="38-endpoint-attachment" src="diagrams/rendered/light/38-endpoint-attachment.svg" alt="Verify the owner and pin the endpoint attachment"></a>
+<p>The name locates a resource, exact labels establish own-VM/NIC ownership, and unique CNI attachment identity selects the effect. Name rebinding cannot retarget the PATCH. This is a local API contract, not a live migration/traffic outcome.</p><a href="diagrams/38-endpoint-attachment.mmd">Editable source</a> · <a href="diagrams/rendered/png/38-endpoint-attachment.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

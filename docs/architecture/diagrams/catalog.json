@@ -455,7 +455,39 @@
         "S10",
         "U10"
       ]
+    },
+    {
+      "id": "36-applied-snapshot",
+      "title": "Desired input, applied generation and late completion",
+      "status": "audited applied-snapshot contract",
+      "caption": "A captured byte snapshot supplies both parsed plan and fingerprint. Dependent renewal uses the successful applied generation, and late results cannot replace another local generation. This does not imply a transaction across kernel, provider and API, or make the digest a credential.",
+      "evidence": [
+        "S09",
+        "T03"
+      ]
+    },
+    {
+      "id": "37-provider-authority",
+      "title": "Authenticate requester and local tool provider separately",
+      "status": "audited provider/process-resource contract",
+      "caption": "Network peer admission does not authenticate a local tool namespace. The protected Cilium socket original peer and held resource handles select that provider. Private fixtures exercise the binding and namespace transition without changing live BPF maps.",
+      "evidence": [
+        "S09",
+        "S12",
+        "T06"
+      ]
+    },
+    {
+      "id": "38-endpoint-attachment",
+      "title": "Verify the owner and pin the endpoint attachment",
+      "status": "audited local handoff resource contract",
+      "caption": "The name locates a resource, exact labels establish own-VM/NIC ownership, and unique CNI attachment identity selects the effect. Name rebinding cannot retarget the PATCH. This is a local API contract, not a live migration/traffic outcome.",
+      "evidence": [
+        "S09",
+        "S11",
+        "T07"
+      ]
     }
   ],
-  "reviewed_through": "8b1c4f236fde3f56c2826d5ad49b4bc1477e0408"
+  "reviewed_through": "17d7d21d86f193475ec8a8884a3ccbbcf837810d"
 }

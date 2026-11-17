@@ -46,6 +46,12 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 
 | T04 | [Node status writers](../../projects/qrab-netd/src/main.rs) and [private API regressions](../../projects/qrab-netd/src/status_tests.rs) | Exact Pod UID/version conditional writes; explicit no-op native server dry-run verifies immutable UID and stale-version refusal | Persisted node rollout, guest readiness or disk fencing |
 
+| T05 | [Isolated VPN/kernel fixtures](../../projects/qrab-netd/tests/netns.rs) with temporary official wireguard-tools 1.0.20260223 | All six explicit namespace fixtures executed without skips, including real WireGuard kill-switch and tunnel-only NAT-PMP | Production provider, Cilium/BGP or guest workload acceptance |
+
+| T06 | [Cilium provider capture/execution fixtures](../../projects/qrab-netd/src/cilium.rs) and [held process resources](../../projects/qrab-netd/src/process.rs) | Explicit original-peer/path replacement and distinct mount/PID namespace execution | Live Cilium bpftool/map behavior, release or rollout |
+
+| T07 | [Endpoint ownership/HTTP fixtures](../../projects/qrab-netd/src/cilium/http.rs), [actual control handler regression](../../projects/qrab-netd/src/status_tests.rs) | Exact identity labels, unique attachment mutation and bounded local HTTP | Live handoff/traffic continuity or acceptance on every Cilium release |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to

@@ -1,0 +1,12 @@
+flowchart TB
+    subgraph requester["Request authority"]
+        node["Exact-node SPIFFE TLS peer"] --> scope["Authorized NIC / IP + typed conntrack validation"]
+    end
+    subgraph provider["Local provider authority"]
+        socket["Protected configured Cilium socket"] --> peer["Original peer pidfd + held proc directory"]
+        peer --> resources["Opened mount / PID namespace / root directory handles"]
+        resources --> tool["nsenter inherited FD paths / trusted bpftool"]
+    end
+    scope --> tool
+    tool --> maps["Scoped map read/write / streaming bounds"]
+    name["Writable process name / later numeric PID path"] -.->|"does not select provider"| peer

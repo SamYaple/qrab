@@ -382,6 +382,104 @@ client-only checks passed; two optional kernel VPN fixtures still skipped.
 **Merged source:** `8b1c4f236fde3f56c2826d5ad49b4bc1477e0408`.
 **Tracking:** qrab `work/netd-current-container-namespace`.
 
+## A12 — desired bytes and late renewal results could be mistaken for applied state
+
+**Affected source:** netd VPN snapshot, ready context and NAT-PMP cache.
+**Repair baseline:** `3cbca19`.
+
+Reconcile read a digest before plumbing independently reread/parsing the file,
+then recorded the earlier digest. An A→B→A rewrite could leave B applied while
+the stored A fingerprint falsely matched the restored desired file. Renewal
+also reread desired gateway data rather than using the installed plan, and a
+late round could repopulate the UID-only cache after a namespace/config reset.
+
+One bounded read through the selected process now supplies both parsed tunnel
+and fingerprint. The successful ready context retains only its digest/gateway,
+not another private-key copy. Renewal uses that applied context. Its generation
+combines the held namespace token with the applied digest; cache insertion is
+conditional on the still-current generation. Reverify of unchanged state
+preserves the round. Old completions are discarded, a failed report cannot
+clear another generation, and disabling forwarding reports unmapped even after
+cache reset. The redundant separate digest map was removed.
+
+The late-namespace round regression failed before the change and passes after.
+Controlled file snapshots cover the A→B→A case; private API/cache fixtures cover
+unchanged reverify, changed config, stale completion and disabled forwarding.
+Default node tests, client-only compilation and the combined full runtime gate
+passed. All six explicit kernel fixtures also executed with temporary
+WireGuard tooling, strengthening the separate mechanism evidence.
+
+The digest identifies configuration bytes; it is not a credential or proof of
+remote provider state. API status remains a conditional observation, not a
+transaction spanning kernel commands, provider replies and Kubernetes.
+
+**Merged source:** `3b2ea3166bcb037653a51dc4cfceee9b344ba7c3`.
+**Tracking:** qrab `work/netd-applied-vpn-snapshot`.
+
+## A13 — a reusable endpoint name could retarget a handoff effect
+
+**Affected source:** netd control handler and local Cilium handoff API client.
+**Repair baseline:** `dd2f604`.
+
+Authorization selected an own-VM/NIC Pod snapshot, but the privileged PATCH
+resolved a reusable CEP name without checking the endpoint returned by Cilium.
+The private control-entrypoint regression accepted a same-name foreign VM
+endpoint and recorded its mutation.
+
+The client now looks up the name, verifies exact singleton VM/NIC, component,
+application and namespace identity labels, requires the unique CNI attachment
+identifier, and sends the mutation to that immutable alias. Numeric endpoint
+IDs and deprecated container IDs are not fallback authority. Missing or
+ambiguous ownership/attachment evidence fails closed.
+
+The foreign-endpoint regression fails before and passes after. A separate
+fixture rebinds the name to B after a valid lookup and proves only verified
+attachment A is selected. Negative fixtures keep the API available and record
+that no PATCH occurs. Local HTTP tests cover content-length/close framing,
+truncation, header/body bounds, ambiguous framing, errors and total deadlines.
+The full runtime/client gate and final strict Clippy pass.
+
+A read-only native endpoint sample exposed all five required labels and the
+unique field, matching the current fork's API model. This is prerequisite/schema
+evidence, not a live handoff. The current fork must preserve these labels and
+unique-ID support. No live endpoint, image, fork source or rollout was changed.
+
+**Merged source:** `17d7d21d86f193475ec8a8884a3ccbbcf837810d`.
+**Tracking:** qrab `work/netd-handoff-endpoint-incarnation`.
+
+## A14 — process names selected the privileged conntrack tool environment
+
+**Affected source:** netd Cilium-provider discovery and bpftool wrappers.
+**Repair baseline:** `3b2ea31`.
+
+The privileged wrapper scanned `/proc/*/comm` for `cilium-agent`, then entered
+that PID's mount/PID namespaces and ran bpftool. A process name is writable
+and does not authenticate a platform service. The private baseline selected a
+comm-only reference with no trusted-provider evidence; later numeric namespace
+lookup also separated selection from use.
+
+The provider is now the original kernel peer of the administrator-configured,
+protected Cilium API socket. netd captures its pidfd, proc directory and opened
+mount/PID namespace plus root-directory handles. `nsenter` receives inherited
+handle paths, an explicit held root/working directory and a fixed trusted PATH.
+It performs no later `-t PID` lookup. One provider snapshot serves an export;
+conntrack scope/filter/rebase and streaming-memory contracts remain separate.
+
+The default rejection test fails before the repair and passes after. Explicit
+private peer/path-replacement and namespace execution fixtures ran. The latter
+launches a helper in distinct mount and PID namespaces and verifies the test
+child's reported namespace IDs match that provider, even after fake-proc path
+replacement. It executes only readlink/test commands, not live BPF operations.
+Full runtime/client checks and final strict Clippy passed.
+
+A read-only native observation found the Cilium directory root-owned mode755
+and its socket root-owned mode660. That protected configured path remains a
+platform trust prerequisite. No live-node exploit, BPF map, image or rollout
+was performed by this audit.
+
+**Merged source:** `dd2f604ea097740c59475766487589e6b84ff6b0`.
+**Tracking:** qrab `work/netd-cilium-provider-process-authority`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's
@@ -397,6 +495,19 @@ This is test isolation, not another production authorization defect.
 
 The final combined gate used four test threads on the busy host. Timing
 variance, isolated reruns and complete check logs are recorded in towl.
+
+## Validation repair: trace capture needed an isolated registry
+
+The dashboard privacy case intermittently missed its positive `VM launch`
+marker under parallel tracing callsite-cache changes. Its captured failure had
+neither synthetic secret marker; the same test passed alone. The test now
+runs its original assertions under a fresh child registry, verifies that
+exactly one case executed, and retains all form, storage, UI and log assertions.
+The dashboard suite, strict Clippy and combined full gate pass. Production
+logging code is unchanged; this is not a claimed payload-leak repair.
+
+**Merged test repair:** `0642b5999aead05daeac7ee2d2f375880a77b0fc`.
+**Tracking:** qrab `work/dashboard-trace-capture-isolation`.
 
 ## Investigated concern rejected by the real policy contract
 

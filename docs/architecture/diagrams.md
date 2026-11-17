@@ -400,3 +400,33 @@ A still-live older same-UID process is not the current anchor container. The API
 ![Current container identity selects the held resource](diagrams/rendered/light/35-current-container-authority.svg)
 
 [Editable source](diagrams/35-current-container-authority.json) · [Light SVG](diagrams/rendered/light/35-current-container-authority.svg) · [Dark SVG](diagrams/rendered/dark/35-current-container-authority.svg) · [Print SVG](diagrams/rendered/print/35-current-container-authority.svg) · [PNG](diagrams/rendered/png/35-current-container-authority.png)
+
+## 36-applied-snapshot: Desired input, applied generation and late completion
+
+**Scope:** audited applied-snapshot contract. **Evidence:** S09, T03.
+
+A captured byte snapshot supplies both parsed plan and fingerprint. Dependent renewal uses the successful applied generation, and late results cannot replace another local generation. This does not imply a transaction across kernel, provider and API, or make the digest a credential.
+
+![Desired input, applied generation and late completion](diagrams/rendered/light/36-applied-snapshot.svg)
+
+[Editable source](diagrams/36-applied-snapshot.mmd) · [Light SVG](diagrams/rendered/light/36-applied-snapshot.svg) · [Dark SVG](diagrams/rendered/dark/36-applied-snapshot.svg) · [Print SVG](diagrams/rendered/print/36-applied-snapshot.svg) · [PNG](diagrams/rendered/png/36-applied-snapshot.png)
+
+## 37-provider-authority: Authenticate requester and local tool provider separately
+
+**Scope:** audited provider/process-resource contract. **Evidence:** S09, S12, T06.
+
+Network peer admission does not authenticate a local tool namespace. The protected Cilium socket original peer and held resource handles select that provider. Private fixtures exercise the binding and namespace transition without changing live BPF maps.
+
+![Authenticate requester and local tool provider separately](diagrams/rendered/light/37-provider-authority.svg)
+
+[Editable source](diagrams/37-provider-authority.mmd) · [Light SVG](diagrams/rendered/light/37-provider-authority.svg) · [Dark SVG](diagrams/rendered/dark/37-provider-authority.svg) · [Print SVG](diagrams/rendered/print/37-provider-authority.svg) · [PNG](diagrams/rendered/png/37-provider-authority.png)
+
+## 38-endpoint-attachment: Verify the owner and pin the endpoint attachment
+
+**Scope:** audited local handoff resource contract. **Evidence:** S09, S11, T07.
+
+The name locates a resource, exact labels establish own-VM/NIC ownership, and unique CNI attachment identity selects the effect. Name rebinding cannot retarget the PATCH. This is a local API contract, not a live migration/traffic outcome.
+
+![Verify the owner and pin the endpoint attachment](diagrams/rendered/light/38-endpoint-attachment.svg)
+
+[Editable source](diagrams/38-endpoint-attachment.mmd) · [Light SVG](diagrams/rendered/light/38-endpoint-attachment.svg) · [Dark SVG](diagrams/rendered/dark/38-endpoint-attachment.svg) · [Print SVG](diagrams/rendered/print/38-endpoint-attachment.svg) · [PNG](diagrams/rendered/png/38-endpoint-attachment.png)
