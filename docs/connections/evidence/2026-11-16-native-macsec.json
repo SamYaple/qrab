@@ -765,7 +765,7 @@
   "associationRecovery": {
     "implementationSource": "6535a2963348280c2492776f3ed75dd53feeddf1",
     "releaseCommit": "dc7b94f8145c2e5abc6e958d7f4bbb405d42cdec",
-    "runtimeStatus": "Pending operator root health-upgrade receipt; publication and private tests are complete.",
+    "runtimeStatus": "Installed and verified on all four hosts on2026-11-17; see2026-11-17-native-health.json for the recovered SSH acknowledgement and full proof.",
     "observedFailure": "After member reboot, kube03 retained active receive channels for kube01/kube02 with empty SA lists. Gateway association/SSH still worked; peer ARP/etcd failed. A running process/early Node Ready was insufficient.",
     "productionRemediationObserved": "One kube03 supplicant restart restored associations; isolated tests showed restarts can reproduce the defect.",
     "kernelEvidenceFile": "arp-partition.json in restricted local evidence directory",
@@ -947,7 +947,8 @@
       "freshSessionKey": true
     },
     "publishedWpaBinaryEqualsTestedBinary": true,
-    "productionFaultInjectionForThisFix": false
+    "productionFaultInjectionForThisFix": false,
+    "runtimeEvidence": "2026-11-17-native-health.json"
   },
   "vpnBeforeRecovery": {
     "vm": "native-vpn-20261116",

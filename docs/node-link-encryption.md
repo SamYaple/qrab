@@ -186,6 +186,13 @@ is published and the verified offline kit is
 to install it. Publication and isolated tests are distinct from the operator's
 root execution and subsequent production proof recorded in the dated evidence.
 
+The [2026-11-17 runtime proof](connections/platform-evidence.md#native-health-upgrade-verification-2026-11-17)
+confirmed the patched binary and active watcher on all four hosts, twelve
+directed peer paths and zero-loss/no-clear-IP captures. The original upgrade
+receipt lost two SSH acknowledgements; its partial result was reconciled with
+the running state. Future node activation survives its SSH session and is
+checked through the read-only `health-status` operation.
+
 Production evidence has a defined observation window. It does not turn the
 isolated replay/wrong-key/rekey tests into production fault-injection tests,
 prove encryption at rest, or prove a physical gateway reboot. See the dated

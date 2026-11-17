@@ -732,3 +732,78 @@ gateway reboot remain distinct operational checks. The root kit's temporary
 probe service is stopped at commit, but its SIGTERM handler currently exits
 with code1 and leaves a misleading failed unit result; this is separate from
 the healthy MKA/guard services.
+
+## Native health upgrade verification: 2026-11-17
+
+The operator ran kit `dc7b94f` against committed state
+`68ffad993b6652e9b42cc8a1`. Its original receipt reported installation on the
+gateway/kube01 and SSH exit255 on kube02/kube03. Subsequent inspection confirmed
+that both reported failures already ran the intended binary and active watcher.
+The coordinator had classified lost SSH acknowledgements as failed activation.
+The original partial receipt is retained in the
+[machine-readable verification record](evidence/2026-11-17-native-health.json).
+
+Independent node checks verified SHA-256
+`1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13`,
+the running process's binary path, local rekey capability, active watcher and
+three usable receive associations. The operator's gateway installation receipt
+reported the same binary hash. All four hosts subsequently passed native proof:
+
+| Host | Healthy associations | Directed peer paths | Clear IPv4 / IPv6 | Capture drops |
+| --- | --- | --- | --- | --- |
+| gateway | yes | 3 | 0 / 0 | 0 |
+| kube01 | yes | 3 | 0 / 0 | 0 |
+| kube02 | yes | 3 | 0 / 0 | 0 |
+| kube03 | yes | 3 | 0 / 0 | 0 |
+
+Node proofs were collected through privileged SSH; the gateway proof was
+supplied by the operator's root invocation. Each checked strict protected
+kernel state, unchanged raw guards, unaddressed lowers, peer SSH transport,
+active supervision and a separate five-second filtered capture. The twelve
+paths and four zero-loss windows establish this runtime observation; they are
+not a continuous packet recording.
+
+The coordinator fix reconciles the actual installed state before dispatch or
+retry. Node installation runs in a bounded transient systemd service, independent
+of the SSH connection. A lost dispatch reply triggers status polling rather
+than another installation. Status requires the expected running binary,
+capability, watcher and receive associations. A separate live experiment closed
+an SSH session with exit255 and confirmed that the detached systemd worker still
+finished. All 58 deployment contracts passed, including lost-acknowledgement,
+wrong-binary, nonconverged-job and idempotent-dispatch cases. This changes the
+coordinator; the already deployed MKA binary remains the tested published one.
+
+The lab VPN oracle `native-vpn-20261117`, VM UID
+`1b8ddca3-ae53-4872-9284-e4ac7083d940`, passed on that deployment. The guest used
+`tunnel 10.66.0.2`, with stable pool address `10.244.128.3`; reports arrived from
+provider node `10.203.0.11`, never the pool address. The private key was absent
+from manager files and netd logs. Bringing the provider down stopped traffic
+without a leak for 15 seconds; restoring it resumed reports after two seconds.
+Migration kube03 → kube01 retained the same guest boot and restored the tunnel.
+The largest overall report gap, including the deliberate outage, was 18.1
+seconds. The oracle exited successfully through its normal cleanup.
+
+The separate persistent-TCP oracle targeting kube02 failed when the target QEMU
+exited with `cpus_kick_thread: Permission denied` and OS error13. It used manager
+image `2f2ab6fad013a7c7635185668388603b50acbbcb657939c2295fe4dc0f6e79e9`,
+as did the successful VPN migration to kube01. That failure is retained as
+`qrab/work/migration-target-qemu-thread-signal-permission`; no sandbox control was
+relaxed and this run is not claimed as a successful kube02 migration.
+
+A repeated private MKA lifecycle fixture also failed its initial four-peer
+readiness before reaching the changed installer path. The earlier passing
+lifecycle suite and current production proof remain scoped evidence. The failed
+rerun is retained under
+`qrab/work/multiparty-mka-private-startup-nonconvergence` as a residual liveness
+issue. Wrong-key/replay attacks and further host reboots were not injected into
+production during this verification. Storage recovery remained with the other
+session, as explicitly requested by the operator.
+
+A further established-TCP check used `native-ct-roundtrip-20261117`, UID
+`debfa1f8-9b36-4fe9-a2c3-a4f8e34f555b`, stable address `10.244.128.2`, and
+kube01's direct API endpoint for control. The kube03 → kube01 move succeeded
+with the existing connection, a 1.62-second maximum stream gap and three
+imported entries in both precopy and delta reports. Its return target on kube03
+was refused by netd's watched anchor authorization: no matching tap-mode NIC
+was present in its node view. The full round trip is not reported as passed;
+`qrab/work/migration-return-anchor-authorization-cache` retains that failure.

@@ -66,9 +66,15 @@ existing deployment state. The native deployment remains `committed`.
 The installer extracts the verified bundle into a separate directory and
 records a systemd executable override. It checks the running process arguments
 and the local rekey capability. Each MKA service restarts once to use the new
-binary; an idempotent rerun restarts only the watcher. The installer requests
-fresh MKA keys while waiting for complete receive associations. The gateway
-can request a rekey before retrying an interrupted node SSH acknowledgement.
+binary. Before activation or on a coordinator retry, the running binary,
+local rekey capability, watcher and complete receive associations are checked;
+a converged host requires no further installation. Node activation runs in a
+bounded transient systemd service, independent of the SSH session that starts
+it. If the dispatch reply is lost, the coordinator polls actual running state
+instead of treating the SSH exit code as a failed installation or repeating
+the service restart. Per-node dispatch diagnostics are retained in
+`health-activation-<node>.json`; successful agents save `health-install.json`.
+The installer requests fresh MKA keys while waiting for complete associations.
 No Kubernetes, registry or SPIRE availability is required by the upgrade.
 
 Final proof checks all twelve directed SSH transport paths, protected kernel
@@ -77,6 +83,11 @@ five-second zero-loss clear-IP/VLAN capture on each host. Supplemental counters
 go in `health-capture/capture.json`; the original deployment capture is kept.
 `health-upgrade.json` records staging, installation and proof results. A partial
 upgrade or failed proof is reported without invoking native network rollback.
+
+The first recovery rollout reported SSH exit255 for kube02/kube03 even though
+both had installed successfully. Independent four-host verification completed
+the missing proof. That original partial receipt is preserved as history;
+see the [2026-11-17 outcome](../../docs/connections/platform-evidence.md#native-health-upgrade-verification-2026-11-17).
 
 The binary is built from signed-repository Debian `wpa 2:2.11-7` source with the
 [local control patch](wpa-mka-rekey.patch) and a wired/MACsec build configuration.

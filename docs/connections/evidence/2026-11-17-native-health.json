@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-17",
+  "state": "/var/lib/qrab-native-link/68ffad993b6652e9b42cc8a1",
+  "runtimeOutcome": "Association recovery installed and independently verified on all four hosts; original coordinator reply loss is retained below.",
+  "artifact": {
+    "tools_reference": "zot.yapplesauce.com/qrab/link-tools@sha256:944693ec20daa65ea86b661d8a2bb7f005ed8eaa93c56ab5c44466e326bc1802",
+    "tools_archive_sha256": "7b52fd4f47977191f809d4cce167df04ec8249d11a2addd4794e83faa6bc1930",
+    "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13",
+    "cilium_digest": "sha256:9f5fa41a6224621f32cc19555f92fdee7a90e066d75ddb7713973971c603fd3e",
+    "cilium_source": "517c5fe834e26db4f3fb10465c77cf957a5bc526",
+    "tools_source": "6535a2963348280c2492776f3ed75dd53feeddf1",
+    "mka_rekey_control": 1
+  },
+  "originalCoordinatorReceipt": {
+    "hosts": {
+      "gateway": {
+        "association_health": "installed",
+        "deployment_phase": "committed",
+        "health": {
+          "healthy": true,
+          "missing_receive_associations": [],
+          "protected": true,
+          "transmitting": true
+        },
+        "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13"
+      },
+      "kube01": {
+        "association_health": "installed",
+        "deployment_phase": "committed",
+        "health": {
+          "healthy": true,
+          "missing_receive_associations": [],
+          "protected": true,
+          "transmitting": true
+        },
+        "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13"
+      },
+      "kube02": {
+        "error": "runuser failed (exit 255)"
+      },
+      "kube03": {
+        "error": "runuser failed (exit 255)"
+      }
+    },
+    "source_sha256": "f115429a931d6382762ee9f7195fdbd7359d6e33637a2d18135b361958cd0985",
+    "staged": {
+      "gateway": {
+        "staged": "f115429a931d6382762ee9f7195fdbd7359d6e33637a2d18135b361958cd0985"
+      },
+      "kube01": {
+        "staged": "f115429a931d6382762ee9f7195fdbd7359d6e33637a2d18135b361958cd0985"
+      },
+      "kube02": {
+        "staged": "f115429a931d6382762ee9f7195fdbd7359d6e33637a2d18135b361958cd0985"
+      },
+      "kube03": {
+        "staged": "f115429a931d6382762ee9f7195fdbd7359d6e33637a2d18135b361958cd0985"
+      }
+    }
+  },
+  "hosts": {
+    "kube01": {
+      "proofSource": "Independent privileged SSH verification",
+      "status": {
+        "association_health": "installed",
+        "deployment_phase": "committed",
+        "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13",
+        "health": {
+          "healthy": true,
+          "protected": true,
+          "transmitting": true,
+          "missing_receive_associations": []
+        }
+      },
+      "proof": {
+        "capture": {
+          "capture_drops": 0,
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          }
+        },
+        "health": {
+          "healthy": true,
+          "missing_receive_associations": [],
+          "protected": true,
+          "transmitting": true
+        },
+        "peer_paths": 3
+      }
+    },
+    "kube02": {
+      "proofSource": "Independent privileged SSH verification",
+      "status": {
+        "association_health": "installed",
+        "deployment_phase": "committed",
+        "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13",
+        "health": {
+          "healthy": true,
+          "protected": true,
+          "transmitting": true,
+          "missing_receive_associations": []
+        }
+      },
+      "proof": {
+        "capture": {
+          "capture_drops": 0,
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          }
+        },
+        "health": {
+          "healthy": true,
+          "missing_receive_associations": [],
+          "protected": true,
+          "transmitting": true
+        },
+        "peer_paths": 3
+      }
+    },
+    "kube03": {
+      "proofSource": "Independent privileged SSH verification",
+      "status": {
+        "association_health": "installed",
+        "deployment_phase": "committed",
+        "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13",
+        "health": {
+          "healthy": true,
+          "protected": true,
+          "transmitting": true,
+          "missing_receive_associations": []
+        }
+      },
+      "proof": {
+        "capture": {
+          "capture_drops": 0,
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          }
+        },
+        "health": {
+          "healthy": true,
+          "missing_receive_associations": [],
+          "protected": true,
+          "transmitting": true
+        },
+        "peer_paths": 3
+      }
+    },
+    "gateway": {
+      "proofSource": "Operator-supplied root verification JSON; local unprivileged unit-state inspection",
+      "status": {
+        "association_health": "installed",
+        "deployment_phase": "committed",
+        "health": {
+          "healthy": true,
+          "missing_receive_associations": [],
+          "protected": true,
+          "transmitting": true
+        },
+        "wpa_sha256": "1cf8e34a7884f8f77761a057728094138ce86cc52afd9fd3a1527d8937c40a13"
+      },
+      "proof": {
+        "capture": {
+          "capture_drops": 0,
+          "clear": {
+            "ipv4": 0,
+            "ipv6": 0
+          }
+        },
+        "health": {
+          "healthy": true,
+          "missing_receive_associations": [],
+          "protected": true,
+          "transmitting": true
+        },
+        "peer_paths": 3
+      }
+    }
+  },
+  "transportProof": {
+    "directedPeerPaths": 12,
+    "allCapturesZeroLoss": true,
+    "allCapturesNoClearIp": true,
+    "scope": "Separate approximately five-second filtered clear-IP windows per host, not continuous traffic recording."
+  },
+  "coordinatorCorrection": {
+    "cause": "SSH failure was reported as activation failure despite the desired binary/watcher/channel state having converged.",
+    "behavior": "Read-only installed-state reconciliation, detached bounded systemd activation, persisted dispatch diagnostics; no redispatch when already converged.",
+    "unitChecks": 58,
+    "realSshDisconnectExperiment": {
+      "completed": true,
+      "transport": "detached-systemd",
+      "ssh_client_exit": 255,
+      "unit": "qrab-health-ack-check-f57adb11576a"
+    },
+    "source": "9d0dace7f6f1c9d5cd508df8b85794111c62a257",
+    "runtimeScope": "Controller acknowledgement handling only; the verified live MKA binary is unchanged."
+  },
+  "vpnOracle": {
+    "result": {
+      "vm": "native-vpn-20261117",
+      "startedUtc": "2026-11-17T00:27:08.147120+00:00",
+      "vmUid": "1b8ddca3-ae53-4872-9284-e4ac7083d940",
+      "lastStatus": {
+        "phase": "Stopping",
+        "nodeName": "kube01",
+        "podName": "native-vpn-20261117-m8acc1f",
+        "nics": [
+          {
+            "address": "10.244.128.3",
+            "ip": "10.244.128.3",
+            "mac": "02:ef:af:35:73:b6",
+            "name": "lan",
+            "podName": "native-vpn-20261117-nic-lan-kube01",
+            "ready": true
+          }
+        ]
+      },
+      "native-vpn-20261117": {
+        "uid": "c0a0218b-70ac-42d4-8bf6-f25307106549",
+        "node": null,
+        "images": {
+          "manager": "zot.yapplesauce.com/qrab/manager@sha256:2f2ab6fad013a7c7635185668388603b50acbbcb657939c2295fe4dc0f6e79e9"
+        }
+      },
+      "native-vpn-20261117-m8acc1f": {
+        "uid": "5800ca29-3e54-4f8c-8abf-46a46c1c2d05",
+        "node": "kube01",
+        "images": {
+          "manager": "zot.yapplesauce.com/qrab/manager@sha256:2f2ab6fad013a7c7635185668388603b50acbbcb657939c2295fe4dc0f6e79e9"
+        }
+      },
+      "exit": 0,
+      "finishedUtc": "2026-11-17T00:32:29.277420+00:00"
+    },
+    "summary": "WireGuard tunnel10.66.0.2, egress fromproviderNode10.203.0.11, no pool-address leak; private key absent frommanager/logs; provider down15s stopped traffic, restored traffic resumed2s; migrationkube03tokube01 retainedboot, overall gap18.1s including outage.",
+    "logSha256": "eb01503d84e1bd24d6b1f17a98d3043734eb8fb7b60027585446003924ae6bf7"
+  },
+  "conntrackOracleKube02": {
+    "result": {
+      "vm": "native-ct-20261117",
+      "startedUtc": "2026-11-17T00:27:06.977634+00:00",
+      "vmUid": "5ed446da-5fe8-43d1-bc27-5c38c9d441ba",
+      "lastStatus": {
+        "phase": "Stopping",
+        "nodeName": "kube03",
+        "podName": "native-ct-20261117",
+        "nics": [
+          {
+            "address": "10.244.128.2",
+            "ip": "10.244.128.2",
+            "mac": "02:52:b7:d5:6c:e5",
+            "name": "eth0",
+            "podName": "native-ct-20261117-nic-eth0-kube03",
+            "ready": true
+          }
+        ]
+      },
+      "native-ct-20261117": {
+        "uid": "3f30c61c-4e19-41f6-843b-5b921748bf7f",
+        "node": null,
+        "images": {
+          "manager": "zot.yapplesauce.com/qrab/manager@sha256:2f2ab6fad013a7c7635185668388603b50acbbcb657939c2295fe4dc0f6e79e9"
+        }
+      },
+      "exit": 1,
+      "finishedUtc": "2026-11-17T00:30:42.316669+00:00"
+    },
+    "outcome": "Failed: target QEMU cpus_kick_thread Permission denied (os error13); distinct from completed transport proof.",
+    "logSha256": "38d2963de123241abbb0de2b7fac8340a91ad244918ebaeb15bc511e4e68b31e",
+    "followUp": "work/migration-target-qemu-thread-signal-permission"
+  },
+  "privateFixtureRepeat": {
+    "outcome": "Initial four-peer setup failed to converge before the changed installer path was reached. Earlier private lifecycle/installer suite passed; the failed rerun is preserved as a residual liveness issue.",
+    "logSha256": "b8d4ed885b557d4ad5d01c9a33b13bd588ea30804aa7d91cba254d5a83f0b149",
+    "followUp": "work/multiparty-mka-private-startup-nonconvergence"
+  },
+  "limitations": [
+    "No production peer restart or hostile-frame injection was performed during this verification.",
+    "MACsec group membership is separate from workload SPIFFE identity and does not encrypt local TAP/Unix/file channels.",
+    "Guest traffic beyond the gateway/provider retains application/VPN protection; shared CAK rotation and a physical gateway reboot were not tested."
+  ],
+  "conntrackOracleKube01Kube03": {
+    "vm": "native-ct-roundtrip-20261117",
+    "vmUid": "debfa1f8-9b36-4fe9-a2c3-a4f8e34f555b",
+    "stableAddress": "10.244.128.2",
+    "controlApi": "https://10.203.0.11:6443",
+    "firstMove": {
+      "source": "kube03",
+      "target": "kube01",
+      "succeeded": true,
+      "streamGapSeconds": 1.62,
+      "importedConntrack": true,
+      "precopyEntries": 3,
+      "deltaEntries": 3
+    },
+    "returnMove": {
+      "source": "kube01",
+      "target": "kube03",
+      "succeeded": false,
+      "error": "qrab-netd refused: this VM has no tap-mode NIC eth0 on this node",
+      "followUp": "work/migration-return-anchor-authorization-cache"
+    },
+    "logSha256": "ee76bef10b730d7163c659cb812687db56dde68f92eb24a2f3435e98860b4588",
+    "scope": "Successful first established-flow migration; the full round trip did not pass. Sandbox/policy not relaxed."
+  }
+}
