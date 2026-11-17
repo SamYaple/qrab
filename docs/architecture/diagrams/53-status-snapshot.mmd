@@ -1,0 +1,16 @@
+sequenceDiagram
+    participant B as VPN broker
+    participant K as Kubernetes profile API
+    participant P as Provider / certificate work
+    B->>K: Read profile snapshot UID U, version V
+    K-->>B: Desired generation G and current status
+    B->>P: Select / certify for snapshot G
+    Note over B,K: Name can be recreated or its version can change
+    P-->>B: Result for the earlier snapshot
+    B->>K: PATCH status with UID U and version V
+    alt Exact observed object is current
+        K-->>B: Publish result
+    else Replaced UID or newer version
+        K-->>B: Conflict, retain current status
+        B->>K: Reread on a later pass
+    end

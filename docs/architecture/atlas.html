@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 6de02035751d · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>31 document views · 56 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through efdc909680ce · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-runtime" data-doc="runtime">Runtime engineer&#x27;s view: what replaces libvirt</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>32 document views · 60 unique diagrams · 8 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a> <a href="exports/runtime.html">Direct QEMU management slides</a> · <a href="exports/runtime.pptx">PPTX</a> · <a href="exports/runtime.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -40,6 +40,7 @@ different evidence classes throughout the atlas.
 | openstack operator | [service replacement map](replacement-map.md), [task translator](operator-translation.md) | where each familiar responsibility and daily operation moves |
 | architecture review | [current structure](current-state.md), [desired state](desired-state.md) | what the code does versus what we intend |
 | rust developer | [code map](code-map.md), [boundary contracts](boundaries.md) | which crate owns an operation and where to change it |
+| runtime / libvirt engineer | [direct qemu management](runtime.md) | typed protocol, process supervision, declarative workflow and external capabilities |
 | network engineer | [network comparison](network.md) | ovn/cilium separation versus per-nic cilium endpoints |
 | storage engineer | [images and volumes](storage.md) | existing image/disk work, fencing, and remaining scope |
 | identity / security reviewer | [identity and trust](identity.md), [threat model](security.md) | human, workload, guest and storage authority |
@@ -138,6 +139,11 @@ different evidence classes throughout the atlas.</p>
 <td>Rust developer</td>
 <td><a href="#doc-code-map">Code map</a>, <a href="#doc-boundaries">boundary contracts</a></td>
 <td>Which crate owns an operation and where to change it</td>
+</tr>
+<tr>
+<td>Runtime / libvirt engineer</td>
+<td><a href="#doc-runtime">Direct QEMU management</a></td>
+<td>Typed protocol, process supervision, declarative workflow and external capabilities</td>
 </tr>
 <tr>
 <td>Network engineer</td>
@@ -1778,6 +1784,251 @@ appropriate verification method. Missing broad OpenStack features are scope
 gaps unless a current interface promises them. Stale documentation is repaired
 when it misstates the implemented/agreed boundary; it is not used to justify
 silently changing a previously authorized lifecycle.</p>
+</article><article class="doc" id="doc-runtime" data-search="# runtime engineer&#x27;s view: what replaces libvirt
+
+the target removes libvirt&#x27;s domain supervisor and gives one manager ownership
+of each qemu execution instance. typed qmp calls are one part of that work.
+the complete boundary also includes child cleanup, persistent identity,
+resource admission, guest cooperation and distributed storage/network owners.
+this perspective explains the implementation rather than claiming libvirt or
+nova feature parity.
+
+![four contracts behind direct qemu management](diagrams/rendered/light/55-runtime-contracts.svg)
+
+## follow one management operation
+
+a user reaches redfish/bmc through an admitted service connection and a
+separate vm role check. the management service calls the manager&#x27;s bounded
+local api. the manager owns the private qmp session and correlates the
+command result with its local runtime state. kubernetes intent and pod
+lifecycle remain another control path. a power action can leave management
+running; requesting `spec.running: false` asks the operator to remove the vm
+pod. ([management flow](lifecycle.md), s03, s04, s06, s18–s20.)
+
+the protocol library is linked code, not a qmp gateway deployed beside every
+service. the manager&#x27;s control directory is shared with trusted sidecars;
+the qmp/qga/session directory is private. a rust dependency does not grant a
+sidecar access to those private sockets.
+
+## separate the four contracts
+
+| contract | concrete owner | what it contributes | what it leaves to another owner |
+| --- | --- | --- | --- |
+| protocol | qapi parser/ir/generator/macros, generated types and qapi-protocol | command shape/flags, per-connection version, framing, correlated replies, events, cancellation and descriptor lifetime | starting qemu, choosing a tenant role, admitting a pod or fencing a disk |
+| local execution | manager supervisor, persistent state, bounded control and guest-agent worker | qemu/swtpm children, identity lease, private sockets, power, hotplug, local status and migration state | global placement, cilium policy, backend durability or human login |
+| declarative workflow | kubernetes and operator | admission/placement, controlled resources, current intent, resize/migration orchestration and conditional status | implementing qmp framing or carrying disk/packet payloads |
+| external capability | netd/cilium/frr, storage service/helper and identity services | narrow kernel grants, endpoint/policy/routing, export generations/fences and authentication/authorization | becoming a second qemu supervisor |
+
+the [code map](code-map.md) gives the crate inventory. the
+[operating model](operating-model.md) assigns operational responsibilities.
+those maps answer different questions from a process/container diagram.
+
+## a command has a wire outcome and a wider lifecycle outcome
+
+qmp validates requests before dispatch, assigns ids, bounds admission and
+owns each sent request through its reply/deadline. cancellation of a caller
+does not make a sent request disappear from qemu&#x27;s unanswered-command budget.
+the default in-band budget is eight, with separate negotiated out-of-band
+admission. events have bounded queues and never block command replies.
+([qmp client](../../projects/qapi-protocol/src/qmp.rs),
+[concurrency regressions](../../projects/qapi-protocol/tests/concurrent.rs).)
+
+![command outcome and runtime observation](diagrams/rendered/light/56-command-outcomes.svg)
+
+a local refusal before dispatch establishes that this request was not sent.
+a correlated reply establishes the command&#x27;s reported result. a deadline or
+lost connection after dispatch can leave the remote outcome unknown; the
+driver closes an expired dispatched session and wakes its pending callers.
+it does not transparently replay mutations. runtime logic must use the
+operation&#x27;s own state/ownership rules when deciding what can be retried.
+even successful qmp hotplug is distinct from a guest actually onlining a
+device; the [resource-growth evidence](verification.md#follow-resource-growth-through-four-observations)
+records those observations separately.
+
+the transport defaults are five seconds to connect, ten for handshake and
+thirty for a command, covering admission/writes/reply. they are library
+defaults, not a universal vm operation sla. the manager configures tighter
+startup/control settings and separate operation-specific budgets. qga is
+sequential: timeout/cancellation closes its uncertain session; reconnect
+performs sentinel/nonce synchronization before another operation.
+([options](../../projects/qapi-protocol/src/lib.rs),
+[qga](../../projects/qapi-protocol/src/qga.rs),
+[guest-agent regressions](../../projects/qapi-protocol/tests/guest_agent.rs).)
+
+## process ownership lasts through reaping
+
+the manager starts qemu as its child in the manager container&#x27;s cgroup.
+ordinary shutdown can request guest powerdown, wait for its configured grace,
+then use qmp quit and finally kill/wait when needed. process exit, a qmp
+acknowledgement and guest cooperation are separate observations.
+
+the managed-child guard keeps the persistent-state lease until the actual
+child is reaped, including exceptional cancellation/runtime shutdown. unknown
+wait outcomes retain the lease. dropping an async caller cannot simply
+release identity state while the old child might still run.
+([supervisor](../../projects/manager/src/pod/supervisor.rs),
+[child ownership](../../projects/manager/src/pod/process.rs), s04–s05.)
+
+that lease protects local identity-state ownership. it does not prove a
+partitioned guest-disk writer is fenced. backend export/session fencing is a
+separate storage contract. likewise, holding a tap fd preserves a kernel
+resource; it does not establish that its cilium endpoint is still the current
+authorized migration target.
+
+## compare the operational responsibility, then choose acceptance
+
+| supplied openstack model | qrab implementation / target | evidence needed for a workload |
+| --- | --- | --- |
+| containerized libvirt supervises host-cgroup qemu | manager supervises container-child qemu/swtpm | start/stop/reap, resource accounting and device access in the actual runtime |
+| nova coordinates lifecycle and placement | kubernetes plus operator and manager divide those duties | placement/cpu compatibility, reconciliation, restart/fencing and required migration cases |
+| neutron/ovn owns guest attachment/fabric | anchor/netd/cilium/frr owns separate guest identities and routing | policy/packet reachability, endpoint handoff, convergence and failure recovery |
+| glance/cinder supply image/volume workflows | existing sealed-image/disk foundation plus explicit remaining product scope | import/publish, quota, backup/restore, fence and destruction acceptance |
+
+the local real-peer, launcher, kvm/container, guest-freeze and two-manager
+migration checks strengthen particular rows; their limits remain in
+[verification](verification.md). the other openstack cluster was not
+inspected. production workload acceptance, release compatibility and
+operational recovery remain explicit work even when the source is compact.
+"><h1 id="runtime--runtime-engineers-view-what-replaces-libvirt">Runtime engineer's view: what replaces libvirt</h1>
+<p>The target removes libvirt's domain supervisor and gives one manager ownership
+of each QEMU execution instance. Typed QMP calls are one part of that work.
+The complete boundary also includes child cleanup, persistent identity,
+resource admission, guest cooperation and distributed storage/network owners.
+This perspective explains the implementation rather than claiming libvirt or
+Nova feature parity.</p>
+<p><img src="diagrams/rendered/light/55-runtime-contracts.svg" alt="Four contracts behind direct QEMU management" /></p>
+<h2 id="runtime--follow-one-management-operation">Follow one management operation</h2>
+<p>A user reaches Redfish/BMC through an admitted service connection and a
+separate VM role check. The management service calls the manager's bounded
+local API. The manager owns the private QMP session and correlates the
+command result with its local runtime state. Kubernetes intent and Pod
+lifecycle remain another control path. A power action can leave management
+running; requesting <code>spec.running: false</code> asks the operator to remove the VM
+Pod. (<a href="#doc-lifecycle">Management flow</a>, S03, S04, S06, S18–S20.)</p>
+<p>The protocol library is linked code, not a QMP gateway deployed beside every
+service. The manager's control directory is shared with trusted sidecars;
+the QMP/QGA/session directory is private. A Rust dependency does not grant a
+sidecar access to those private sockets.</p>
+<h2 id="runtime--separate-the-four-contracts">Separate the four contracts</h2>
+<table>
+<thead>
+<tr>
+<th>Contract</th>
+<th>Concrete owner</th>
+<th>What it contributes</th>
+<th>What it leaves to another owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Protocol</td>
+<td>QAPI parser/IR/generator/macros, generated types and qapi-protocol</td>
+<td>Command shape/flags, per-connection version, framing, correlated replies, events, cancellation and descriptor lifetime</td>
+<td>Starting QEMU, choosing a tenant role, admitting a Pod or fencing a disk</td>
+</tr>
+<tr>
+<td>Local execution</td>
+<td>Manager supervisor, persistent state, bounded control and guest-agent worker</td>
+<td>QEMU/swtpm children, identity lease, private sockets, power, hotplug, local status and migration state</td>
+<td>Global placement, Cilium policy, backend durability or human login</td>
+</tr>
+<tr>
+<td>Declarative workflow</td>
+<td>Kubernetes and operator</td>
+<td>Admission/placement, controlled resources, current intent, resize/migration orchestration and conditional status</td>
+<td>Implementing QMP framing or carrying disk/packet payloads</td>
+</tr>
+<tr>
+<td>External capability</td>
+<td>netd/Cilium/FRR, storage service/helper and identity services</td>
+<td>Narrow kernel grants, endpoint/policy/routing, export generations/fences and authentication/authorization</td>
+<td>Becoming a second QEMU supervisor</td>
+</tr>
+</tbody>
+</table>
+<p>The <a href="#doc-code-map">code map</a> gives the crate inventory. The
+<a href="#doc-operating-model">operating model</a> assigns operational responsibilities.
+Those maps answer different questions from a process/container diagram.</p>
+<h2 id="runtime--a-command-has-a-wire-outcome-and-a-wider-lifecycle-outcome">A command has a wire outcome and a wider lifecycle outcome</h2>
+<p>QMP validates requests before dispatch, assigns IDs, bounds admission and
+owns each sent request through its reply/deadline. Cancellation of a caller
+does not make a sent request disappear from QEMU's unanswered-command budget.
+The default in-band budget is eight, with separate negotiated out-of-band
+admission. Events have bounded queues and never block command replies.
+(<a href="../../projects/qapi-protocol/src/qmp.rs">QMP client</a>,
+<a href="../../projects/qapi-protocol/tests/concurrent.rs">concurrency regressions</a>.)</p>
+<p><img src="diagrams/rendered/light/56-command-outcomes.svg" alt="Command outcome and runtime observation" /></p>
+<p>A local refusal before dispatch establishes that this request was not sent.
+A correlated reply establishes the command's reported result. A deadline or
+lost connection after dispatch can leave the remote outcome unknown; the
+driver closes an expired dispatched session and wakes its pending callers.
+It does not transparently replay mutations. Runtime logic must use the
+operation's own state/ownership rules when deciding what can be retried.
+Even successful QMP hotplug is distinct from a guest actually onlining a
+device; the <a href="#verification--follow-resource-growth-through-four-observations">resource-growth evidence</a>
+records those observations separately.</p>
+<p>The transport defaults are five seconds to connect, ten for handshake and
+thirty for a command, covering admission/writes/reply. They are library
+defaults, not a universal VM operation SLA. The manager configures tighter
+startup/control settings and separate operation-specific budgets. QGA is
+sequential: timeout/cancellation closes its uncertain session; reconnect
+performs sentinel/nonce synchronization before another operation.
+(<a href="../../projects/qapi-protocol/src/lib.rs">Options</a>,
+<a href="../../projects/qapi-protocol/src/qga.rs">QGA</a>,
+<a href="../../projects/qapi-protocol/tests/guest_agent.rs">guest-agent regressions</a>.)</p>
+<h2 id="runtime--process-ownership-lasts-through-reaping">Process ownership lasts through reaping</h2>
+<p>The manager starts QEMU as its child in the manager container's cgroup.
+Ordinary shutdown can request guest powerdown, wait for its configured grace,
+then use QMP quit and finally kill/wait when needed. Process exit, a QMP
+acknowledgement and guest cooperation are separate observations.</p>
+<p>The managed-child guard keeps the persistent-state lease until the actual
+child is reaped, including exceptional cancellation/runtime shutdown. Unknown
+wait outcomes retain the lease. Dropping an async caller cannot simply
+release identity state while the old child might still run.
+(<a href="../../projects/manager/src/pod/supervisor.rs">Supervisor</a>,
+<a href="../../projects/manager/src/pod/process.rs">child ownership</a>, S04–S05.)</p>
+<p>That lease protects local identity-state ownership. It does not prove a
+partitioned guest-disk writer is fenced. Backend export/session fencing is a
+separate storage contract. Likewise, holding a TAP FD preserves a kernel
+resource; it does not establish that its Cilium endpoint is still the current
+authorized migration target.</p>
+<h2 id="runtime--compare-the-operational-responsibility-then-choose-acceptance">Compare the operational responsibility, then choose acceptance</h2>
+<table>
+<thead>
+<tr>
+<th>Supplied OpenStack model</th>
+<th>qrab implementation / target</th>
+<th>Evidence needed for a workload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Containerized libvirt supervises host-cgroup QEMU</td>
+<td>Manager supervises container-child QEMU/swtpm</td>
+<td>Start/stop/reap, resource accounting and device access in the actual runtime</td>
+</tr>
+<tr>
+<td>Nova coordinates lifecycle and placement</td>
+<td>Kubernetes plus operator and manager divide those duties</td>
+<td>Placement/CPU compatibility, reconciliation, restart/fencing and required migration cases</td>
+</tr>
+<tr>
+<td>Neutron/OVN owns guest attachment/fabric</td>
+<td>Anchor/netd/Cilium/FRR owns separate guest identities and routing</td>
+<td>Policy/packet reachability, endpoint handoff, convergence and failure recovery</td>
+</tr>
+<tr>
+<td>Glance/Cinder supply image/volume workflows</td>
+<td>Existing sealed-image/disk foundation plus explicit remaining product scope</td>
+<td>Import/publish, quota, backup/restore, fence and destruction acceptance</td>
+</tr>
+</tbody>
+</table>
+<p>The local real-peer, launcher, KVM/container, guest-freeze and two-manager
+migration checks strengthen particular rows; their limits remain in
+<a href="#doc-verification">verification</a>. The other OpenStack cluster was not
+inspected. Production workload acceptance, release compatibility and
+operational recovery remain explicit work even when the source is compact.</p>
 </article><article class="doc" id="doc-network" data-search="# network engineer&#x27;s view: reuse cilium, keep the guest boundary
 
 the change is from two network planes in the supplied openstack deployment
@@ -2077,6 +2328,25 @@ standalone image. see [a04](audit.md).
 
 ![verified image import](diagrams/rendered/light/13-image-import.svg)
 
+the importer also binds execution and cleanup to object identity. a same-name
+job is usable only when its controller is the current baseimage uid. its
+report must come from a pod controlled by that exact job uid; a successful
+job cannot select a failed container&#x27;s report. a consumed report carries the
+observed job uid/version through deletion. cleanup uses conditional deletes,
+including metadata-only ownership tests for the write-only stage secret.
+status/finalizer writes refresh current metadata while refusing parent
+recreation, spec/generation changes or a changed deletion state. the parent
+is checked before reconciliation and storage mutations as well, rather than
+waiting for a later status failure after changing the backend. other
+controllers&#x27; finalizers are preserved. see [a21](audit.md).
+
+![image import ownership chain](diagrams/rendered/light/54-image-owner-chain.svg)
+
+these api safeguards do not make kubernetes and backend storage one
+transaction. an existing sealed backend generation remains intentionally
+adoptable; adopting that data is separate from claiming a foreign job or
+credential object.
+
 upstream [glance](https://docs.openstack.org/glance/2026.1/) has a broader image
 metadata/discovery/retrieval role. the required replacement still needs an
 accepted publication/sharing policy, distribution/caching scope, import
@@ -2190,6 +2460,22 @@ does not authenticate backing files or external data files. Both Job modes now
 preflight and refuse those dependencies before qemu-img runs; import only a
 standalone image. See <a href="#doc-audit">A04</a>.</p>
 <p><img src="diagrams/rendered/light/13-image-import.svg" alt="Verified image import" /></p>
+<p>The importer also binds execution and cleanup to object identity. A same-name
+Job is usable only when its controller is the current BaseImage UID. Its
+report must come from a Pod controlled by that exact Job UID; a successful
+Job cannot select a failed container's report. A consumed report carries the
+observed Job UID/version through deletion. Cleanup uses conditional deletes,
+including metadata-only ownership tests for the write-only stage Secret.
+Status/finalizer writes refresh current metadata while refusing parent
+recreation, spec/generation changes or a changed deletion state. The parent
+is checked before reconciliation and storage mutations as well, rather than
+waiting for a later status failure after changing the backend. Other
+controllers' finalizers are preserved. See <a href="#doc-audit">A21</a>.</p>
+<p><img src="diagrams/rendered/light/54-image-owner-chain.svg" alt="Image import ownership chain" /></p>
+<p>These API safeguards do not make Kubernetes and backend storage one
+transaction. An existing sealed backend generation remains intentionally
+adoptable; adopting that data is separate from claiming a foreign Job or
+credential object.</p>
 <p>Upstream <a href="https://docs.openstack.org/glance/2026.1/">Glance</a> has a broader image
 metadata/discovery/retrieval role. The required replacement still needs an
 accepted publication/sharing policy, distribution/caching scope, import
@@ -2697,6 +2983,8 @@ this is a useful architecture-review perspective alongside the service map.
 | guest address | owned pool/endpoint and controlled route/handoff state | standby/active authority and route retirement are explicit |
 | chap login | exact export generation plus required hard fencing | authentication does not establish that an old writer is gone |
 | downloaded image digest | verified standalone source and independently sealed raw generation | metadata cannot extend integrity to unverified backing/data inputs |
+| image-import job name | current baseimage uid, exact observed job uid/version and job-owned report pod | name reuse cannot supply another report or retarget cleanup |
+| image-stage secret name | atomic owner tests, metadata-only response and uid/version delete conditions | cleanup keeps credentials write-only and preserves a replacement/rotation |
 | event sequence | manager epoch plus sequence/gap/drop information | bounded observations have restart/retention limits |
 
 the references here are not all credentials. a launch id is public provenance;
@@ -2884,6 +3172,16 @@ This is a useful architecture-review perspective alongside the service map.</p>
 <td>Downloaded image digest</td>
 <td>Verified standalone source and independently sealed raw generation</td>
 <td>Metadata cannot extend integrity to unverified backing/data inputs</td>
+</tr>
+<tr>
+<td>Image-import Job name</td>
+<td>Current BaseImage UID, exact observed Job UID/version and Job-owned report Pod</td>
+<td>Name reuse cannot supply another report or retarget cleanup</td>
+</tr>
+<tr>
+<td>Image-stage Secret name</td>
+<td>Atomic owner tests, metadata-only response and UID/version delete conditions</td>
+<td>Cleanup keeps credentials write-only and preserves a replacement/rotation</td>
 </tr>
 <tr>
 <td>Event sequence</td>
@@ -5163,7 +5461,7 @@ not silently reclassified as boundary bugs.
 | qemu supervision without libvirt | implemented | validate chosen release/machine/firmware and workload behavior | s04–s07 |
 | vm-specific container resources | implemented | required cpu topology, numa, pinning, hugepages and device-placement policies are separate scope decisions | s02, s04, s21 |
 | in-place power / management availability | implemented | distinguish guest off, paused, pod stopped and runtime failed | s04, s06, s19 |
-| cpu/memory growth | implemented / constrained | boot ceilings, kubelet admission, whole 2 mib memory increments relative to boot and guest onlining; unrepresentable sizes restart, no live shrink claim | s02–s04, t12 |
+| cpu/memory growth | implemented / constrained | kvm for in-place vcpu growth; boot ceilings, kubelet admission, whole 2 mib memory increments relative to boot and guest onlining; other exact sizes restart, no live shrink claim | s02–s04, t12 |
 | authenticated browser / redfish / console | implemented | verify actual issuer/audience/role policy, expiry and deployed service enrollment | s17–s20 |
 | human identity without keystone | implemented foundation | agree api rbac, vm application roles and namespace administration model | s16, s18–s20, m01 |
 | workload identity / rotation | implemented foundation | platform spire enrollment, service-specific peer policies and expiry evidence | s20, l01 |
@@ -5244,7 +5542,7 @@ not silently reclassified as boundary bugs.</p>
 <tr>
 <td>CPU/memory growth</td>
 <td>Implemented / constrained</td>
-<td>Boot ceilings, kubelet admission, whole 2 MiB memory increments relative to boot and guest onlining; unrepresentable sizes restart, no live shrink claim</td>
+<td>KVM for in-place vCPU growth; boot ceilings, kubelet admission, whole 2 MiB memory increments relative to boot and guest onlining; other exact sizes restart, no live shrink claim</td>
 <td>S02–S04, T12</td>
 </tr>
 <tr>
@@ -6559,6 +6857,7 @@ captions and light/dark/print variants are in [the catalog](diagrams.md).
 | storage review | [html](exports/storage.html) | [pptx](exports/storage.pptx) | [pdf](exports/storage.pdf) |
 | identity review | [html](exports/identity.html) | [pptx](exports/identity.pptx) | [pdf](exports/identity.pdf) |
 | openstack operator / cutover | [html](exports/operator.html) | [pptx](exports/operator.pptx) | [pdf](exports/operator.pdf) |
+| runtime / libvirt engineer | [html](exports/runtime.html) | [pptx](exports/runtime.pptx) | [pdf](exports/runtime.pdf) |
 
 the decks have speaker notes. html supports arrow keys, notes (`n`) and
 fullscreen. native boundary figures in pptx are editable shapes; mermaid
@@ -6618,6 +6917,17 @@ suggested visuals: `00-openstack-overview`, `00-qrab-overview`,
 for discussion, ask which invariant must remain true if a controller crashes
 between any two calls. that question exposes the useful comparison with the
 old ownership model more effectively than counting service binaries.
+
+## twelve-minute runtime review
+
+start with the matched deployment pair, then the four-contract runtime view.
+explain a command&#x27;s local refusal, correlated reply and unknown outcome.
+follow child cleanup through actual reaping, and keep local identity leases
+separate from backend hard fences. use the memory-budget and local kvm
+figures as specific evidence, then close on required workload acceptance.
+[the runtime perspective](runtime.md) supplies the detailed narrative and
+source links. the compact command-outcome diagram `56-command-outcomes`
+provides another discussion or handout view.
 
 ## twenty-minute operations workshop
 
@@ -6759,6 +7069,12 @@ captions and light/dark/print variants are in <a href="#doc-gallery">the catalog
 <td><a href="exports/operator.pptx">PPTX</a></td>
 <td><a href="exports/operator.pdf">PDF</a></td>
 </tr>
+<tr>
+<td>Runtime / libvirt engineer</td>
+<td><a href="exports/runtime.html">HTML</a></td>
+<td><a href="exports/runtime.pptx">PPTX</a></td>
+<td><a href="exports/runtime.pdf">PDF</a></td>
+</tr>
 </tbody>
 </table>
 <p>The decks have speaker notes. HTML supports arrow keys, notes (<code>N</code>) and
@@ -6854,6 +7170,15 @@ or an assertion of full OpenStack compatibility.</p>
 <p>For discussion, ask which invariant must remain true if a controller crashes
 between any two calls. That question exposes the useful comparison with the
 old ownership model more effectively than counting service binaries.</p>
+<h2 id="presentations--twelve-minute-runtime-review">Twelve-minute runtime review</h2>
+<p>Start with the matched deployment pair, then the four-contract runtime view.
+Explain a command's local refusal, correlated reply and unknown outcome.
+Follow child cleanup through actual reaping, and keep local identity leases
+separate from backend hard fences. Use the memory-budget and local KVM
+figures as specific evidence, then close on required workload acceptance.
+<a href="#doc-runtime">The runtime perspective</a> supplies the detailed narrative and
+source links. The compact command-outcome diagram <code>56-command-outcomes</code>
+provides another discussion or handout view.</p>
 <h2 id="presentations--twenty-minute-operations-workshop">Twenty-minute operations workshop</h2>
 <p>Use a failure-first sequence: the guest is off but management is up; a NIC
 cannot reach the world; the storage API is down but guest I/O continues; a
@@ -7001,6 +7326,22 @@ architecture investigation begun on 2026-11-17. work claims, detailed progress
 and operational notes live in the `qrab` project in towl. it is not a claim
 that every possible violation has been found or every deployed image contains
 these repairs.
+
+## review by boundary type
+
+| boundary | repairs | invariant |
+| --- | --- | --- |
+| resource provenance and cleanup | a01, a02, a15, a21 | delete/adopt the proven launch, group uuid or exact credential object |
+| local process and provider authority | a05, a06, a11, a14 | a name or numeric pid cannot replace the authorized current resource |
+| attachment and applied-state lifetime | a07, a10, a12, a13, a19 | namespace, lease, config, endpoint and route changes retain their own incarnation |
+| stream/descriptor ownership | a08 | bound the whole frame and own every delivered descriptor through refusal/cleanup |
+| delayed api observations | a09, a20, a21 | status belongs to the observed object uid/version |
+| image/media inputs | a04, a17 | validate the actual self-contained input selected for use |
+| resource budget and reporting scope | a16, a18 | actual device blocks and reported counters stay within the checked boundary |
+
+a03 corrects documentation. the http-provider, trace-registry and real-freeze
+entries are validation repairs/extensions, separate from production defects.
+the rejected cilium-policy concern is retained as a disproved hypothesis.
 
 ## a01 — state-pvc adoption crossed the launch ownership boundary
 
@@ -7637,6 +7978,79 @@ retain their existing scope.
 **merged source:** `6de02035751d4068a7edbc9281e70b720d59f895`.
 **tracking:** qrab `work/netd-forward-route-grace-generation`.
 
+## a20 — a delayed vpn result could overwrite another profile incarnation
+
+**location:** proton broker `runner::broker::set_status`.
+**repair baseline:** `6de0203`.
+
+the broker lists profiles before provider/certificate work, then published
+status by name with no metadata conditions. deleting/recreating that name or
+changing its object version during the work allowed an old result onto the
+current profile. a private api test using the actual status method failed
+before the repair with the replacement&#x27;s status overwritten.
+
+![status stays with its observed snapshot](diagrams/rendered/light/53-status-snapshot.svg)
+
+the patch now supplies the observed uid and resourceversion. missing/empty
+identity refuses the write; conflict leaves current status intact and the
+next pass rereads profiles. three regressions cover replacements, newer
+versions, matching publication and incomplete identity. the full runtime gate
+and strict clippy pass. no real provider session or cluster was used.
+
+existing secret admission separately protects profile-owned updates. this
+fix scopes status publication; it does not make provider, secret, node/kernel
+and profile writes one transaction. the optional vpn path remains distinct
+from the core vm/network path.
+
+**merged source:** `9c014f1825d28e16dfbe8db689742365c2de295a`.
+**tracking:** qrab `work/vpn-profile-status-incarnation`.
+
+## a21 — image import trusted reusable job and credential names
+
+**location:** operator image importer and kubernetes adapter.
+**repair baseline:** `9c014f1`.
+
+the adapter read same-name jobs without proving their baseimage owner,
+accepted every create conflict, selected report pods by a reusable job-name
+label, and deleted jobs/stage secrets by name. status/finalizer writes also
+lacked object conditions. a regression through the actual adapter and
+reconcile attempted to delete a foreign cronjob-owned job before the repair.
+a second regression showed that guarding only later status writes still let
+a known-stale parent retire backend storage first; it failed with the recorded
+`retire` call before the parent checks were moved ahead of storage effects.
+
+![image import ownership chain](diagrams/rendered/light/54-image-owner-chain.svg)
+
+the repair passes the observed baseimage through every adapter operation.
+fresh metadata must preserve its uid, generation, spec and deletion state,
+including before reconciliation and each storage mutation.
+jobs require an exact baseimage controller relationship; report pods require
+the observed job uid, with exit code zero for success. consumed reports retain
+the job uid/version through deletion, while generic cleanup checks the current
+owned child and deletes with uid/version conditions. create conflicts now
+require the expected owner.
+
+stage-credential cleanup uses only json ownership tests and a
+partialobjectmetadata response, followed by conditional deletion. it adds no
+secret get/list/watch or password readback. missing/ambiguous identity and
+replacement/rotation refuse cleanup. status and finalizer writes carry fresh
+uid/version conditions; only the importer&#x27;s finalizer changes, preserving
+other owners. refreshing metadata permits the importer&#x27;s own multiple status
+writes in a single reconcile without retrying forever on its previous write.
+
+private api regressions cover foreign owners, stale/failed report pods,
+same-owner job replacement, conditional job/secret deletion, parent changes,
+concurrent api writes, successive progress and rejection before storage effects. all 18 importer cases and the full runtime gate pass, including strict
+clippy and generated-resource comparisons. no image build, cluster import or
+backend storage operation was performed for these fixtures.
+
+an existing sealed storage generation remains intentionally adoptable by its
+catalog identity. this repair does not equate that data-adoption contract with
+kubernetes child ownership, or claim an atomic kubernetes/storage transaction.
+
+**merged source:** `efdc909680ce03ba85ee3be55b747a0cdb3c3fdb`.
+**tracking:** qrab `work/image-import-object-incarnations`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -7711,6 +8125,56 @@ architecture investigation begun on 2026-11-17. Work claims, detailed progress
 and operational notes live in the <code>qrab</code> project in towl. It is not a claim
 that every possible violation has been found or every deployed image contains
 these repairs.</p>
+<h2 id="audit--review-by-boundary-type">Review by boundary type</h2>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Repairs</th>
+<th>Invariant</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Resource provenance and cleanup</td>
+<td>A01, A02, A15, A21</td>
+<td>Delete/adopt the proven launch, group UUID or exact credential object</td>
+</tr>
+<tr>
+<td>Local process and provider authority</td>
+<td>A05, A06, A11, A14</td>
+<td>A name or numeric PID cannot replace the authorized current resource</td>
+</tr>
+<tr>
+<td>Attachment and applied-state lifetime</td>
+<td>A07, A10, A12, A13, A19</td>
+<td>Namespace, lease, config, endpoint and route changes retain their own incarnation</td>
+</tr>
+<tr>
+<td>Stream/descriptor ownership</td>
+<td>A08</td>
+<td>Bound the whole frame and own every delivered descriptor through refusal/cleanup</td>
+</tr>
+<tr>
+<td>Delayed API observations</td>
+<td>A09, A20, A21</td>
+<td>Status belongs to the observed object UID/version</td>
+</tr>
+<tr>
+<td>Image/media inputs</td>
+<td>A04, A17</td>
+<td>Validate the actual self-contained input selected for use</td>
+</tr>
+<tr>
+<td>Resource budget and reporting scope</td>
+<td>A16, A18</td>
+<td>Actual device blocks and reported counters stay within the checked boundary</td>
+</tr>
+</tbody>
+</table>
+<p>A03 corrects documentation. The HTTP-provider, trace-registry and real-freeze
+entries are validation repairs/extensions, separate from production defects.
+The rejected Cilium-policy concern is retained as a disproved hypothesis.</p>
 <h2 id="audit--a01--state-pvc-adoption-crossed-the-launch-ownership-boundary">A01 — state-PVC adoption crossed the launch ownership boundary</h2>
 <p><strong>Affected source:</strong> <code>resources::state_claim_adoption</code> in the operator and
 <code>launch::render_pvc</code> in the dashboard. <strong>Baseline:</strong> <code>5f361b7</code>.</p>
@@ -8216,6 +8680,63 @@ live Cilium/BGP convergence. Peer, own-VM/NIC and on-link next-hop admission
 retain their existing scope.</p>
 <p><strong>Merged source:</strong> <code>6de02035751d4068a7edbc9281e70b720d59f895</code>.
 <strong>Tracking:</strong> qrab <code>work/netd-forward-route-grace-generation</code>.</p>
+<h2 id="audit--a20--a-delayed-vpn-result-could-overwrite-another-profile-incarnation">A20 — a delayed VPN result could overwrite another profile incarnation</h2>
+<p><strong>Location:</strong> Proton broker <code>runner::Broker::set_status</code>.
+<strong>Repair baseline:</strong> <code>6de0203</code>.</p>
+<p>The broker lists profiles before provider/certificate work, then published
+status by name with no metadata conditions. Deleting/recreating that name or
+changing its object version during the work allowed an old result onto the
+current profile. A private API test using the actual status method failed
+before the repair with the replacement's status overwritten.</p>
+<p><img src="diagrams/rendered/light/53-status-snapshot.svg" alt="Status stays with its observed snapshot" /></p>
+<p>The patch now supplies the observed UID and resourceVersion. Missing/empty
+identity refuses the write; conflict leaves current status intact and the
+next pass rereads profiles. Three regressions cover replacements, newer
+versions, matching publication and incomplete identity. The full runtime gate
+and strict Clippy pass. No real provider session or cluster was used.</p>
+<p>Existing Secret admission separately protects profile-owned updates. This
+fix scopes status publication; it does not make provider, Secret, node/kernel
+and profile writes one transaction. The optional VPN path remains distinct
+from the core VM/network path.</p>
+<p><strong>Merged source:</strong> <code>9c014f1825d28e16dfbe8db689742365c2de295a</code>.
+<strong>Tracking:</strong> qrab <code>work/vpn-profile-status-incarnation</code>.</p>
+<h2 id="audit--a21--image-import-trusted-reusable-job-and-credential-names">A21 — image import trusted reusable Job and credential names</h2>
+<p><strong>Location:</strong> operator image importer and Kubernetes adapter.
+<strong>Repair baseline:</strong> <code>9c014f1</code>.</p>
+<p>The adapter read same-name Jobs without proving their BaseImage owner,
+accepted every create conflict, selected report Pods by a reusable Job-name
+label, and deleted Jobs/stage Secrets by name. Status/finalizer writes also
+lacked object conditions. A regression through the actual adapter and
+reconcile attempted to delete a foreign CronJob-owned Job before the repair.
+A second regression showed that guarding only later status writes still let
+a known-stale parent retire backend storage first; it failed with the recorded
+<code>retire</code> call before the parent checks were moved ahead of storage effects.</p>
+<p><img src="diagrams/rendered/light/54-image-owner-chain.svg" alt="Image import ownership chain" /></p>
+<p>The repair passes the observed BaseImage through every adapter operation.
+Fresh metadata must preserve its UID, generation, spec and deletion state,
+including before reconciliation and each storage mutation.
+Jobs require an exact BaseImage controller relationship; report Pods require
+the observed Job UID, with exit code zero for success. Consumed reports retain
+the Job UID/version through deletion, while generic cleanup checks the current
+owned child and deletes with UID/version conditions. Create conflicts now
+require the expected owner.</p>
+<p>Stage-credential cleanup uses only JSON ownership tests and a
+PartialObjectMetadata response, followed by conditional deletion. It adds no
+Secret GET/list/watch or password readback. Missing/ambiguous identity and
+replacement/rotation refuse cleanup. Status and finalizer writes carry fresh
+UID/version conditions; only the importer's finalizer changes, preserving
+other owners. Refreshing metadata permits the importer's own multiple status
+writes in a single reconcile without retrying forever on its previous write.</p>
+<p>Private API regressions cover foreign owners, stale/failed report Pods,
+same-owner Job replacement, conditional Job/Secret deletion, parent changes,
+concurrent API writes, successive progress and rejection before storage effects. All 18 importer cases and the full runtime gate pass, including strict
+Clippy and generated-resource comparisons. No image build, cluster import or
+backend storage operation was performed for these fixtures.</p>
+<p>An existing sealed storage generation remains intentionally adoptable by its
+catalog identity. This repair does not equate that data-adoption contract with
+Kubernetes child ownership, or claim an atomic Kubernetes/storage transaction.</p>
+<p><strong>Merged source:</strong> <code>efdc909680ce03ba85ee3be55b747a0cdb3c3fdb</code>.
+<strong>Tracking:</strong> qrab <code>work/image-import-object-incarnations</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -8341,6 +8862,9 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 | t15 | [resource scope checks and fixtures](../../projects/manager/src/pod/resources.rs), thin local container sampler described in [the audit](audit.md) | hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | guest allocation changes, host-root process relocation or workload performance guarantees |
 
 | t16 | [forwarding change/sweep](../../projects/qrab-netd/src/main.rs), [private kernel and default lock regressions](../../projects/qrab-netd/src/forward_tests.rs) | a fresh route receives its own orphan grace and cannot interleave installation/reset with sweep deletion | live node route operations, cilium/bgp convergence or unrelated address-reuse guarantees |
+
+| t17 | [broker status writer](../../projects/proton/src/broker/runner.rs), [private api snapshot regressions](../../projects/proton/src/broker/runner/tests.rs) | delayed profile results carry exact uid/version and cannot overwrite replacements/newer snapshots | a provider/secret/kernel/api transaction or live account verification |
+| t18 | [image importer](../../projects/operator/src/image_import.rs), [kubernetes adapter](../../projects/operator/src/image_import/cluster.rs), [private api regressions](../../projects/operator/src/image_import/tests/kube.rs) | parent/job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | live image import, zfs/lio acceptance or a cross-system transaction |
 
 ## external sources
 
@@ -8603,6 +9127,8 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T14 | <a href="../../projects/manager/src/pod/media.rs">Media path policy and regression</a>, isolated CLI configuration check described in <a href="#doc-audit">the audit</a> | Actual boot path must resolve to the canonical image that passed the configured policy; matching-root size behavior retained | A guest boot, a claimed exploit of standard operator rendering or mutable/untrusted media-publisher safety |</p>
 <p>| T15 | <a href="../../projects/manager/src/pod/resources.rs">Resource scope checks and fixtures</a>, thin local container sampler described in <a href="#doc-audit">the audit</a> | Hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | Guest allocation changes, host-root process relocation or workload performance guarantees |</p>
 <p>| T16 | <a href="../../projects/qrab-netd/src/main.rs">Forwarding change/sweep</a>, <a href="../../projects/qrab-netd/src/forward_tests.rs">private kernel and default lock regressions</a> | A fresh route receives its own orphan grace and cannot interleave installation/reset with sweep deletion | Live node route operations, Cilium/BGP convergence or unrelated address-reuse guarantees |</p>
+<p>| T17 | <a href="../../projects/proton/src/broker/runner.rs">Broker status writer</a>, <a href="../../projects/proton/src/broker/runner/tests.rs">private API snapshot regressions</a> | Delayed profile results carry exact UID/version and cannot overwrite replacements/newer snapshots | A provider/Secret/kernel/API transaction or live account verification |
+| T18 | <a href="../../projects/operator/src/image_import.rs">Image importer</a>, <a href="../../projects/operator/src/image_import/cluster.rs">Kubernetes adapter</a>, <a href="../../projects/operator/src/image_import/tests/kube.rs">private API regressions</a> | Parent/Job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | Live image import, ZFS/LIO acceptance or a cross-system transaction |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.
@@ -8872,7 +9398,19 @@ boundary, not an authenticated public management service.</p>
 <p>The current protected-platform foundation differs from a complete tenant-facing VM API and from arbitrary hostile Pod writers. The latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.</p><a href="diagrams/51-tenancy-models.json">Editable source</a> · <a href="diagrams/rendered/png/51-tenancy-models.png">PNG</a></section><section class="diagram-card" data-filter="52-forwarding-grace forwarding grace follows the latest handoff implemented repair / isolated kernel proof a fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. the explicit kernel fixture preserves a replacement, then expires it under its own age. no live cilium/bgp route outcome is implied.">
 <h3>Forwarding grace follows the latest handoff</h3><div class="scope">implemented repair / isolated kernel proof · S09, S11, T16</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/52-forwarding-grace.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="52-forwarding-grace" src="diagrams/rendered/light/52-forwarding-grace.svg" alt="Forwarding grace follows the latest handoff"></a>
-<p>A fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. The explicit kernel fixture preserves a replacement, then expires it under its own age. No live Cilium/BGP route outcome is implied.</p><a href="diagrams/52-forwarding-grace.mmd">Editable source</a> · <a href="diagrams/rendered/png/52-forwarding-grace.png">PNG</a></section></div></article></main></div><script>
+<p>A fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. The explicit kernel fixture preserves a replacement, then expires it under its own age. No live Cilium/BGP route outcome is implied.</p><a href="diagrams/52-forwarding-grace.mmd">Editable source</a> · <a href="diagrams/rendered/png/52-forwarding-grace.png">PNG</a></section><section class="diagram-card" data-filter="53-status-snapshot delayed status belongs to its observed object implemented repair / private api proof provider work can outlive a profile name or version. the result is published only with the observed uid/resourceversion, preserving current status on conflict. secret ownership and kernel application remain separate operations.">
+<h3>Delayed status belongs to its observed object</h3><div class="scope">implemented repair / private API proof · S25, T17</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/53-status-snapshot.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="53-status-snapshot" src="diagrams/rendered/light/53-status-snapshot.svg" alt="Delayed status belongs to its observed object"></a>
+<p>Provider work can outlive a profile name or version. The result is published only with the observed UID/resourceVersion, preserving current status on conflict. Secret ownership and kernel application remain separate operations.</p><a href="diagrams/53-status-snapshot.mmd">Editable source</a> · <a href="diagrams/rendered/png/53-status-snapshot.png">PNG</a></section><section class="diagram-card" data-filter="54-image-owner-chain image import: names are lookup keys implemented repair / private api proof the baseimage uid/generation scopes job ownership, report pods, conditional cleanup and status/finalizer progress. stage secret ownership is tested without credential readback. durable backend adoption remains separate from kubernetes object ownership.">
+<h3>Image import: names are lookup keys</h3><div class="scope">implemented repair / private API proof · S15, T18</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/54-image-owner-chain.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="54-image-owner-chain" src="diagrams/rendered/light/54-image-owner-chain.svg" alt="Image import: names are lookup keys"></a>
+<p>The BaseImage UID/generation scopes Job ownership, report Pods, conditional cleanup and status/finalizer progress. Stage Secret ownership is tested without credential readback. Durable backend adoption remains separate from Kubernetes object ownership.</p><a href="diagrams/54-image-owner-chain.json">Editable source</a> · <a href="diagrams/rendered/png/54-image-owner-chain.png">PNG</a></section><section class="diagram-card" data-filter="55-runtime-contracts direct qemu management has four contracts implemented ownership / target acceptance comparison direct qemu management separates protocol libraries, manager supervision, kubernetes/operator workflow and separately owned network/storage/identity capabilities. their responsibility boundaries remain explicit when libvirt/nova leave the target.">
+<h3>Direct QEMU management has four contracts</h3><div class="scope">implemented ownership / target acceptance comparison · S03, S04, S05, S06, S07, S09, S13, S20</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/55-runtime-contracts.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="55-runtime-contracts" src="diagrams/rendered/light/55-runtime-contracts.svg" alt="Direct QEMU management has four contracts"></a>
+<p>Direct QEMU management separates protocol libraries, manager supervision, Kubernetes/operator workflow and separately owned network/storage/identity capabilities. Their responsibility boundaries remain explicit when libvirt/Nova leave the target.</p><a href="diagrams/55-runtime-contracts.json">Editable source</a> · <a href="diagrams/rendered/png/55-runtime-contracts.png">PNG</a></section><section class="diagram-card" data-filter="56-command-outcomes three command outcomes, three next steps implemented protocol semantics / runtime guidance local refusal before dispatch means this request was not sent. a deadline or connection loss after dispatch may leave the remote outcome unknown; the transport does not transparently replay mutations. wider lifecycle observation and operation-specific retry belong to runtime logic.">
+<h3>Three command outcomes, three next steps</h3><div class="scope">implemented protocol semantics / runtime guidance · S04, S07, T01, T02</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/56-command-outcomes.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="56-command-outcomes" src="diagrams/rendered/light/56-command-outcomes.svg" alt="Three command outcomes, three next steps"></a>
+<p>Local refusal before dispatch means this request was not sent. A deadline or connection loss after dispatch may leave the remote outcome unknown; the transport does not transparently replay mutations. Wider lifecycle observation and operation-specific retry belong to runtime logic.</p><a href="diagrams/56-command-outcomes.json">Editable source</a> · <a href="diagrams/rendered/png/56-command-outcomes.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

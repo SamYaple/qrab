@@ -71,6 +71,9 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 
 | T16 | [Forwarding change/sweep](../../projects/qrab-netd/src/main.rs), [private kernel and default lock regressions](../../projects/qrab-netd/src/forward_tests.rs) | A fresh route receives its own orphan grace and cannot interleave installation/reset with sweep deletion | Live node route operations, Cilium/BGP convergence or unrelated address-reuse guarantees |
 
+| T17 | [Broker status writer](../../projects/proton/src/broker/runner.rs), [private API snapshot regressions](../../projects/proton/src/broker/runner/tests.rs) | Delayed profile results carry exact UID/version and cannot overwrite replacements/newer snapshots | A provider/Secret/kernel/API transaction or live account verification |
+| T18 | [Image importer](../../projects/operator/src/image_import.rs), [Kubernetes adapter](../../projects/operator/src/image_import/cluster.rs), [private API regressions](../../projects/operator/src/image_import/tests/kube.rs) | Parent/Job/report/credential identity and conditional writes/deletes hold across exercised replacement and update races | Live image import, ZFS/LIO acceptance or a cross-system transaction |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to

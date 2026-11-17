@@ -1,0 +1,17 @@
+{
+  "title": "Three command outcomes, three next steps",
+  "subtitle": "A wire result is one observation in the larger VM lifecycle",
+  "note": "The transport does not replay mutations. Expired dispatched QMP sessions close; QGA reconnects must resynchronize.",
+  "boundaries": [],
+  "boxes": [
+    {"x":580,"y":205,"w":440,"h":120,"kind":"foundation","kicker":"BOUNDED REQUEST / DISPATCH","lines":["Validate, admit and own the request"]},
+    {"x":60,"y":475,"w":440,"h":230,"kind":"qrab","kicker":"LOCAL REFUSAL BEFORE DISPATCH","lines":["This request was not sent","Correct the refused request","Then choose the next action"]},
+    {"x":580,"y":475,"w":440,"h":230,"kind":"qrab","kicker":"CORRELATED RESULT","lines":["Decode success or peer error","Assess the operation's result","Observe the wider lifecycle"]},
+    {"x":1100,"y":475,"w":440,"h":230,"kind":"build","kicker":"DEADLINE / LOST REPLY AFTER DISPATCH","lines":["Remote outcome may be unknown","Re-observe state or fail closed","Retry only if semantics permit"]}
+  ],
+  "arrows": [
+    {"points":[[700,325],[700,385],[280,385],[280,475]]},
+    {"points":[[800,325],[800,475]]},
+    {"points":[[900,325],[900,385],[1320,385],[1320,475]]}
+  ]
+}

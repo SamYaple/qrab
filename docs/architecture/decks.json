@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "6de02035751d4068a7edbc9281e70b720d59f895",
+  "reviewed_through": "efdc909680ce03ba85ee3be55b747a0cdb3c3fdb",
   "decks": [
     {
       "id": "leadership",
@@ -1614,6 +1614,216 @@
             "S04",
             "S13",
             "T01"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "runtime",
+      "title": "Direct QEMU management",
+      "style": "dark",
+      "minutes": 12,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "What replaces libvirt?",
+          "subtitle": "Four contracts behind direct QEMU management",
+          "notes": "Twelve-minute runtime perspective. Begin with the supplied OpenStack deployment, then explain protocol, process and workflow responsibilities. Source support and workload acceptance remain separate.",
+          "evidence": [
+            "S03",
+            "S04",
+            "S07"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-openstack-overview",
+          "notes": "The other Kubernetes cluster runs containerized OpenStack and libvirt, but libvirt launches QEMU in traditional host cgroups. Cilium is Kubernetes networking, while OVN supplies the guest fabric. This is the supplied topology, not a fresh inspection.",
+          "evidence": [
+            "U01",
+            "U02"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-qrab-overview",
+          "notes": "The target keeps Kubernetes, QEMU/KVM, Cilium, FRR/BGP and the existing infrastructure. Manager owns QEMU in the VM container. The operator and external capability owners still have work that a QMP library cannot replace.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S08",
+            "S13",
+            "S20"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "55-runtime-contracts",
+          "notes": "Separate linked protocol code, a local process supervisor, declarative cloud workflow and external capability owners. Removing libvirt and Nova does not turn any one of these into the owner of every VM duty.",
+          "evidence": [
+            "S03",
+            "S04",
+            "S07",
+            "S09",
+            "S13",
+            "S20"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Wire correctness has explicit bounds",
+          "cards": [
+            {
+              "title": "Correlate",
+              "body": "Per-connection version, typed command flags and owned request IDs bind replies to requests."
+            },
+            {
+              "title": "Bound pressure",
+              "body": "Eight in-band unanswered commands, separate negotiated OOB admission, bounded frames and event queues."
+            },
+            {
+              "title": "Keep ownership",
+              "body": "Sent requests retain admission after caller cancellation; descriptors are owned through send or refusal."
+            }
+          ],
+          "notes": "The default in-band limit follows QEMU guidance. Events cannot block command replies. Protocol tests remain independent of the manager, Kubernetes, hardware and guest downloads.",
+          "evidence": [
+            "S07",
+            "T01",
+            "T02"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "A deadline is an observation, not rollback",
+          "cards": [
+            {
+              "title": "Before dispatch",
+              "body": "A local refusal establishes that this request was not sent."
+            },
+            {
+              "title": "Correlated reply",
+              "body": "Decode the command result, then observe any wider lifecycle or guest work."
+            },
+            {
+              "title": "Unknown outcome",
+              "body": "After dispatch, timeout or connection loss can leave execution unknown. The transport does not replay mutations."
+            }
+          ],
+          "notes": "QMP closes an expired dispatched session and wakes pending callers. Runtime retry policy depends on the operation. Sequential QGA closes uncertain sessions and resynchronizes on reconnect. Do not present a command timeout as proof of no side effect.",
+          "evidence": [
+            "S04",
+            "S07"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Own the child through cleanup",
+          "cards": [
+            {
+              "title": "Normal stop",
+              "body": "Request guest powerdown, wait the configured grace, then quit or kill/wait when required."
+            },
+            {
+              "title": "Exceptional cleanup",
+              "body": "Keep the identity-state lease until the actual QEMU child is reaped, even after async cancellation."
+            },
+            {
+              "title": "Separate hard fence",
+              "body": "A local state lease and Pod deletion do not prove that a remote guest-disk writer is fenced."
+            }
+          ],
+          "notes": "The managed-child guard retains the lease on unknown wait outcomes. The source gives the manager local process authority and storage its own export/session fence.",
+          "evidence": [
+            "S04",
+            "S05",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "48-memory-block-budget",
+          "notes": "Admission must cover actual device granularity. The repaired manager floors growth to whole virtio-mem blocks relative to boot memory, so a 1023 MiB guest budget cannot authorize 1024 MiB. QMP requested memory and guest onlining remain different clocks.",
+          "evidence": [
+            "S02",
+            "S04",
+            "T13"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "47-container-kvm-proof",
+          "notes": "A disposable rootless KVM container booted the guest with manager, swtpm and QEMU as direct parent/children in one constrained cgroup. Held pidfds verified original-process exit. This is stronger than source inspection, but not Kubernetes placement/device-plugin or Cilium/storage acceptance.",
+          "evidence": [
+            "S04",
+            "S05",
+            "T11"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "43-recovery-bundle",
+          "notes": "Recover guest disks, retained firmware/vTPM identity, the intended configuration and scoped export/access state together. Disk bytes alone do not establish the same VM identity or safe writer authority.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14",
+            "S23"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "External capability owners remain",
+          "cards": [
+            {
+              "title": "Kubernetes",
+              "body": "Admission, placement, device assignment, container resources and Pod lifecycle."
+            },
+            {
+              "title": "Network",
+              "body": "netd grants kernel resources; separate anchor identities use Cilium policy and FRR/BGP routing."
+            },
+            {
+              "title": "Storage and identity",
+              "body": "Backend fences protect writers. OIDC roles and SPIFFE peers answer separate authority questions."
+            }
+          ],
+          "notes": "These integrations replace required Nova/Neutron/Keystone responsibilities without making manager a generic cloud control plane. Live handoff still depends on the versioned local Cilium integration.",
+          "evidence": [
+            "S03",
+            "S09",
+            "S13",
+            "S20",
+            "S21"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Accept the workload contract explicitly",
+          "cards": [
+            {
+              "title": "Compatibility",
+              "body": "CPU/machine/firmware, guest cooperation, device topology and migration cases."
+            },
+            {
+              "title": "Recovery",
+              "body": "Unknown writers, process/namespace replacement, retained identity and backup/restore."
+            },
+            {
+              "title": "Evidence",
+              "body": "Local peer and KVM fixtures, component integration and deployed workload acceptance prove different scopes."
+            }
+          ],
+          "notes": "Use the capability ledger and transition plan before retiring an old owner. No full libvirt/Nova feature parity, cross-cluster live migration or measured cost/performance result is claimed.",
+          "evidence": [
+            "S04",
+            "S11",
+            "T02",
+            "T09",
+            "T10",
+            "T11",
+            "T13"
           ]
         }
       ]

@@ -1,0 +1,13 @@
+{
+  "title": "Direct QEMU management has four contracts",
+  "subtitle": "Typed commands, local supervision, declarative workflow and narrow external capabilities have different owners",
+  "note": "Current ownership map. Replacing libvirt/Nova requires the needed workload contract; this is not a feature-parity claim.",
+  "boundaries": [],
+  "boxes": [
+    {"x":80,"y":230,"w":650,"h":210,"kind":"qrab","kicker":"LOCAL EXECUTION / MANAGER","lines":["QEMU and swtpm child ownership","Identity lease, stop, wait and reap","Private sockets, power and local runtime status"]},
+    {"x":870,"y":230,"w":650,"h":210,"kind":"foundation","kicker":"PROTOCOL / GENERATED TYPES + QAPI-PROTOCOL","lines":["Typed commands and per-connection version","Bounded admission, replies, events and FDs","Independent of manager, Kubernetes and KVM"]},
+    {"x":80,"y":555,"w":650,"h":210,"kind":"foundation","kicker":"DECLARATIVE WORKFLOW / KUBERNETES + OPERATOR","lines":["Admission, placement and container resources","Controlled launch, resize, migration and cleanup","Current intent and conditional API observations"]},
+    {"x":870,"y":555,"w":650,"h":210,"kind":"build","kicker":"EXTERNAL CAPABILITY / SEPARATE PLATFORM OWNERS","lines":["netd grants kernel FDs; Cilium/FRR carries traffic","Storage owns bytes, exports and hard fences","OIDC roles and SPIFFE peers answer different questions"]}
+  ],
+  "arrows": []
+}

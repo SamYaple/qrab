@@ -26,6 +26,8 @@ This is a useful architecture-review perspective alongside the service map.
 | Guest address | Owned pool/endpoint and controlled route/handoff state | Standby/active authority and route retirement are explicit |
 | CHAP login | Exact export generation plus required hard fencing | Authentication does not establish that an old writer is gone |
 | Downloaded image digest | Verified standalone source and independently sealed raw generation | Metadata cannot extend integrity to unverified backing/data inputs |
+| Image-import Job name | Current BaseImage UID, exact observed Job UID/version and Job-owned report Pod | Name reuse cannot supply another report or retarget cleanup |
+| Image-stage Secret name | Atomic owner tests, metadata-only response and UID/version delete conditions | Cleanup keeps credentials write-only and preserves a replacement/rotation |
 | Event sequence | Manager epoch plus sequence/gap/drop information | Bounded observations have restart/retention limits |
 
 The references here are not all credentials. A launch ID is public provenance;

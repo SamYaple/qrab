@@ -669,7 +669,58 @@
         "S11",
         "T16"
       ]
+    },
+    {
+      "id": "53-status-snapshot",
+      "title": "Delayed status belongs to its observed object",
+      "status": "implemented repair / private API proof",
+      "caption": "Provider work can outlive a profile name or version. The result is published only with the observed UID/resourceVersion, preserving current status on conflict. Secret ownership and kernel application remain separate operations.",
+      "evidence": [
+        "S25",
+        "T17"
+      ]
+    },
+    {
+      "id": "54-image-owner-chain",
+      "source": "54-image-owner-chain.json",
+      "title": "Image import: names are lookup keys",
+      "status": "implemented repair / private API proof",
+      "caption": "The BaseImage UID/generation scopes Job ownership, report Pods, conditional cleanup and status/finalizer progress. Stage Secret ownership is tested without credential readback. Durable backend adoption remains separate from Kubernetes object ownership.",
+      "evidence": [
+        "S15",
+        "T18"
+      ]
+    },
+    {
+      "id": "55-runtime-contracts",
+      "source": "55-runtime-contracts.json",
+      "title": "Direct QEMU management has four contracts",
+      "status": "implemented ownership / target acceptance comparison",
+      "caption": "Direct QEMU management separates protocol libraries, manager supervision, Kubernetes/operator workflow and separately owned network/storage/identity capabilities. Their responsibility boundaries remain explicit when libvirt/Nova leave the target.",
+      "evidence": [
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S09",
+        "S13",
+        "S20"
+      ]
+    },
+    {
+      "id": "56-command-outcomes",
+      "title": "Three command outcomes, three next steps",
+      "status": "implemented protocol semantics / runtime guidance",
+      "caption": "Local refusal before dispatch means this request was not sent. A deadline or connection loss after dispatch may leave the remote outcome unknown; the transport does not transparently replay mutations. Wider lifecycle observation and operation-specific retry belong to runtime logic.",
+      "evidence": [
+        "S04",
+        "S07",
+        "T01",
+        "T02"
+      ],
+      "source": "56-command-outcomes.json"
     }
   ],
-  "reviewed_through": "6de02035751d4068a7edbc9281e70b720d59f895"
+  "reviewed_through": "efdc909680ce03ba85ee3be55b747a0cdb3c3fdb"
 }

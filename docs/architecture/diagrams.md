@@ -570,3 +570,43 @@ A fresh forwarding change resets previous orphan age and shares the sweep lock t
 ![Forwarding grace follows the latest handoff](diagrams/rendered/light/52-forwarding-grace.svg)
 
 [Editable source](diagrams/52-forwarding-grace.mmd) · [Light SVG](diagrams/rendered/light/52-forwarding-grace.svg) · [Dark SVG](diagrams/rendered/dark/52-forwarding-grace.svg) · [Print SVG](diagrams/rendered/print/52-forwarding-grace.svg) · [PNG](diagrams/rendered/png/52-forwarding-grace.png)
+
+## 53-status-snapshot: Delayed status belongs to its observed object
+
+**Scope:** implemented repair / private API proof. **Evidence:** S25, T17.
+
+Provider work can outlive a profile name or version. The result is published only with the observed UID/resourceVersion, preserving current status on conflict. Secret ownership and kernel application remain separate operations.
+
+![Delayed status belongs to its observed object](diagrams/rendered/light/53-status-snapshot.svg)
+
+[Editable source](diagrams/53-status-snapshot.mmd) · [Light SVG](diagrams/rendered/light/53-status-snapshot.svg) · [Dark SVG](diagrams/rendered/dark/53-status-snapshot.svg) · [Print SVG](diagrams/rendered/print/53-status-snapshot.svg) · [PNG](diagrams/rendered/png/53-status-snapshot.png)
+
+## 54-image-owner-chain: Image import: names are lookup keys
+
+**Scope:** implemented repair / private API proof. **Evidence:** S15, T18.
+
+The BaseImage UID/generation scopes Job ownership, report Pods, conditional cleanup and status/finalizer progress. Stage Secret ownership is tested without credential readback. Durable backend adoption remains separate from Kubernetes object ownership.
+
+![Image import: names are lookup keys](diagrams/rendered/light/54-image-owner-chain.svg)
+
+[Editable source](diagrams/54-image-owner-chain.json) · [Light SVG](diagrams/rendered/light/54-image-owner-chain.svg) · [Dark SVG](diagrams/rendered/dark/54-image-owner-chain.svg) · [Print SVG](diagrams/rendered/print/54-image-owner-chain.svg) · [PNG](diagrams/rendered/png/54-image-owner-chain.png)
+
+## 55-runtime-contracts: Direct QEMU management has four contracts
+
+**Scope:** implemented ownership / target acceptance comparison. **Evidence:** S03, S04, S05, S06, S07, S09, S13, S20.
+
+Direct QEMU management separates protocol libraries, manager supervision, Kubernetes/operator workflow and separately owned network/storage/identity capabilities. Their responsibility boundaries remain explicit when libvirt/Nova leave the target.
+
+![Direct QEMU management has four contracts](diagrams/rendered/light/55-runtime-contracts.svg)
+
+[Editable source](diagrams/55-runtime-contracts.json) · [Light SVG](diagrams/rendered/light/55-runtime-contracts.svg) · [Dark SVG](diagrams/rendered/dark/55-runtime-contracts.svg) · [Print SVG](diagrams/rendered/print/55-runtime-contracts.svg) · [PNG](diagrams/rendered/png/55-runtime-contracts.png)
+
+## 56-command-outcomes: Three command outcomes, three next steps
+
+**Scope:** implemented protocol semantics / runtime guidance. **Evidence:** S04, S07, T01, T02.
+
+Local refusal before dispatch means this request was not sent. A deadline or connection loss after dispatch may leave the remote outcome unknown; the transport does not transparently replay mutations. Wider lifecycle observation and operation-specific retry belong to runtime logic.
+
+![Three command outcomes, three next steps](diagrams/rendered/light/56-command-outcomes.svg)
+
+[Editable source](diagrams/56-command-outcomes.json) · [Light SVG](diagrams/rendered/light/56-command-outcomes.svg) · [Dark SVG](diagrams/rendered/dark/56-command-outcomes.svg) · [Print SVG](diagrams/rendered/print/56-command-outcomes.svg) · [PNG](diagrams/rendered/png/56-command-outcomes.png)

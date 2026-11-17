@@ -1,0 +1,20 @@
+{
+  "title": "Image import: names are lookup keys",
+  "subtitle": "The importer checks the current BaseImage, the exact Job and its report Pods before acting",
+  "note": "Implemented API safeguards. Storage fencing and sealing remain separate operations, with their own authority.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":225,"w":440,"h":180,"kind":"foundation","kicker":"PARENT / ACCEPTED INTENT","lines":["BaseImage UID + generation","Same spec and deletion state","Refresh current API version"]},
+    {"x":580,"y":225,"w":440,"h":180,"kind":"qrab","kicker":"JOB / OWNED EXECUTION","lines":["Exact BaseImage controller UID","Observe Job UID + version","A create conflict proves no owner"]},
+    {"x":1100,"y":225,"w":440,"h":180,"kind":"qrab","kicker":"POD / REPORT ORIGIN","lines":["Exact observed Job controller UID","Select image-job termination","Success requires exit code zero"]},
+    {"x":60,"y":550,"w":440,"h":180,"kind":"qrab","kicker":"STATUS / FINALIZERS","lines":["Patch current UID + version","Preserve other finalizers","Conflict leaves current state intact"]},
+    {"x":580,"y":550,"w":440,"h":180,"kind":"qrab","kicker":"STAGE CREDENTIAL / WRITE ONLY","lines":["No-op JSON tests prove owner","Receive metadata, never password","Delete checked UID + version"]},
+    {"x":1100,"y":550,"w":440,"h":180,"kind":"build","kicker":"STORAGE / SEPARATE LIFETIME","lines":["Stage, export, fence, hash, seal","Backend generation is durable","No API/storage transaction claim"]}
+  ],
+  "arrows": [
+    {"points":[[500,315],[580,315]]},
+    {"points":[[1020,315],[1100,315]]},
+    {"points":[[280,405],[280,550]]},
+    {"points":[[800,405],[800,550]]}
+  ]
+}

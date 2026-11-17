@@ -52,6 +52,25 @@ standalone image. See [A04](audit.md).
 
 ![Verified image import](diagrams/rendered/light/13-image-import.svg)
 
+The importer also binds execution and cleanup to object identity. A same-name
+Job is usable only when its controller is the current BaseImage UID. Its
+report must come from a Pod controlled by that exact Job UID; a successful
+Job cannot select a failed container's report. A consumed report carries the
+observed Job UID/version through deletion. Cleanup uses conditional deletes,
+including metadata-only ownership tests for the write-only stage Secret.
+Status/finalizer writes refresh current metadata while refusing parent
+recreation, spec/generation changes or a changed deletion state. The parent
+is checked before reconciliation and storage mutations as well, rather than
+waiting for a later status failure after changing the backend. Other
+controllers' finalizers are preserved. See [A21](audit.md).
+
+![Image import ownership chain](diagrams/rendered/light/54-image-owner-chain.svg)
+
+These API safeguards do not make Kubernetes and backend storage one
+transaction. An existing sealed backend generation remains intentionally
+adoptable; adopting that data is separate from claiming a foreign Job or
+credential object.
+
 Upstream [Glance](https://docs.openstack.org/glance/2026.1/) has a broader image
 metadata/discovery/retrieval role. The required replacement still needs an
 accepted publication/sharing policy, distribution/caching scope, import

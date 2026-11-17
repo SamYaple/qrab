@@ -6,6 +6,22 @@ and operational notes live in the `qrab` project in towl. It is not a claim
 that every possible violation has been found or every deployed image contains
 these repairs.
 
+## Review by boundary type
+
+| Boundary | Repairs | Invariant |
+| --- | --- | --- |
+| Resource provenance and cleanup | A01, A02, A15, A21 | Delete/adopt the proven launch, group UUID or exact credential object |
+| Local process and provider authority | A05, A06, A11, A14 | A name or numeric PID cannot replace the authorized current resource |
+| Attachment and applied-state lifetime | A07, A10, A12, A13, A19 | Namespace, lease, config, endpoint and route changes retain their own incarnation |
+| Stream/descriptor ownership | A08 | Bound the whole frame and own every delivered descriptor through refusal/cleanup |
+| Delayed API observations | A09, A20, A21 | Status belongs to the observed object UID/version |
+| Image/media inputs | A04, A17 | Validate the actual self-contained input selected for use |
+| Resource budget and reporting scope | A16, A18 | Actual device blocks and reported counters stay within the checked boundary |
+
+A03 corrects documentation. The HTTP-provider, trace-registry and real-freeze
+entries are validation repairs/extensions, separate from production defects.
+The rejected Cilium-policy concern is retained as a disproved hypothesis.
+
 ## A01 — state-PVC adoption crossed the launch ownership boundary
 
 **Affected source:** `resources::state_claim_adoption` in the operator and
@@ -640,6 +656,79 @@ retain their existing scope.
 
 **Merged source:** `6de02035751d4068a7edbc9281e70b720d59f895`.
 **Tracking:** qrab `work/netd-forward-route-grace-generation`.
+
+## A20 — a delayed VPN result could overwrite another profile incarnation
+
+**Location:** Proton broker `runner::Broker::set_status`.
+**Repair baseline:** `6de0203`.
+
+The broker lists profiles before provider/certificate work, then published
+status by name with no metadata conditions. Deleting/recreating that name or
+changing its object version during the work allowed an old result onto the
+current profile. A private API test using the actual status method failed
+before the repair with the replacement's status overwritten.
+
+![Status stays with its observed snapshot](diagrams/rendered/light/53-status-snapshot.svg)
+
+The patch now supplies the observed UID and resourceVersion. Missing/empty
+identity refuses the write; conflict leaves current status intact and the
+next pass rereads profiles. Three regressions cover replacements, newer
+versions, matching publication and incomplete identity. The full runtime gate
+and strict Clippy pass. No real provider session or cluster was used.
+
+Existing Secret admission separately protects profile-owned updates. This
+fix scopes status publication; it does not make provider, Secret, node/kernel
+and profile writes one transaction. The optional VPN path remains distinct
+from the core VM/network path.
+
+**Merged source:** `9c014f1825d28e16dfbe8db689742365c2de295a`.
+**Tracking:** qrab `work/vpn-profile-status-incarnation`.
+
+## A21 — image import trusted reusable Job and credential names
+
+**Location:** operator image importer and Kubernetes adapter.
+**Repair baseline:** `9c014f1`.
+
+The adapter read same-name Jobs without proving their BaseImage owner,
+accepted every create conflict, selected report Pods by a reusable Job-name
+label, and deleted Jobs/stage Secrets by name. Status/finalizer writes also
+lacked object conditions. A regression through the actual adapter and
+reconcile attempted to delete a foreign CronJob-owned Job before the repair.
+A second regression showed that guarding only later status writes still let
+a known-stale parent retire backend storage first; it failed with the recorded
+`retire` call before the parent checks were moved ahead of storage effects.
+
+![Image import ownership chain](diagrams/rendered/light/54-image-owner-chain.svg)
+
+The repair passes the observed BaseImage through every adapter operation.
+Fresh metadata must preserve its UID, generation, spec and deletion state,
+including before reconciliation and each storage mutation.
+Jobs require an exact BaseImage controller relationship; report Pods require
+the observed Job UID, with exit code zero for success. Consumed reports retain
+the Job UID/version through deletion, while generic cleanup checks the current
+owned child and deletes with UID/version conditions. Create conflicts now
+require the expected owner.
+
+Stage-credential cleanup uses only JSON ownership tests and a
+PartialObjectMetadata response, followed by conditional deletion. It adds no
+Secret GET/list/watch or password readback. Missing/ambiguous identity and
+replacement/rotation refuse cleanup. Status and finalizer writes carry fresh
+UID/version conditions; only the importer's finalizer changes, preserving
+other owners. Refreshing metadata permits the importer's own multiple status
+writes in a single reconcile without retrying forever on its previous write.
+
+Private API regressions cover foreign owners, stale/failed report Pods,
+same-owner Job replacement, conditional Job/Secret deletion, parent changes,
+concurrent API writes, successive progress and rejection before storage effects. All 18 importer cases and the full runtime gate pass, including strict
+Clippy and generated-resource comparisons. No image build, cluster import or
+backend storage operation was performed for these fixtures.
+
+An existing sealed storage generation remains intentionally adoptable by its
+catalog identity. This repair does not equate that data-adoption contract with
+Kubernetes child ownership, or claim an atomic Kubernetes/storage transaction.
+
+**Merged source:** `efdc909680ce03ba85ee3be55b747a0cdb3c3fdb`.
+**Tracking:** qrab `work/image-import-object-incarnations`.
 
 ## Validation repair: the HTTP power fixture depended on test order
 

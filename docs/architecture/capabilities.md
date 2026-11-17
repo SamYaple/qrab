@@ -12,7 +12,7 @@ not silently reclassified as boundary bugs.
 | QEMU supervision without libvirt | Implemented | Validate chosen release/machine/firmware and workload behavior | S04–S07 |
 | VM-specific container resources | Implemented | Required CPU topology, NUMA, pinning, hugepages and device-placement policies are separate scope decisions | S02, S04, S21 |
 | In-place power / management availability | Implemented | Distinguish guest off, paused, Pod stopped and runtime failed | S04, S06, S19 |
-| CPU/memory growth | Implemented / constrained | Boot ceilings, kubelet admission, whole 2 MiB memory increments relative to boot and guest onlining; unrepresentable sizes restart, no live shrink claim | S02–S04, T12 |
+| CPU/memory growth | Implemented / constrained | KVM for in-place vCPU growth; boot ceilings, kubelet admission, whole 2 MiB memory increments relative to boot and guest onlining; other exact sizes restart, no live shrink claim | S02–S04, T12 |
 | Authenticated browser / Redfish / console | Implemented | Verify actual issuer/audience/role policy, expiry and deployed service enrollment | S17–S20 |
 | Human identity without Keystone | Implemented foundation | Agree API RBAC, VM application roles and namespace administration model | S16, S18–S20, M01 |
 | Workload identity / rotation | Implemented foundation | Platform SPIRE enrollment, service-specific peer policies and expiry evidence | S20, L01 |

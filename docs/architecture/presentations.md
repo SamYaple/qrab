@@ -14,6 +14,7 @@ captions and light/dark/print variants are in [the catalog](diagrams.md).
 | Storage review | [HTML](exports/storage.html) | [PPTX](exports/storage.pptx) | [PDF](exports/storage.pdf) |
 | Identity review | [HTML](exports/identity.html) | [PPTX](exports/identity.pptx) | [PDF](exports/identity.pdf) |
 | OpenStack operator / cutover | [HTML](exports/operator.html) | [PPTX](exports/operator.pptx) | [PDF](exports/operator.pdf) |
+| Runtime / libvirt engineer | [HTML](exports/runtime.html) | [PPTX](exports/runtime.pptx) | [PDF](exports/runtime.pdf) |
 
 The decks have speaker notes. HTML supports arrow keys, notes (`N`) and
 fullscreen. Native boundary figures in PPTX are editable shapes; Mermaid
@@ -73,6 +74,17 @@ Suggested visuals: `00-openstack-overview`, `00-qrab-overview`,
 For discussion, ask which invariant must remain true if a controller crashes
 between any two calls. That question exposes the useful comparison with the
 old ownership model more effectively than counting service binaries.
+
+## Twelve-minute runtime review
+
+Start with the matched deployment pair, then the four-contract runtime view.
+Explain a command's local refusal, correlated reply and unknown outcome.
+Follow child cleanup through actual reaping, and keep local identity leases
+separate from backend hard fences. Use the memory-budget and local KVM
+figures as specific evidence, then close on required workload acceptance.
+[The runtime perspective](runtime.md) supplies the detailed narrative and
+source links. The compact command-outcome diagram `56-command-outcomes`
+provides another discussion or handout view.
 
 ## Twenty-minute operations workshop
 
