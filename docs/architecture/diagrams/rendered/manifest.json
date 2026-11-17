@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "7302d01d77397614186b6318629d91807c1584c133738712cdbba3dfda027a1a",
+  "catalog_sha256": "744621ad836a7f223a431ca19534b20f48e1aa93d31c9e5f36565d0797ecc2fd",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -635,6 +635,30 @@
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "a817c0122fe7b4bbaf7c582053f6ef2d5c68439789149d90a906d52c069397e9",
+      "width": 1600
+    },
+    "50-authority-entrypoints": {
+      "height": 900,
+      "outputs": {
+        "dark/50-authority-entrypoints.svg": "0af134397d57d235618ef094bbcbf3e91416eaa4601cba4e82e46fd6fd9aed77",
+        "light/50-authority-entrypoints.svg": "0263bd5a69bcd83970f923708bf183e819efb94cbdf09a19a19be623d6115bc5",
+        "png/50-authority-entrypoints.png": "f6a31d6b0a37c18d9288d699c05054cfd0d5f21ad04be78ff3cf444f0d3d7b9b",
+        "print/50-authority-entrypoints.svg": "eb15834c7e6ccbb44a23233a972532f63781e84eff41ed93f1191f279dc44446"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "7333a9e4794e3106df08bd92ee79e66835e17c150ba35effb58bb2babbcb4cba",
+      "width": 1600
+    },
+    "51-tenancy-models": {
+      "height": 900,
+      "outputs": {
+        "dark/51-tenancy-models.svg": "322faeee147bee79f1b2c9d317277cf372840a135749d32e2c0efeb447ee89a6",
+        "light/51-tenancy-models.svg": "17c658e1f19ac54852158b365b8c2d67159450507917e11c0fa5381e23e17650",
+        "png/51-tenancy-models.png": "010796042a360d2c84f70a399116c7857939c6393fd116f736243b9f73648df0",
+        "print/51-tenancy-models.svg": "5049bfbcbb6b857249265a30fa7607eee7c59e7c88aee5ebdd4449e122022d53"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "0a0a147c8be4c9e0e71e5d466e54bb152f231bb15fcd1178d657c876109cc217",
       "width": 1600
     }
   },

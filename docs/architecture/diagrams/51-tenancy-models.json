@@ -1,0 +1,12 @@
+{
+  "title": "Choose the tenancy contract being offered",
+  "subtitle": "Current source support, possible extensions and excluded trust models must remain distinct.",
+  "note": "Define the actor's API, network, storage and recovery authority. A namespace or credential name alone does not establish it.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":245,"w":450,"h":410,"kind":"qrab","kicker":"CURRENT FOUNDATION","lines":["Protected platform namespace","Users call dashboard / VM services","Application roles select the VM","Backend uses its ServiceAccount","Pod / volume writers are trusted"]},
+    {"x":575,"y":245,"w":450,"h":410,"kind":"build","kicker":"POSSIBLE TENANT VM API","lines":["Constrain fields and references","Scope images / disks / NIC pools","Assign quota and visibility","Preserve user attribution","Prove isolation and recovery"]},
+    {"x":1090,"y":245,"w":450,"h":410,"kind":"replace","kicker":"OUTSIDE CURRENT CONTRACT","lines":["Unrestricted hostile Pod writers","Pod / exec / volume permissions","Labels are public provenance","Node / backend admins trusted","No general hostile-tenant claim"]}
+  ],
+  "arrows": []
+}

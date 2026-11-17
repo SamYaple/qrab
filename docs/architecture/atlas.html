@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through a3b5cdd2c9f0 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>30 document views · 53 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through f7d449f89a79 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>31 document views · 55 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -43,6 +43,7 @@ different evidence classes throughout the atlas.
 | network engineer | [network comparison](network.md) | ovn/cilium separation versus per-nic cilium endpoints |
 | storage engineer | [images and volumes](storage.md) | existing image/disk work, fencing, and remaining scope |
 | identity / security reviewer | [identity and trust](identity.md), [threat model](security.md) | human, workload, guest and storage authority |
+| tenant / api policy reviewer | [tenancy perspective](tenancy.md) | separate vm roles, api rights, platform trust and remaining tenant-product scope |
 | cross-cutting architecture reviewer | [authority and lifetimes](authority.md) | bind a checked identity to the resource actually used |
 | team / system owner | [operating model](operating-model.md) | separate roles, processes, dependencies and operational ownership |
 | recovery reviewer | [resource lifetimes and recovery](recovery.md) | namespace replacement, held queues, power and safe restart |
@@ -152,6 +153,11 @@ different evidence classes throughout the atlas.</p>
 <td>Identity / security reviewer</td>
 <td><a href="#doc-identity">Identity and trust</a>, <a href="#doc-security">threat model</a></td>
 <td>Human, workload, guest and storage authority</td>
+</tr>
+<tr>
+<td>Tenant / API policy reviewer</td>
+<td><a href="#doc-tenancy">Tenancy perspective</a></td>
+<td>Separate VM roles, API rights, platform trust and remaining tenant-product scope</td>
 </tr>
 <tr>
 <td>Cross-cutting architecture reviewer</td>
@@ -2431,6 +2437,238 @@ as they land.</p>
 not present a label or launch annotation as a cryptographic credential.
 Revocation and finalization must also account for already issued credentials
 and the availability/expiry semantics of the issuing service.</p>
+</article><article class="doc" id="doc-tenancy" data-search="# tenancy: separate vm roles, api rights and platform authority
+
+dropping keystone moves authentication and authorization responsibilities to
+other owners. define who a tenant is and which interfaces that tenant can
+use. a person operating one guest, an automation account changing vm intent
+and a namespace administrator have different powers.
+
+keystone&#x27;s [project/domain/system token scopes](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html)
+describe openstack api authorization context. kubernetes namespaces group api
+resources and policies; a tenant design also needs control and data-plane
+isolation. its [multi-tenancy guide](https://kubernetes.io/docs/concepts/security/multi-tenancy/)
+explicitly distinguishes users who touch kubernetes from customers using an
+application in front of it. this comparison should state which model qrab
+is implementing, rather than rename a project to a namespace.
+
+![different entrypoints carry different authority](diagrams/rendered/light/50-authority-entrypoints.svg)
+
+## the current source and checked-in deployment model
+
+the checked-in operator deployment uses a protected management namespace.
+the dashboard offers vm-scoped browser workflows and uses its own
+serviceaccount for kubernetes calls. it does not impersonate the signed-in
+human at the api server. its application authorization must therefore decide
+what that human may launch, inspect, power or delete before the backend uses
+its broader api rights. (s16, m01.)
+
+per-vm services verify the human&#x27;s oidc token and action role. workload mtls
+separately admits the calling service. native service endpoints can have
+their own narrow service-only permissions; there is no universal rule that
+one certificate or one bearer authorizes every route. manager keeps private
+qmp authority behind bounded local operations. (s06, s17–s20.)
+
+the [security model](security.md) treats arbitrary pod/exec/volume writers in
+that management namespace, and node/storage administrators, as trusted.
+public labels and annotations support ownership under protected write rights.
+they do not prove isolation from an administrator who can rewrite those
+resources or mount their state. software vtpm also retains the node trust
+assumption.
+
+## read the role at its actual entrypoint
+
+| actor / grant | current scope | what does not follow automatically |
+| --- | --- | --- |
+| vm viewer | authorized vm reads, redacted configuration, bounded qmp log/sse data, metrics/history | console, guest serial, power or guest mutation rights |
+| vm admin | the vm&#x27;s allowed power, console/serial, guest operations and approved media/firmware workflows | pod creation/exec, node administration or arbitrary storage destruction |
+| kubernetes api actor | resource verbs allowed by auth/rbac/admission | a vm application role, or safe unrestricted storage/network references in a tenant-facing api |
+| calling workload | its exact service identity and the endpoint&#x27;s peer policy | every human action or another service&#x27;s resource scope |
+| platform administrator | the granted namespace, node, storage or identity authority | protection of those resources from that same administrator under the current trust model |
+
+the source makes a useful data distinction: every guest serial route is
+admin-only because serial can contain credentials. authenticated vm readers
+receive bounded qmp log/sse payloads; push subscriptions omit raw qmp data.
+these are explicit policies for different consumers. read-only does not mean
+that all data has the same sensitivity. (s18, s19, s27.)
+
+## three operating models, with different remaining work
+
+![current and possible tenancy models](diagrams/rendered/light/51-tenancy-models.svg)
+
+| model | position in this codebase | contract to establish |
+| --- | --- | --- |
+| application users operate vms through the dashboard/services | current foundation | keep backend api powers bounded, preserve exact selected-vm roles/destinations, assign application quotas and lifecycle policies |
+| tenants directly create vm resources through kubernetes | a possible extension, not a complete product claim | constrain image/storage/nic references and profiles, ownership, visibility, quota, deletion and user attribution through the actual api/admission model |
+| mutually untrusted users create arbitrary pods or exec/mount resources in the management namespace | outside the current stated trust contract | design the platform isolation boundary and administration model before making this claim |
+
+a namespace per tenant is not a drop-in configuration promise for qrab.
+operator/service policies, identity enrollment, address pools, route ownership,
+image naming/sharing and storage-service scope must agree across deployment
+boundaries. current per-vm uid and disk/export ownership contracts remain
+necessary in any model. this atlas does not establish a general multi-namespace
+tenant product.
+
+kubernetes quota in a shared management namespace accounts for that
+namespace&#x27;s kubernetes resources. it does not by itself assign a per-user vm
+allowance. decide whether limits belong to an application user, team, namespace
+or another business unit, and account for manager/sidecar/anchor overhead as
+well as nominal guest resources. the current source&#x27;s resource safety and
+growth checks do not answer that product-policy question.
+
+## keep network membership and policy authority separate
+
+a nic&#x27;s security-group label selects platform cilium policy. membership,
+permission to assign membership and permission to change the policy are
+different grants. per-nic identities also remain separate from the management
+pod. a common cilium installation or namespace name does not establish an
+equivalent tenant policy in both clusters. (s08–s10, m01.)
+
+likewise, selecting a disk or image reference is not authority to fence,
+retire or destroy every backend object. the storage service&#x27;s scoped verbs,
+immutable vm/disk binding and generation checks remain relevant when cinder
+leaves the target. the [authority view](authority.md) follows these resource
+references through their effects.
+
+## state the desired contract in the presentation
+
+use the current protected-platform model for source-backed claims. present
+broader tenant self-service as an explicit scope decision with named api,
+network, storage, identity and recovery owners. the goal is a smaller set of
+control planes whose required policies remain understandable and testable.
+it is not an assertion that kubernetes auth, oidc and spire are interchangeable
+or that removing keystone supplies all cloud project semantics.
+"><h1 id="tenancy--tenancy-separate-vm-roles-api-rights-and-platform-authority">Tenancy: separate VM roles, API rights and platform authority</h1>
+<p>Dropping Keystone moves authentication and authorization responsibilities to
+other owners. Define who a tenant is and which interfaces that tenant can
+use. A person operating one guest, an automation account changing VM intent
+and a namespace administrator have different powers.</p>
+<p>Keystone's <a href="https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html">project/domain/system token scopes</a>
+describe OpenStack API authorization context. Kubernetes namespaces group API
+resources and policies; a tenant design also needs control and data-plane
+isolation. Its <a href="https://kubernetes.io/docs/concepts/security/multi-tenancy/">multi-tenancy guide</a>
+explicitly distinguishes users who touch Kubernetes from customers using an
+application in front of it. This comparison should state which model qrab
+is implementing, rather than rename a project to a namespace.</p>
+<p><img src="diagrams/rendered/light/50-authority-entrypoints.svg" alt="Different entrypoints carry different authority" /></p>
+<h2 id="tenancy--the-current-source-and-checked-in-deployment-model">The current source and checked-in deployment model</h2>
+<p>The checked-in operator deployment uses a protected management namespace.
+The dashboard offers VM-scoped browser workflows and uses its own
+ServiceAccount for Kubernetes calls. It does not impersonate the signed-in
+human at the API server. Its application authorization must therefore decide
+what that human may launch, inspect, power or delete before the backend uses
+its broader API rights. (S16, M01.)</p>
+<p>Per-VM services verify the human's OIDC token and action role. Workload mTLS
+separately admits the calling service. Native service endpoints can have
+their own narrow service-only permissions; there is no universal rule that
+one certificate or one bearer authorizes every route. Manager keeps private
+QMP authority behind bounded local operations. (S06, S17–S20.)</p>
+<p>The <a href="#doc-security">security model</a> treats arbitrary Pod/exec/volume writers in
+that management namespace, and node/storage administrators, as trusted.
+Public labels and annotations support ownership under protected write rights.
+They do not prove isolation from an administrator who can rewrite those
+resources or mount their state. Software vTPM also retains the node trust
+assumption.</p>
+<h2 id="tenancy--read-the-role-at-its-actual-entrypoint">Read the role at its actual entrypoint</h2>
+<table>
+<thead>
+<tr>
+<th>Actor / grant</th>
+<th>Current scope</th>
+<th>What does not follow automatically</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VM viewer</td>
+<td>Authorized VM reads, redacted configuration, bounded QMP log/SSE data, metrics/history</td>
+<td>Console, guest serial, power or guest mutation rights</td>
+</tr>
+<tr>
+<td>VM admin</td>
+<td>The VM's allowed power, console/serial, guest operations and approved media/firmware workflows</td>
+<td>Pod creation/exec, node administration or arbitrary storage destruction</td>
+</tr>
+<tr>
+<td>Kubernetes API actor</td>
+<td>Resource verbs allowed by auth/RBAC/admission</td>
+<td>A VM application role, or safe unrestricted storage/network references in a tenant-facing API</td>
+</tr>
+<tr>
+<td>Calling workload</td>
+<td>Its exact service identity and the endpoint's peer policy</td>
+<td>Every human action or another service's resource scope</td>
+</tr>
+<tr>
+<td>Platform administrator</td>
+<td>The granted namespace, node, storage or identity authority</td>
+<td>Protection of those resources from that same administrator under the current trust model</td>
+</tr>
+</tbody>
+</table>
+<p>The source makes a useful data distinction: every guest serial route is
+admin-only because serial can contain credentials. Authenticated VM readers
+receive bounded QMP log/SSE payloads; push subscriptions omit raw QMP data.
+These are explicit policies for different consumers. Read-only does not mean
+that all data has the same sensitivity. (S18, S19, S27.)</p>
+<h2 id="tenancy--three-operating-models-with-different-remaining-work">Three operating models, with different remaining work</h2>
+<p><img src="diagrams/rendered/light/51-tenancy-models.svg" alt="Current and possible tenancy models" /></p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Position in this codebase</th>
+<th>Contract to establish</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Application users operate VMs through the dashboard/services</td>
+<td>Current foundation</td>
+<td>Keep backend API powers bounded, preserve exact selected-VM roles/destinations, assign application quotas and lifecycle policies</td>
+</tr>
+<tr>
+<td>Tenants directly create VM resources through Kubernetes</td>
+<td>A possible extension, not a complete product claim</td>
+<td>Constrain image/storage/NIC references and profiles, ownership, visibility, quota, deletion and user attribution through the actual API/admission model</td>
+</tr>
+<tr>
+<td>Mutually untrusted users create arbitrary Pods or exec/mount resources in the management namespace</td>
+<td>Outside the current stated trust contract</td>
+<td>Design the platform isolation boundary and administration model before making this claim</td>
+</tr>
+</tbody>
+</table>
+<p>A namespace per tenant is not a drop-in configuration promise for qrab.
+Operator/service policies, identity enrollment, address pools, route ownership,
+image naming/sharing and storage-service scope must agree across deployment
+boundaries. Current per-VM UID and disk/export ownership contracts remain
+necessary in any model. This atlas does not establish a general multi-namespace
+tenant product.</p>
+<p>Kubernetes quota in a shared management namespace accounts for that
+namespace's Kubernetes resources. It does not by itself assign a per-user VM
+allowance. Decide whether limits belong to an application user, team, namespace
+or another business unit, and account for manager/sidecar/anchor overhead as
+well as nominal guest resources. The current source's resource safety and
+growth checks do not answer that product-policy question.</p>
+<h2 id="tenancy--keep-network-membership-and-policy-authority-separate">Keep network membership and policy authority separate</h2>
+<p>A NIC's security-group label selects platform Cilium policy. Membership,
+permission to assign membership and permission to change the policy are
+different grants. Per-NIC identities also remain separate from the management
+Pod. A common Cilium installation or namespace name does not establish an
+equivalent tenant policy in both clusters. (S08–S10, M01.)</p>
+<p>Likewise, selecting a disk or image reference is not authority to fence,
+retire or destroy every backend object. The storage service's scoped verbs,
+immutable VM/disk binding and generation checks remain relevant when Cinder
+leaves the target. The <a href="#doc-authority">authority view</a> follows these resource
+references through their effects.</p>
+<h2 id="tenancy--state-the-desired-contract-in-the-presentation">State the desired contract in the presentation</h2>
+<p>Use the current protected-platform model for source-backed claims. Present
+broader tenant self-service as an explicit scope decision with named API,
+network, storage, identity and recovery owners. The goal is a smaller set of
+control planes whose required policies remain understandable and testable.
+It is not an assertion that Kubernetes auth, OIDC and SPIRE are interchangeable
+or that removing Keystone supplies all cloud project semantics.</p>
 </article><article class="doc" id="doc-authority" data-search="# authority across resource lifetimes
 
 a vm operation crosses several owners: human identity, declarative intent,
@@ -4194,6 +4432,10 @@ administrator. a user allowed arbitrary pod creation, exec or secret mounts
 in that namespace has substantially different authority from a vm user.
 do not describe those two tenancy models as equivalent.
 
+the [tenancy perspective](tenancy.md) separates current vm application roles,
+kubernetes api actors, workload peers and platform administrators, and states
+the remaining contract for broader tenant self-service.
+
 ## encryption ends somewhere
 
 | protection | endpoint / scope | outside that claim |
@@ -4317,6 +4559,9 @@ rights. They are not secrets or independent proof against a namespace
 administrator. A user allowed arbitrary Pod creation, exec or Secret mounts
 in that namespace has substantially different authority from a VM user.
 Do not describe those two tenancy models as equivalent.</p>
+<p>The <a href="#doc-tenancy">tenancy perspective</a> separates current VM application roles,
+Kubernetes API actors, workload peers and platform administrators, and states
+the remaining contract for broader tenant self-service.</p>
 <h2 id="security--encryption-ends-somewhere">Encryption ends somewhere</h2>
 <table>
 <thead>
@@ -6424,6 +6669,11 @@ provisioning from i/o, and finishes with import integrity, fences and recovery.
 identity separates human login, application roles, workload admission and
 guest/storage authority. each has its own notes and evidence references.
 
+the identity review also includes [the tenancy perspective](tenancy.md):
+vm application roles, api rights and platform administration have different
+scopes. its current/proposed model comparison is useful when discussing which
+keystone responsibilities remain after changing the identity mechanisms.
+
 use [the operating model](operating-model.md) to explain why a crate graph, a
 pod diagram and a responsibility map differ. use [verification](verification.md)
 for a skeptical review of what the collected tests actually establish.
@@ -6642,6 +6892,10 @@ Storage starts from surviving Glance/Cinder responsibilities, separates
 provisioning from I/O, and finishes with import integrity, fences and recovery.
 Identity separates human login, application roles, workload admission and
 guest/storage authority. Each has its own notes and evidence references.</p>
+<p>The identity review also includes <a href="#doc-tenancy">the tenancy perspective</a>:
+VM application roles, API rights and platform administration have different
+scopes. Its current/proposed model comparison is useful when discussing which
+Keystone responsibilities remain after changing the identity mechanisms.</p>
 <p>Use <a href="#doc-operating-model">the operating model</a> to explain why a crate graph, a
 Pod diagram and a responsibility map differ. Use <a href="#doc-verification">verification</a>
 for a skeptical review of what the collected tests actually establish.</p>
@@ -7316,6 +7570,32 @@ patch does not add descriptor-based media transfer.
 **merged source:** `a3b5cdd2c9f0f01e661f6b4f64e33c378f85b708`.
 **tracking:** qrab `work/boot-media-exact-path-policy`.
 
+## a18 — hierarchy-root cpu totals could be labeled as one container
+
+**location:** manager `resources::container_path`.
+**repair baseline:** `767cbf1`.
+
+container accounting required explicit opt-in and matching process membership,
+but accepted `0::/` without distinguishing a private cgroup namespace root
+from the real hierarchy root. in the latter case, aggregate cpu counters
+could be reported as one container&#x27;s usage. a hermetic kernel-interface
+fixture failed before the repair. this is a reporting-scope defect, not a
+change to guest allocation or resource enforcement.
+
+the root view now requires the core `cgroup.type` interface, which linux exposes
+on non-root cgroups. this permits private namespace roots even with disabled
+controllers or unlimited limits. the actual hierarchy root lacks that
+interface. process counters remain available when container scope is absent
+or ambiguous. see the [kernel interface documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
+
+four resource tests and the full runtime/clippy gate pass. a thin sampler
+linked against the updated manager library also reported the imposed two-core
+and 1 gib limits from a real disposable rootless container. the negative case
+used synthetic interfaces; no process was moved into the host hierarchy root.
+
+**merged source:** `f7d449f89a793aea95a061b6ae74fa64c0f34ef3`.
+**tracking:** qrab `work/container-metrics-hierarchy-root-boundary`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -7849,6 +8129,26 @@ read-only mount does not make another writer's storage a snapshot, and this
 patch does not add descriptor-based media transfer.</p>
 <p><strong>Merged source:</strong> <code>a3b5cdd2c9f0f01e661f6b4f64e33c378f85b708</code>.
 <strong>Tracking:</strong> qrab <code>work/boot-media-exact-path-policy</code>.</p>
+<h2 id="audit--a18--hierarchy-root-cpu-totals-could-be-labeled-as-one-container">A18 — hierarchy-root CPU totals could be labeled as one container</h2>
+<p><strong>Location:</strong> manager <code>resources::container_path</code>.
+<strong>Repair baseline:</strong> <code>767cbf1</code>.</p>
+<p>Container accounting required explicit opt-in and matching process membership,
+but accepted <code>0::/</code> without distinguishing a private cgroup namespace root
+from the real hierarchy root. In the latter case, aggregate CPU counters
+could be reported as one container's usage. A hermetic kernel-interface
+fixture failed before the repair. This is a reporting-scope defect, not a
+change to guest allocation or resource enforcement.</p>
+<p>The root view now requires the core <code>cgroup.type</code> interface, which Linux exposes
+on non-root cgroups. This permits private namespace roots even with disabled
+controllers or unlimited limits. The actual hierarchy root lacks that
+interface. Process counters remain available when container scope is absent
+or ambiguous. See the <a href="https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html">kernel interface documentation</a>.</p>
+<p>Four resource tests and the full runtime/Clippy gate pass. A thin sampler
+linked against the updated manager library also reported the imposed two-core
+and 1 GiB limits from a real disposable rootless container. The negative case
+used synthetic interfaces; no process was moved into the host hierarchy root.</p>
+<p><strong>Merged source:</strong> <code>f7d449f89a793aea95a061b6ae74fa64c0f34ef3</code>.
+<strong>Tracking:</strong> qrab <code>work/container-metrics-hierarchy-root-boundary</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -7939,6 +8239,7 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 | s24 | [guest relay framing](../../projects/qrab-spire-relay/src/wire.rs), [host relay](../../projects/manager/src/pod/spire_relay.rs) | bounded opaque transport with fixed upstream | relay-issued identities or tls termination |
 | s25 | [proton broker](../../projects/proton/src/broker/runner.rs), [vpn implementation](../../projects/qrab-netd/src/vpn.rs) | optional vpn profile lifecycle and anchor tunnel | a mandatory dependency of every vm |
 | s26 | [observability adapter](../../projects/qrab-observability/src/lib.rs), [redfish history](../../projects/redfish/src/history.rs) | current vm/pod-bound scrape/history scope | arbitrary promql or durable audit completeness |
+| s27 | [serial route policy](../../projects/redfish/src/serial.rs), [event payload policy](../../projects/redfish/src/lib.rs), [api role regressions](../../projects/redfish/tests/api.rs) | guest serial is admin-only; authenticated vm readers get bounded qmp log/sse data; push omits raw payloads | all read surfaces having identical sensitivity or an arbitrary tenant-isolation guarantee |
 | m01 | [operator manifests/policies](../../contrib/kubernetes/operator/), [netd rbac](../../contrib/kubernetes/netd/rbac.yaml) | checked-in api/admission intent | applied policy state in either cluster |
 | m02 | [image lock](../../contrib/images/images.lock.json), [build](../../contrib/images/build.sh), [publish](../../contrib/images/publish.sh) | recorded digest/source pins and separate release operations | a running pod having the latest source |
 | l01 | [dated platform evidence](../connections/platform-evidence.md) | explicit historical rollout observations and captures | current health or feature support in the other openstack cluster |
@@ -7970,6 +8271,8 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 
 | t14 | [media path policy and regression](../../projects/manager/src/pod/media.rs), isolated cli configuration check described in [the audit](audit.md) | actual boot path must resolve to the canonical image that passed the configured policy; matching-root size behavior retained | a guest boot, a claimed exploit of standard operator rendering or mutable/untrusted media-publisher safety |
 
+| t15 | [resource scope checks and fixtures](../../projects/manager/src/pod/resources.rs), thin local container sampler described in [the audit](audit.md) | hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | guest allocation changes, host-root process relocation or workload performance guarantees |
+
 ## external sources
 
 checked on 2026-11-17. versioned openstack 2026.1 documentation is used to
@@ -7992,6 +8295,8 @@ tree. the date of the evidence check does not make every diagram a new design.
 | u11 | [openstack server task reference](https://docs.openstack.org/python-openstackclient/2026.1/cli/command-objects/server.html) | familiar operation vocabulary for the task translator; not compatible qrab commands |
 | u12 | [nova evacuation](https://docs.openstack.org/nova/2026.1/admin/evacuate.html) | failed-host recovery requires establishing the old host is not operational |
 | u13 | [keystone token scopes](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html) | openstack api authorization context; distinct target identity questions |
+| u14 | [kubernetes multi-tenancy](https://kubernetes.io/docs/concepts/security/multi-tenancy/) | separate application customers, api actors, namespace policy and data-plane isolation requirements |
+| u15 | [linux cgroup-v2 core interfaces](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) | `cgroup.type` is non-root-only; a private namespace root must be distinguished from the real hierarchy root |
 
 ## rules for a defensible comparison
 
@@ -8177,6 +8482,12 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <td>Arbitrary PromQL or durable audit completeness</td>
 </tr>
 <tr>
+<td>S27</td>
+<td><a href="../../projects/redfish/src/serial.rs">Serial route policy</a>, <a href="../../projects/redfish/src/lib.rs">event payload policy</a>, <a href="../../projects/redfish/tests/api.rs">API role regressions</a></td>
+<td>Guest serial is admin-only; authenticated VM readers get bounded QMP log/SSE data; push omits raw payloads</td>
+<td>All read surfaces having identical sensitivity or an arbitrary tenant-isolation guarantee</td>
+</tr>
+<tr>
 <td>M01</td>
 <td><a href="../../contrib/kubernetes/operator/">Operator manifests/policies</a>, <a href="../../contrib/kubernetes/netd/rbac.yaml">netd RBAC</a></td>
 <td>Checked-in API/admission intent</td>
@@ -8221,6 +8532,7 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T12 | <a href="../../projects/manager/src/pod/hotplug.rs">Manager block-budget regression</a>, <a href="../../projects/operator/tests/resize.rs">operator resize decisions</a> | Actual outgoing QMP requests stay within whole-block capacity/intent/ceiling; exact unrepresentable sizes take the restart path | A deployed resize, arbitrary guest onlining or live shrink |</p>
 <p>| T13 | <a href="../../projects/manager/src/pod/hotplug.rs">Manager growth</a>, dated local KVM growth record in <a href="#doc-verification">verification</a> | Real cgroup changes gate CPU/memory requests; an odd budget floors device blocks safely; the same guest then onlines both resources | Kubernetes/kubelet placement/admission, arbitrary guest cooperation, live shrink or performance guarantees |</p>
 <p>| T14 | <a href="../../projects/manager/src/pod/media.rs">Media path policy and regression</a>, isolated CLI configuration check described in <a href="#doc-audit">the audit</a> | Actual boot path must resolve to the canonical image that passed the configured policy; matching-root size behavior retained | A guest boot, a claimed exploit of standard operator rendering or mutable/untrusted media-publisher safety |</p>
+<p>| T15 | <a href="../../projects/manager/src/pod/resources.rs">Resource scope checks and fixtures</a>, thin local container sampler described in <a href="#doc-audit">the audit</a> | Hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | Guest allocation changes, host-root process relocation or workload performance guarantees |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.
@@ -8299,6 +8611,16 @@ tree. The date of the evidence check does not make every diagram a new design.</
 <td>U13</td>
 <td><a href="https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html">Keystone token scopes</a></td>
 <td>OpenStack API authorization context; distinct target identity questions</td>
+</tr>
+<tr>
+<td>U14</td>
+<td><a href="https://kubernetes.io/docs/concepts/security/multi-tenancy/">Kubernetes multi-tenancy</a></td>
+<td>Separate application customers, API actors, namespace policy and data-plane isolation requirements</td>
+</tr>
+<tr>
+<td>U15</td>
+<td><a href="https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html">Linux cgroup-v2 core interfaces</a></td>
+<td><code>cgroup.type</code> is non-root-only; a private namespace root must be distinguished from the real hierarchy root</td>
 </tr>
 </tbody>
 </table>
@@ -8471,7 +8793,13 @@ boundary, not an authenticated public management service.</p>
 <p>A one-MiB residual budget cannot authorize a two-MiB device block. The manager now budgets actual whole blocks and reports the true requested size; exact unrepresentable increments use controlled restart. Values illustrate the regression, rather than deployed workload sizing.</p><a href="diagrams/48-memory-block-budget.json">Editable source</a> · <a href="diagrams/rendered/png/48-memory-block-budget.png">PNG</a></section><section class="diagram-card" data-filter="49-boot-media-path bind boot-media validation to the actual path implemented configuration-boundary repair a disposable cli check demonstrates how conflicting roots validated a namesake instead of the actual boot path. the repaired check requires a matching canonical image path. standard operator roots already match; immutable trusted publication remains part of the contract.">
 <h3>Bind boot-media validation to the actual path</h3><div class="scope">implemented configuration-boundary repair · S04, T14</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/49-boot-media-path.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="49-boot-media-path" src="diagrams/rendered/light/49-boot-media-path.svg" alt="Bind boot-media validation to the actual path"></a>
-<p>A disposable CLI check demonstrates how conflicting roots validated a namesake instead of the actual boot path. The repaired check requires a matching canonical image path. Standard operator roots already match; immutable trusted publication remains part of the contract.</p><a href="diagrams/49-boot-media-path.json">Editable source</a> · <a href="diagrams/rendered/png/49-boot-media-path.png">PNG</a></section></div></article></main></div><script>
+<p>A disposable CLI check demonstrates how conflicting roots validated a namesake instead of the actual boot path. The repaired check requires a matching canonical image path. Standard operator roots already match; immutable trusted publication remains part of the contract.</p><a href="diagrams/49-boot-media-path.json">Editable source</a> · <a href="diagrams/rendered/png/49-boot-media-path.png">PNG</a></section><section class="diagram-card" data-filter="50-authority-entrypoints separate vm, api, workload and platform authority current contract / desired scope comparison four actors use different entrypoints and grants. the dashboard backend is an api actor under its serviceaccount; an end-user vm role, a workload svid and platform administration do not collapse into one credential.">
+<h3>Separate VM, API, workload and platform authority</h3><div class="scope">current contract / desired scope comparison · S06, S16, S18, S19, S20, M01</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/50-authority-entrypoints.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="50-authority-entrypoints" src="diagrams/rendered/light/50-authority-entrypoints.svg" alt="Separate VM, API, workload and platform authority"></a>
+<p>Four actors use different entrypoints and grants. The dashboard backend is an API actor under its ServiceAccount; an end-user VM role, a workload SVID and platform administration do not collapse into one credential.</p><a href="diagrams/50-authority-entrypoints.json">Editable source</a> · <a href="diagrams/rendered/png/50-authority-entrypoints.png">PNG</a></section><section class="diagram-card" data-filter="51-tenancy-models current and possible tenancy models current contract / desired scope comparison the current protected-platform foundation differs from a complete tenant-facing vm api and from arbitrary hostile pod writers. the latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.">
+<h3>Current and possible tenancy models</h3><div class="scope">current contract / desired scope comparison · S02, S09, S16, M01, U14</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/51-tenancy-models.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="51-tenancy-models" src="diagrams/rendered/light/51-tenancy-models.svg" alt="Current and possible tenancy models"></a>
+<p>The current protected-platform foundation differs from a complete tenant-facing VM API and from arbitrary hostile Pod writers. The latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.</p><a href="diagrams/51-tenancy-models.json">Editable source</a> · <a href="diagrams/rendered/png/51-tenancy-models.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

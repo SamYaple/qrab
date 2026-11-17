@@ -35,6 +35,7 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 | S24 | [Guest relay framing](../../projects/qrab-spire-relay/src/wire.rs), [host relay](../../projects/manager/src/pod/spire_relay.rs) | Bounded opaque transport with fixed upstream | Relay-issued identities or TLS termination |
 | S25 | [Proton broker](../../projects/proton/src/broker/runner.rs), [VPN implementation](../../projects/qrab-netd/src/vpn.rs) | Optional VPN profile lifecycle and anchor tunnel | A mandatory dependency of every VM |
 | S26 | [Observability adapter](../../projects/qrab-observability/src/lib.rs), [Redfish history](../../projects/redfish/src/history.rs) | Current VM/Pod-bound scrape/history scope | Arbitrary PromQL or durable audit completeness |
+| S27 | [Serial route policy](../../projects/redfish/src/serial.rs), [event payload policy](../../projects/redfish/src/lib.rs), [API role regressions](../../projects/redfish/tests/api.rs) | Guest serial is admin-only; authenticated VM readers get bounded QMP log/SSE data; push omits raw payloads | All read surfaces having identical sensitivity or an arbitrary tenant-isolation guarantee |
 | M01 | [Operator manifests/policies](../../contrib/kubernetes/operator/), [netd RBAC](../../contrib/kubernetes/netd/rbac.yaml) | Checked-in API/admission intent | Applied policy state in either cluster |
 | M02 | [Image lock](../../contrib/images/images.lock.json), [build](../../contrib/images/build.sh), [publish](../../contrib/images/publish.sh) | Recorded digest/source pins and separate release operations | A running Pod having the latest source |
 | L01 | [Dated platform evidence](../connections/platform-evidence.md) | Explicit historical rollout observations and captures | Current health or feature support in the other OpenStack cluster |
@@ -66,6 +67,8 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 
 | T14 | [Media path policy and regression](../../projects/manager/src/pod/media.rs), isolated CLI configuration check described in [the audit](audit.md) | Actual boot path must resolve to the canonical image that passed the configured policy; matching-root size behavior retained | A guest boot, a claimed exploit of standard operator rendering or mutable/untrusted media-publisher safety |
 
+| T15 | [Resource scope checks and fixtures](../../projects/manager/src/pod/resources.rs), thin local container sampler described in [the audit](audit.md) | Hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | Guest allocation changes, host-root process relocation or workload performance guarantees |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
@@ -88,6 +91,8 @@ tree. The date of the evidence check does not make every diagram a new design.
 | U11 | [OpenStack server task reference](https://docs.openstack.org/python-openstackclient/2026.1/cli/command-objects/server.html) | Familiar operation vocabulary for the task translator; not compatible qrab commands |
 | U12 | [Nova evacuation](https://docs.openstack.org/nova/2026.1/admin/evacuate.html) | Failed-host recovery requires establishing the old host is not operational |
 | U13 | [Keystone token scopes](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html) | OpenStack API authorization context; distinct target identity questions |
+| U14 | [Kubernetes multi-tenancy](https://kubernetes.io/docs/concepts/security/multi-tenancy/) | Separate application customers, API actors, namespace policy and data-plane isolation requirements |
+| U15 | [Linux cgroup-v2 core interfaces](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) | `cgroup.type` is non-root-only; a private namespace root must be distinguished from the real hierarchy root |
 
 ## Rules for a defensible comparison
 

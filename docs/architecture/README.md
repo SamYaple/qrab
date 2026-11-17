@@ -28,6 +28,7 @@ different evidence classes throughout the atlas.
 | Network engineer | [Network comparison](network.md) | OVN/Cilium separation versus per-NIC Cilium endpoints |
 | Storage engineer | [Images and volumes](storage.md) | Existing image/disk work, fencing, and remaining scope |
 | Identity / security reviewer | [Identity and trust](identity.md), [threat model](security.md) | Human, workload, guest and storage authority |
+| Tenant / API policy reviewer | [Tenancy perspective](tenancy.md) | Separate VM roles, API rights, platform trust and remaining tenant-product scope |
 | Cross-cutting architecture reviewer | [Authority and lifetimes](authority.md) | Bind a checked identity to the resource actually used |
 | Team / system owner | [Operating model](operating-model.md) | Separate roles, processes, dependencies and operational ownership |
 | Recovery reviewer | [Resource lifetimes and recovery](recovery.md) | Namespace replacement, held queues, power and safe restart |

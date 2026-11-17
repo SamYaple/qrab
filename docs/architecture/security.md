@@ -43,6 +43,10 @@ administrator. A user allowed arbitrary Pod creation, exec or Secret mounts
 in that namespace has substantially different authority from a VM user.
 Do not describe those two tenancy models as equivalent.
 
+The [tenancy perspective](tenancy.md) separates current VM application roles,
+Kubernetes API actors, workload peers and platform administrators, and states
+the remaining contract for broader tenant self-service.
+
 ## Encryption ends somewhere
 
 | Protection | Endpoint / scope | Outside that claim |

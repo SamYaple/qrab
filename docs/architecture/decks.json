@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "a3b5cdd2c9f0f01e661f6b4f64e33c378f85b708",
+  "reviewed_through": "f7d449f89a793aea95a061b6ae74fa64c0f34ef3",
   "decks": [
     {
       "id": "leadership",
@@ -1233,7 +1233,7 @@
       "id": "identity",
       "title": "Identity and authority review",
       "style": "dark",
-      "minutes": 12,
+      "minutes": 15,
       "slides": [
         {
           "kind": "title",
@@ -1288,6 +1288,19 @@
             "S18",
             "S19",
             "S20"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "50-authority-entrypoints",
+          "notes": "A VM viewer/admin role, Kubernetes API rights, a calling service SVID and substrate administration are different grants. Dashboard uses its own ServiceAccount and application authorization; no per-user Kubernetes impersonation is implemented.",
+          "evidence": [
+            "S06",
+            "S16",
+            "S18",
+            "S19",
+            "S20",
+            "M01"
           ]
         },
         {
@@ -1384,6 +1397,18 @@
             "T01",
             "M01",
             "L01"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "51-tenancy-models",
+          "notes": "Current source protects a platform management namespace and mediates browser users through VM services. A broader direct tenant VM API needs explicit field/reference, quota, image/address/storage scope and attribution design. Arbitrary hostile Pod/exec/volume writers are outside the current trust contract. Namespace alone is not a complete model.",
+          "evidence": [
+            "S02",
+            "S09",
+            "S16",
+            "M01",
+            "U14"
           ]
         },
         {

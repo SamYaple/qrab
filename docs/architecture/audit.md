@@ -581,6 +581,32 @@ patch does not add descriptor-based media transfer.
 **Merged source:** `a3b5cdd2c9f0f01e661f6b4f64e33c378f85b708`.
 **Tracking:** qrab `work/boot-media-exact-path-policy`.
 
+## A18 — hierarchy-root CPU totals could be labeled as one container
+
+**Location:** manager `resources::container_path`.
+**Repair baseline:** `767cbf1`.
+
+Container accounting required explicit opt-in and matching process membership,
+but accepted `0::/` without distinguishing a private cgroup namespace root
+from the real hierarchy root. In the latter case, aggregate CPU counters
+could be reported as one container's usage. A hermetic kernel-interface
+fixture failed before the repair. This is a reporting-scope defect, not a
+change to guest allocation or resource enforcement.
+
+The root view now requires the core `cgroup.type` interface, which Linux exposes
+on non-root cgroups. This permits private namespace roots even with disabled
+controllers or unlimited limits. The actual hierarchy root lacks that
+interface. Process counters remain available when container scope is absent
+or ambiguous. See the [kernel interface documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
+
+Four resource tests and the full runtime/Clippy gate pass. A thin sampler
+linked against the updated manager library also reported the imposed two-core
+and 1 GiB limits from a real disposable rootless container. The negative case
+used synthetic interfaces; no process was moved into the host hierarchy root.
+
+**Merged source:** `f7d449f89a793aea95a061b6ae74fa64c0f34ef3`.
+**Tracking:** qrab `work/container-metrics-hierarchy-root-boundary`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's

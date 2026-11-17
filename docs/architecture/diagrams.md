@@ -540,3 +540,23 @@ A disposable CLI check demonstrates how conflicting roots validated a namesake i
 ![Bind boot-media validation to the actual path](diagrams/rendered/light/49-boot-media-path.svg)
 
 [Editable source](diagrams/49-boot-media-path.json) · [Light SVG](diagrams/rendered/light/49-boot-media-path.svg) · [Dark SVG](diagrams/rendered/dark/49-boot-media-path.svg) · [Print SVG](diagrams/rendered/print/49-boot-media-path.svg) · [PNG](diagrams/rendered/png/49-boot-media-path.png)
+
+## 50-authority-entrypoints: Separate VM, API, workload and platform authority
+
+**Scope:** current contract / desired scope comparison. **Evidence:** S06, S16, S18, S19, S20, M01.
+
+Four actors use different entrypoints and grants. The dashboard backend is an API actor under its ServiceAccount; an end-user VM role, a workload SVID and platform administration do not collapse into one credential.
+
+![Separate VM, API, workload and platform authority](diagrams/rendered/light/50-authority-entrypoints.svg)
+
+[Editable source](diagrams/50-authority-entrypoints.json) · [Light SVG](diagrams/rendered/light/50-authority-entrypoints.svg) · [Dark SVG](diagrams/rendered/dark/50-authority-entrypoints.svg) · [Print SVG](diagrams/rendered/print/50-authority-entrypoints.svg) · [PNG](diagrams/rendered/png/50-authority-entrypoints.png)
+
+## 51-tenancy-models: Current and possible tenancy models
+
+**Scope:** current contract / desired scope comparison. **Evidence:** S02, S09, S16, M01, U14.
+
+The current protected-platform foundation differs from a complete tenant-facing VM API and from arbitrary hostile Pod writers. The latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.
+
+![Current and possible tenancy models](diagrams/rendered/light/51-tenancy-models.svg)
+
+[Editable source](diagrams/51-tenancy-models.json) · [Light SVG](diagrams/rendered/light/51-tenancy-models.svg) · [Dark SVG](diagrams/rendered/dark/51-tenancy-models.svg) · [Print SVG](diagrams/rendered/print/51-tenancy-models.svg) · [PNG](diagrams/rendered/png/51-tenancy-models.png)

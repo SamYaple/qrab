@@ -131,6 +131,11 @@ provisioning from I/O, and finishes with import integrity, fences and recovery.
 Identity separates human login, application roles, workload admission and
 guest/storage authority. Each has its own notes and evidence references.
 
+The identity review also includes [the tenancy perspective](tenancy.md):
+VM application roles, API rights and platform administration have different
+scopes. Its current/proposed model comparison is useful when discussing which
+Keystone responsibilities remain after changing the identity mechanisms.
+
 Use [the operating model](operating-model.md) to explain why a crate graph, a
 Pod diagram and a responsibility map differ. Use [verification](verification.md)
 for a skeptical review of what the collected tests actually establish.

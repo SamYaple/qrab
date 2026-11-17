@@ -1,0 +1,26 @@
+{
+  "title": "Separate VM roles, API rights and platform authority",
+  "subtitle": "The same person or service can hold several grants. Each request still crosses its actual entrypoint.",
+  "note": "The dashboard backend is an API actor using its ServiceAccount. A service SVID does not become a universal human action grant.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":190,"w":430,"h":110,"kind":"qrab","kicker":"HUMAN VM USER","lines":["Signed-in subject / VM role"]},
+    {"x":620,"y":190,"w":430,"h":110,"kind":"qrab","kicker":"ENTRYPOINT CHECK","lines":["OIDC verification + action role"]},
+    {"x":1180,"y":190,"w":360,"h":110,"kind":"foundation","kicker":"SCOPE","lines":["Selected VM operation"]},
+    {"x":60,"y":340,"w":430,"h":110,"kind":"qrab","kicker":"API ACTOR / AUTOMATION","lines":["Kubernetes credential"]},
+    {"x":620,"y":340,"w":430,"h":110,"kind":"qrab","kicker":"ENTRYPOINT CHECK","lines":["API auth / RBAC / admission"]},
+    {"x":1180,"y":340,"w":360,"h":110,"kind":"foundation","kicker":"SCOPE","lines":["Declarative VM intent"]},
+    {"x":60,"y":490,"w":430,"h":110,"kind":"qrab","kicker":"CALLING WORKLOAD","lines":["SPIFFE identity / rotating mTLS"]},
+    {"x":620,"y":490,"w":430,"h":110,"kind":"qrab","kicker":"ENTRYPOINT CHECK","lines":["Exact peer + endpoint policy"]},
+    {"x":1180,"y":490,"w":360,"h":110,"kind":"foundation","kicker":"SCOPE","lines":["Scoped service call"]},
+    {"x":60,"y":640,"w":430,"h":110,"kind":"build","kicker":"PLATFORM ADMINISTRATOR","lines":["Pod / node / storage / identity"]},
+    {"x":620,"y":640,"w":430,"h":110,"kind":"build","kicker":"CURRENT TRUST MODEL","lines":["Substrate permissions"]},
+    {"x":1180,"y":640,"w":360,"h":110,"kind":"build","kicker":"SCOPE","lines":["Platform administration"]}
+  ],
+  "arrows": [
+    {"points":[[490,245],[620,245]]},{"points":[[1050,245],[1180,245]]},
+    {"points":[[490,395],[620,395]]},{"points":[[1050,395],[1180,395]]},
+    {"points":[[490,545],[620,545]]},{"points":[[1050,545],[1180,545]]},
+    {"points":[[490,695],[620,695]]},{"points":[[1050,695],[1180,695]]}
+  ]
+}

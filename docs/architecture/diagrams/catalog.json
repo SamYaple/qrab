@@ -629,7 +629,36 @@
         "S04",
         "T14"
       ]
+    },
+    {
+      "id": "50-authority-entrypoints",
+      "source": "50-authority-entrypoints.json",
+      "title": "Separate VM, API, workload and platform authority",
+      "status": "current contract / desired scope comparison",
+      "caption": "Four actors use different entrypoints and grants. The dashboard backend is an API actor under its ServiceAccount; an end-user VM role, a workload SVID and platform administration do not collapse into one credential.",
+      "evidence": [
+        "S06",
+        "S16",
+        "S18",
+        "S19",
+        "S20",
+        "M01"
+      ]
+    },
+    {
+      "id": "51-tenancy-models",
+      "source": "51-tenancy-models.json",
+      "title": "Current and possible tenancy models",
+      "status": "current contract / desired scope comparison",
+      "caption": "The current protected-platform foundation differs from a complete tenant-facing VM API and from arbitrary hostile Pod writers. The latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.",
+      "evidence": [
+        "S02",
+        "S09",
+        "S16",
+        "M01",
+        "U14"
+      ]
     }
   ],
-  "reviewed_through": "a3b5cdd2c9f0f01e661f6b4f64e33c378f85b708"
+  "reviewed_through": "f7d449f89a793aea95a061b6ae74fa64c0f34ef3"
 }
