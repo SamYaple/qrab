@@ -8,9 +8,9 @@ An optional private --token-file enables authenticated inventory GETs using a
 real issuer token; credentials and raw guest serial/config data are never printed.
 
 Example (port-forwarding is managed separately):
-  python3 contrib/experiments/redfish-rollout-test.py --vm qrab-redfish-poc \
+  python3 contrib/experiments/redfish-rollout-test.py --vm VM \
       --origin http://127.0.0.1:18081 --expect-secure-boot disabled \
-      --report target/redfish-poc-before.json
+      --report target/redfish-rollout-before.json
 Repeat after a separately authorized rollout/power cycle with --baseline REPORT
 and --require-new-pod. Existing identity PVCs must never be reused for a new CR.
 """

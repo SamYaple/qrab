@@ -1,6 +1,6 @@
 # Redfish authentication release — 2026-11-14
 
-> Historical record of the 2026-11-14 release; the images named here are no longer the live ones. Current pins are in [images.lock.json](../contrib/images/images.lock.json) and [redfish-poc/vm.yaml](../contrib/kubernetes/redfish-poc/vm.yaml).
+> Historical record of the 2026-11-14 release; the images named here are no longer the live ones. Current pins are in [images.lock.json](../contrib/images/images.lock.json); the POC VM itself was removed on 2026-11-16.
 
 The validated authentication release is merged and deployed. Build source is
 `b2966828407ec22b03d58f4cd44293263596dd02`; immutable pins were merged as

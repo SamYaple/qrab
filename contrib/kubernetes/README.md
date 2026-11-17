@@ -42,9 +42,9 @@ before applying.
 allowlist, the optional native iSCSI probe disk). It no longer exists, and
 neither does `qrab-redfish-poc`, which later used its public host: its bundle
 was removed on 2026-11-16 because applying it recreated that deliberately
-deleted VM. Its console objects (Service, Ingress and CiliumNetworkPolicy
-`qrab-demo`, Certificate `qrab-demo-tls`) stay live until deleted explicitly,
-bound to that VM's old UID, so they route to nothing. Applying `vm.yaml` here would create a new VM and a fresh
+deleted VM. Its live console objects (Service, Ingress, CiliumNetworkPolicy,
+Certificate and the `qrab-demo-tls` Secret) and its volumes were deleted on
+2026-11-17. Applying `vm.yaml` here would create a new VM and a fresh
 `qrab-demo-state` claim under the retired names.
 
 The directory stays as the smallest complete example of a VM with its own
