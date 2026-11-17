@@ -28,6 +28,9 @@ const REVERIFY: Duration = Duration::from_secs(60);
 #[path = "status_tests.rs"]
 mod status_tests;
 
+#[cfg(test)]
+mod forward_tests;
+
 fn log(event: &str, detail: serde_json::Value) {
     eprintln!("{}", serde_json::json!({"event": event, "detail": detail}));
 }
@@ -673,23 +676,41 @@ impl Agent {
                 // Only to another node: a manager cannot route its address
                 // to anything off the node network (checked locally, since
                 // this runs inside the guest's pause).
-                sys::in_netns(&host, move || {
-                    if !sys::is_link_peer(via) {
-                        return Err(std::io::Error::other(format!(
-                            "{via} is not a node on a host link"
-                        )));
-                    }
-                    sys::forward(ip, via)
+                self.forwarding_change(ip, || {
+                    sys::in_netns(&host, move || {
+                        if !sys::is_link_peer(via) {
+                            return Err(std::io::Error::other(format!(
+                                "{via} is not a node on a host link"
+                            )));
+                        }
+                        sys::forward(ip, via)
+                    })
                 })
                 .map_err(|e| e.to_string())?;
                 Ok(format!("{ip}/32 forwarded via {via}"))
             }
             (wire::Op::Unforward, _) => {
-                sys::in_netns(&host, move || sys::unforward(ip)).map_err(|e| e.to_string())?;
+                self.forwarding_change(ip, || sys::in_netns(&host, move || sys::unforward(ip)))
+                    .map_err(|e| e.to_string())?;
                 Ok(format!("{ip}/32 no longer forwarded"))
             }
             _ => Err("unsupported request".into()),
         }
+    }
+
+    /// A fresh handoff must not inherit another route's orphan age. Hold the
+    /// sweep's lock through the kernel effect, so an old inventory/snapshot
+    /// cannot remove the replacement between its installation and age reset.
+    fn forwarding_change<T>(
+        &self,
+        ip: std::net::Ipv4Addr,
+        change: impl FnOnce() -> std::io::Result<T>,
+    ) -> std::io::Result<T> {
+        let mut orphaned = self.orphaned.lock().unwrap();
+        orphaned.remove(&ip);
+        let result = change();
+        drop(orphaned);
+        result
     }
 
     /// Drop forward routes whose address no anchor on this node has held for

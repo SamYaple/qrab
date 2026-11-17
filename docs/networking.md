@@ -397,7 +397,9 @@ extra loss beyond that pause. Egress stays unmasqueraded throughout.
    not on the VM Pod's node are annotated `qrab.yapplesauce.com/retire-after`
    (20 s later) and then deleted, which also withdraws the `-prev`
    announcement. qrab-netd deletes forward routes whose anchor has been gone
-   for 20 s. If the migration fails, the operator deletes the target anchors
+   for 20 s. Fresh forward/unforward changes clear the previous orphan age
+   under the same lock as route retirement, so a replacement starts its own
+   grace interval. If the migration fails, the operator deletes the target anchors
    it created.
 6. **Conntrack.** Twice, best effort: the target manager asks its node's
    qrab-netd (`ct-pull`), and that agent pulls the NIC's entries straight
