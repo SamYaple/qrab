@@ -592,6 +592,12 @@ local image mount, cold-provisioned CD device and bounded image policy.
 `QRAB_MEDIA_MAX_BYTES` defaults to 8GiB. No URL credentials or arbitrary paths
 are accepted.
 
+For an approved boot image under `/var/lib/qrab-media`, validation also requires
+the actual QEMU path to resolve to the same file checked under `QRAB_MEDIA_ROOT`.
+A namesake in a different root cannot validate another boot file. The trusted
+media publisher must keep approved image paths immutable through QEMU's open;
+a per-container read-only mount is not a snapshot of another writer's storage.
+
 `firmware_catalog`, `firmware_stage_status` and `firmware_stage` expose the
 approved immutable firmware catalog and identity-bound staging selection.
 `QRAB_FIRMWARE_ROOT` enables that catalog; staging retains the supervisor's

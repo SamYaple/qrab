@@ -25,8 +25,8 @@ pub struct MediaPolicy {
 
 impl MediaPolicy {
     /// Explicitly enabled by the manager's environment; never inherit a path
-    /// supplied by an HTTP client. A read-only mount prevents rename/symlink
-    /// races between canonical validation and QEMU opening the file.
+    /// supplied by an HTTP client. The mount and its trusted publisher must
+    /// keep approved image paths immutable through QEMU's subsequent open.
     pub fn from_env() -> Result<Option<Self>> {
         let Some(root) = std::env::var_os("QRAB_MEDIA_ROOT") else {
             return Ok(None);
@@ -66,7 +66,15 @@ impl MediaPolicy {
                 "boot media must be directly under its approved mount".into(),
             ));
         }
-        self.image_path(name)?;
+        let approved = self.image_path(name)?;
+        let actual = path
+            .canonicalize()
+            .map_err(|_| Error::Config("boot media is unavailable at its approved mount".into()))?;
+        if actual != approved {
+            return Err(Error::Config(
+                "boot media does not resolve to the image checked by its configured policy".into(),
+            ));
+        }
         Ok(())
     }
     fn image_path(&self, name: &str) -> Result<PathBuf> {
@@ -265,6 +273,26 @@ async fn status(qmp: &Qmp, policy: &MediaPolicy) -> Result<MediaStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn boot_policy_does_not_accept_a_namesake_under_a_different_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = format!(
+            "boot-{}.img",
+            dir.path().file_name().unwrap().to_str().unwrap()
+        );
+        std::fs::write(dir.path().join(&name), [1]).unwrap();
+        let policy = MediaPolicy::new(dir.path().to_owned(), 4).unwrap();
+        assert!(
+            policy.image_path(&name).is_ok(),
+            "the approved namesake exists"
+        );
+        let actual = Path::new("/var/lib/qrab-media").join(name);
+        assert!(
+            policy.validate_boot_disk(&actual).is_err(),
+            "another root's namesake must not validate the QEMU boot path"
+        );
+    }
+
     #[test]
     fn local_policy_rejects_traversal_urls_symlink_escape_and_size_excess() {
         let dir = tempfile::tempdir().unwrap();
