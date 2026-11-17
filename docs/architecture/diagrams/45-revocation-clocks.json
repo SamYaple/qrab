@@ -1,0 +1,13 @@
+{
+  "title": "Deletion does not create one global revocation clock",
+  "subtitle": "Each authority has its own removal, expiry, connection and recovery contract.",
+  "note": "A control-plane cleanup result is not proof that every retained copy or already-issued credential can no longer act.",
+  "boundaries": [],
+  "boxes": [
+    {"x":80,"y":205,"w":690,"h":235,"kind":"qrab","kicker":"HUMAN ACCESS","lines":["OIDC bearer / browser session / VM action role","Apply the selected service's validation policy","Existing sessions and token lifetimes need evidence"]},
+    {"x":830,"y":205,"w":690,"h":235,"kind":"qrab","kicker":"SERVICE AND GUEST IDENTITIES","lines":["Enrollment / allowed SPIFFE peer / SVID lifetime","Guest entry cleanup and optional agent eviction","Previously issued credentials need relying-service checks"]},
+    {"x":80,"y":495,"w":690,"h":235,"kind":"foundation","kicker":"DISK WRITER AUTHORITY","lines":["Hard backend fence / export generation / CHAP rotation","A missing Secret does not close a target session","Prove old writer exclusion before replacement"]},
+    {"x":830,"y":495,"w":690,"h":235,"kind":"build","kicker":"RETAINED DATA AND IDENTITY COPIES","lines":["Backup / old source / UEFI and TPM material","Protect copies and assign destruction authority","Live VM deletion does not erase retained artifacts"]}
+  ],
+  "arrows": []
+}

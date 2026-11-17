@@ -87,3 +87,8 @@ VM accepts writes, "turn the old VM back on" is not sufficient rollback: data
 reconciliation or an application-specific failback is needed. Record who owns
 the retained source, credentials, routes and eventual destruction. A snapshot
 without its consistency and ownership contract is not a complete rollback.
+
+The [one-workload storyboard](cutover-story.md) presents this plan as a
+rehearsal narrative. The [operator task translator](operator-translation.md)
+maps daily work, and [continuity](continuity.md) identifies the coordinated
+recovery artifact and separate revocation clocks.

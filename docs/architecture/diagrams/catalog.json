@@ -111,7 +111,8 @@
       "caption": "The OpenStack side is the supplied deployment model. The qrab side shows direct QEMU supervision within the manager container cgroup.",
       "evidence": [
         "S02",
-        "S04"
+        "S04",
+        "T11"
       ]
     },
     {
@@ -487,7 +488,124 @@
         "S11",
         "T07"
       ]
+    },
+    {
+      "id": "39-operator-task-translator",
+      "title": "Translate the task, owner and outcome",
+      "status": "comparison / current ownership",
+      "caption": "Three daily tasks mapped to their narrower target owners and observable outcomes. The mapping does not imply OpenStack API compatibility or a general automatic evacuation product.",
+      "evidence": [
+        "S02",
+        "S03",
+        "S04",
+        "S08",
+        "S09",
+        "S13",
+        "S14",
+        "U11",
+        "U12"
+      ],
+      "source": "39-operator-task-translator.json"
+    },
+    {
+      "id": "40-cross-cluster-cutover",
+      "title": "One workload moves between two clusters",
+      "status": "desired rehearsal / not performed",
+      "caption": "A workload-specific cold cutover story: isolated rehearsal, consistency, one writer, final transfer, network authority and acceptance. No OpenStack-to-qrab live migration or storage backend is assumed.",
+      "evidence": [
+        "S05",
+        "S08",
+        "S13",
+        "S15"
+      ]
+    },
+    {
+      "id": "41-cutover-rollback",
+      "title": "Rollback changes after target writes",
+      "status": "desired workload contract",
+      "caption": "The retained source becomes stale after the target accepts writes. Later failback must reconcile data and authority; restarting the old VM alone is not a sufficient procedure.",
+      "evidence": [
+        "S05",
+        "S13",
+        "S14"
+      ]
+    },
+    {
+      "id": "42-guest-identity-deletion",
+      "title": "Guest identity cleanup has a bounded wait",
+      "status": "implemented source / external service contract",
+      "caption": "The guest-identity finalizer removes owned entries, optionally stops Pods and calls the scoped evictor, and can release with a Warning after 600 seconds. Other finalizers and previously issued credential lifetimes remain separate.",
+      "evidence": [
+        "S23",
+        "L02"
+      ]
+    },
+    {
+      "id": "43-recovery-bundle",
+      "title": "A restore needs more than disk bytes",
+      "status": "desired recovery product",
+      "caption": "A complete workload recovery procedure coordinates data, boot identity, VM intent, network authority, credentials and ownership. Individual primitives exist; the full backup/restore product and measured RTO/RPO are not established.",
+      "evidence": [
+        "S05",
+        "S13",
+        "S14",
+        "S15",
+        "S22",
+        "S23"
+      ],
+      "source": "43-recovery-bundle.json"
+    },
+    {
+      "id": "44-cutover-overview",
+      "source": "44-cutover-overview.json",
+      "title": "Move one workload, then retire its old owner",
+      "status": "desired operational contract / current mechanisms",
+      "caption": "A slide-sized desired cutover: isolated rehearsal, final consistent data, one target/network authority and explicit retention/failback. The accepted-write boundary changes rollback; no performed transfer is implied.",
+      "evidence": [
+        "S05",
+        "S08",
+        "S13",
+        "S15"
+      ]
+    },
+    {
+      "id": "45-revocation-clocks",
+      "source": "45-revocation-clocks.json",
+      "title": "Different authorities have different revocation clocks",
+      "status": "desired operational contract / current mechanisms",
+      "caption": "A slide-sized continuity view separates human sessions, workload/guest SVIDs, disk writer authority and retained copies. Each needs its own validation, expiry, fencing or destruction evidence.",
+      "evidence": [
+        "S05",
+        "S14",
+        "S18",
+        "S19",
+        "S20",
+        "S23"
+      ]
+    },
+    {
+      "id": "46-secret-cleanup-authority",
+      "title": "Credential cleanup binds the intended VM and Secret",
+      "status": "implemented boundary repair",
+      "caption": "A test-only metadata patch checks the intended VM/disk without reading Secret data. Conditional deletion carries the checked object UID/version, so a colliding name, replacement or rotation cannot authorize the wrong cleanup.",
+      "evidence": [
+        "S13",
+        "T08"
+      ]
+    },
+    {
+      "id": "47-container-kvm-proof",
+      "source": "47-container-kvm-proof.json",
+      "title": "Observed local KVM/container boundary",
+      "status": "dated local fixture / not cluster certification",
+      "caption": "An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. It does not establish Kubernetes placement, guest networking or storage-backend acceptance.",
+      "evidence": [
+        "S04",
+        "S05",
+        "S06",
+        "T11"
+      ]
     }
   ],
-  "reviewed_through": "17d7d21d86f193475ec8a8884a3ccbbcf837810d"
+  "reviewed_through": "3f1ac7c2704e55736f3e91f42ff1b5721965e31d"
 }

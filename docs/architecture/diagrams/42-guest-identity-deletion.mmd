@@ -1,0 +1,23 @@
+sequenceDiagram
+    participant K as Kubernetes
+    participant O as VM operator
+    participant E as External guest evictor
+    participant S as SPIRE server
+    K->>O: VM deletion timestamp / immutable UID
+    O->>K: Delete exactly owned guest registrations
+    alt Evictor configured
+        O->>K: Stop own VM Pods, respecting storage guard draining
+        K-->>O: Observe no owned VM Pods
+        O->>E: VM UID / exact workload mTLS
+        E->>S: Require registrations gone, match VM DevID selectors
+        S-->>E: Scoped eviction outcome
+        E-->>O: Success or pending / unavailable
+        alt Eviction succeeds
+            O->>K: Release guest-identity finalizer
+        else Still pending after 600 seconds from deletion start
+            O->>K: Warning GuestAgentNotEvicted, release this finalizer
+        end
+    else No evictor configured
+        O->>K: Release after owned entry cleanup
+    end
+    Note over K,S: Other finalizers and already-issued credential lifetimes remain separate

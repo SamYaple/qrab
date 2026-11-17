@@ -1,0 +1,20 @@
+{
+  "title": "A KVM guest stayed inside one container boundary",
+  "subtitle": "Observed local fixture / 2026-11-17 / source 3f1ac7c / explicit KVM, temporary state and no network",
+  "note": "Local rootless proof, not Kubernetes certification. All three original processes exited after SIGTERM. No guest NICs or LUNs.",
+  "boundaries": [
+    {"x":60,"y":170,"w":1480,"h":515,"title":"ONE CONTAINER CGROUP / 2 CPU CORE LIMIT / 1 GiB MEMORY LIMIT / READ-ONLY ROOT"}
+  ],
+  "boxes": [
+    {"x":570,"y":230,"w":460,"h":125,"kind":"qrab","kicker":"DIRECT SUPERVISION","lines":["manager / container PID 1","Owns QEMU and swtpm child lifetime"]},
+    {"x":240,"y":430,"w":460,"h":170,"kind":"foundation","kicker":"KVM EXECUTION","lines":["QEMU / container PID 3","Guest: 1 vCPU / 512 MiB RAM","Same bounded container cgroup"]},
+    {"x":900,"y":430,"w":460,"h":170,"kind":"foundation","kicker":"SOFTWARE TPM","lines":["swtpm / container PID 2","Temporary retained identity","Same bounded container cgroup"]},
+    {"x":60,"y":720,"w":390,"h":100,"kind":"foundation","kicker":"HOST KERNEL","lines":["KVM execution through /dev/kvm"]},
+    {"x":520,"y":720,"w":1020,"h":100,"kind":"qrab","kicker":"OBSERVED OUTCOMES","lines":["UEFI boot / guest-agent ping / exact resource limits / clean exit and original-process reaping"]}
+  ],
+  "arrows": [
+    {"points":[[650,355],[650,390],[470,390],[470,430]]},
+    {"points":[[950,355],[950,390],[1130,390],[1130,430]]},
+    {"points":[[470,600],[470,700],[255,700],[255,720]]}
+  ]
+}

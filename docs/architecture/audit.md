@@ -480,6 +480,44 @@ was performed by this audit.
 **Merged source:** `dd2f604ea097740c59475766487589e6b84ff6b0`.
 **Tracking:** qrab `work/netd-cilium-provider-process-authority`.
 
+## A15 — a credential cleanup name could refer to another VM
+
+**Location:** operator `provision::SecretStore::delete`. **Repair baseline:**
+`e00a555`.
+
+The name `<vm>-disk-<disk>` is not an ownership proof. Valid pairs `a` /
+`b-disk-c` and `a-disk-b` / `c` produce the same name. A normal removed-disk
+cleanup can delete its old Secret and then fail to record its status. If the
+other VM creates its own credential before the retry, the old name-only
+DELETE can remove that other VM's Secret. Generic operator admission checks
+the old object's internal ownership shape, rather than the intended VM UID
+of this particular reconciliation.
+
+A private API test using the actual Secret renderer and credential store
+failed before the fix with `foreign credential deleted`. No live credential
+was changed. The repair sends only JSON Patch `test` operations for the
+expected VM owner, role labels and disk annotation, requesting a
+`PartialObjectMetadata` response with no full-object fallback. It validates
+the returned single controller owner and object identity, then deletes with
+both Secret UID and resourceVersion preconditions.
+
+![Scoped credential cleanup](diagrams/rendered/light/46-secret-cleanup-authority.svg)
+
+The operator retains no Secret GET/list/watch permission and reads no
+credential data for this check. A foreign/malformed owner is refused; an
+object replacement or credential update between check and deletion conflicts;
+a missing object is idempotent. The implementation preserves the established
+Secret naming and admission contract rather than broadening API access.
+
+Six private API cases exercise the actual store, including the two-step
+release/retry collision, changed UID/version, metadata-only negotiation and
+missing/ambiguous identity. The complete runtime gate and strict Clippy pass.
+These tests establish local client behavior, not a production rollout or a
+storage fence: deleting a Secret still does not close an existing disk session.
+
+**Merged source:** `506b7c4a128fc96f954887747a7ba576bb4e5c4e`.
+**Tracking:** qrab `work/disk-secret-cleanup-object-authority`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's
@@ -508,6 +546,28 @@ logging code is unchanged; this is not a claimed payload-leak repair.
 
 **Merged test repair:** `0642b5999aead05daeac7ee2d2f375880a77b0fc`.
 **Tracking:** qrab `work/dashboard-trace-capture-isolation`.
+
+## Validation extension: freeze a real guest filesystem
+
+An explicit real guest-agent run passed with zero frozen filesystems, which
+the old RAM-only fixture documentation allowed. It exercised RPC/status/gating
+but did not prove `FIFREEZE` on a filesystem. A positive assertion demonstrated
+that limitation by failing against the old input.
+
+The ignored launcher test now formats only its own private 64 MiB regular
+file on the host. A reserved argument, UUID, label, ext4 type and size opt into
+the fixture guest's mount before agent startup. The guest never formats an
+ordinary disk. The test selects that exact mount and requires one frozen
+filesystem, matching thaw, frozen update refusal and a successful later update.
+
+The explicit 11.1.3 TCG run passes with `froze 1 filesystem(s)`. The normal
+runtime gate and strict Clippy pass. A local verification initramfs replaced
+only `init` among 114 records from the pinned cached image; all other payloads
+and metadata were unchanged. This strengthens the test evidence, rather than
+repairing a claimed production data leak or providing a backup product.
+
+**Merged test/fixture extension:** `3f1ac7c2704e55736f3e91f42ff1b5721965e31d`.
+**Tracking:** qrab `work/guest-freeze-positive-live-fixture`.
 
 ## Investigated concern rejected by the real policy contract
 

@@ -1,0 +1,17 @@
+sequenceDiagram
+    participant W as Workload owner
+    participant O as OpenStack cluster
+    participant Q as qrab cluster
+    participant N as Service / network authority
+    W->>O: Inventory disks, boot identity and network contract
+    W->>Q: Rehearse copied data on isolated address
+    Q-->>W: Boot / policy / recovery / application evidence
+    W->>O: Establish consistency point and stop old writer
+    O-->>Q: Final supported data transfer and verification
+    Note over O,Q: No cross-platform live-migration protocol is assumed
+    W->>Q: Activate target under one-writer procedure
+    W->>N: Transfer route / address / DNS authority
+    N->>Q: Real user traffic
+    Q-->>W: Application and data acceptance
+    Note over O,Q: Once target accepts writes, source is stale
+    W->>O: Retain source under explicit failback / expiry policy

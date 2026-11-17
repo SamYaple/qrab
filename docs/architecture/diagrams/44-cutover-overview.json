@@ -1,0 +1,18 @@
+{
+  "title": "Move one workload, then retire its old owner",
+  "subtitle": "Desired cross-cluster cutover: one data writer and one network authority at each step.",
+  "note": "An illustrative rehearsal, not a performed migration. Source backend, boot identity and data consistency must be inventoried.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":240,"w":330,"h":235,"kind":"foundation","kicker":"1 / REHEARSE","lines":["Copy data to isolated target","Prove boot and policy","Test application and recovery","Source stays authoritative"]},
+    {"x":445,"y":240,"w":330,"h":235,"kind":"qrab","kicker":"2 / TRANSFER DATA","lines":["Establish consistency point","Stop the old writer","Finish supported transfer","Verify target content"]},
+    {"x":830,"y":240,"w":330,"h":235,"kind":"qrab","kicker":"3 / TRANSFER AUTHORITY","lines":["Activate the target safely","Move route / address / DNS","Test the real user path","Record accepted writes"]},
+    {"x":1215,"y":240,"w":330,"h":235,"kind":"foundation","kicker":"4 / RETAIN THEN RETIRE","lines":["Source is now stale","Use explicit failback policy","Honor retained obligations","Destroy under its owner"]},
+    {"x":230,"y":600,"w":1140,"h":145,"kind":"build","kicker":"ROLLBACK CHANGES AT THE ACCEPTED-WRITE BOUNDARY","lines":["Before target writes: rehearsed reversal. After target writes: data reconciliation and authority transfer.","No OpenStack-to-qrab live migration or automatic cross-cluster address transfer is assumed."]}
+  ],
+  "arrows": [
+    {"points":[[390,357],[445,357]]},
+    {"points":[[775,357],[830,357]]},
+    {"points":[[1160,357],[1215,357]]}
+  ]
+}

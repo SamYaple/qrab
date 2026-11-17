@@ -1,0 +1,17 @@
+stateDiagram-v2
+    [*] --> SourceAuthoritative
+    SourceAuthoritative: Source serves users and owns writes
+    SourceAuthoritative --> Rehearsal: Copy data to isolated target
+    Rehearsal: Target rehearsal has no production authority
+    Rehearsal --> SourceAuthoritative: Rehearsal incomplete
+    Rehearsal --> SourceStopped: Establish consistency and stop old writer
+    SourceStopped: Final transfer verified, no competing writer
+    SourceStopped --> SourceAuthoritative: Rehearsed reversal before target writes
+    SourceStopped --> TargetAuthoritative: Transfer authority and accept target writes
+    TargetAuthoritative: Target owns accepted writes, source is stale
+    TargetAuthoritative --> TargetAuthoritative: Continue serving and verify
+    TargetAuthoritative --> ReconciledFailback: Application-specific data reconciliation
+    ReconciledFailback: Preserve accepted writes and transfer authority
+    ReconciledFailback --> SourceAuthoritative
+    TargetAuthoritative --> SourceRetired: Retention obligations complete
+    SourceRetired --> [*]

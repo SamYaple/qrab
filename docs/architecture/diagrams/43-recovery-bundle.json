@@ -1,0 +1,15 @@
+{
+  "title": "A restore needs more than disk bytes",
+  "subtitle": "Desired workload recovery contract: coordinate the set, then prove the restored application.",
+  "note": "Individual primitives exist. A complete backup/restore product, measured RTO/RPO and cross-platform identity transfer are not established.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":205,"w":450,"h":240,"kind":"build","kicker":"APPLICATION DATA","lines":["Included root and data disks","Acknowledged-write point","Consistency method","Verified restored content"]},
+    {"x":575,"y":205,"w":450,"h":240,"kind":"build","kicker":"FIRMWARE / TPM IDENTITY","lines":["Preserve or replace intentionally","UEFI variables / TPM state","VM UID binding","Dependent enrollment decisions"]},
+    {"x":1090,"y":205,"w":450,"h":240,"kind":"build","kicker":"DECLARATIVE VM INTENT","lines":["Machine / CPU / device contract","Boot and disk / NIC mapping","Source and image provenance","Supported target configuration"]},
+    {"x":60,"y":505,"w":450,"h":240,"kind":"build","kicker":"NETWORK AUTHORITY","lines":["Address / MAC / route / DNS","Endpoint security policy","Which copy may serve traffic","External reachability evidence"]},
+    {"x":575,"y":505,"w":450,"h":240,"kind":"build","kicker":"CREDENTIALS / REGISTRATIONS","lines":["Restore / rotate / re-issue","Human / service / guest / disk","Protect retained private material","Relying-service expiry behavior"]},
+    {"x":1090,"y":505,"w":450,"h":240,"kind":"build","kicker":"OWNERSHIP AND ACCEPTANCE","lines":["Exclude the old writer","Record restored identity","Test the actual application","Own retention and destruction"]}
+  ],
+  "arrows": []
+}

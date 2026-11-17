@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 17d7d21d86f1 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>27 document views · 42 unique diagrams · 6 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 3f1ac7c2704e · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>30 document views · 51 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -37,7 +37,7 @@ different evidence classes throughout the atlas.
 | audience / time | start here | what it answers |
 | --- | --- | --- |
 | presenter / five minutes | [executive brief](executive.md) | what remains, what is replaced, and why |
-| openstack operator | [service replacement map](replacement-map.md) | where each familiar responsibility moves |
+| openstack operator | [service replacement map](replacement-map.md), [task translator](operator-translation.md) | where each familiar responsibility and daily operation moves |
 | architecture review | [current structure](current-state.md), [desired state](desired-state.md) | what the code does versus what we intend |
 | rust developer | [code map](code-map.md), [boundary contracts](boundaries.md) | which crate owns an operation and where to change it |
 | network engineer | [network comparison](network.md) | ovn/cilium separation versus per-nic cilium endpoints |
@@ -46,9 +46,10 @@ different evidence classes throughout the atlas.
 | cross-cutting architecture reviewer | [authority and lifetimes](authority.md) | bind a checked identity to the resource actually used |
 | team / system owner | [operating model](operating-model.md) | separate roles, processes, dependencies and operational ownership |
 | recovery reviewer | [resource lifetimes and recovery](recovery.md) | namespace replacement, held queues, power and safe restart |
+| backup / identity recovery owner | [continuity](continuity.md) | what must survive together and which revocation clocks differ |
 | test / evidence reviewer | [verification perspective](verification.md) | exactly what local and real-peer checks establish |
 | on-call engineer | [failure and recovery](operations.md), [lifecycle flows](lifecycle.md) | which failures stop which operations |
-| migration planner | [transition plan](transition.md), [capability ledger](capabilities.md) | what must be proved before moving a workload |
+| migration planner | [transition plan](transition.md), [cutover story](cutover-story.md), [capability ledger](capabilities.md) | what must be proved before moving a workload |
 | skeptical reviewer | [questions and answers](questions.md), [evidence register](evidence.md) | limits, assumptions, and supporting source |
 | visual reader | [diagram catalog](diagrams.md) | reusable boundary, flow, sequence and state diagrams |
 | openstack reference reader | [original upstream diagrams](upstream-diagrams.md) | attributed ovn reference figures, separate from the supplied deployment |
@@ -124,8 +125,8 @@ different evidence classes throughout the atlas.</p>
 </tr>
 <tr>
 <td>OpenStack operator</td>
-<td><a href="#doc-replacement-map">Service replacement map</a></td>
-<td>Where each familiar responsibility moves</td>
+<td><a href="#doc-replacement-map">Service replacement map</a>, <a href="#doc-operator-translation">task translator</a></td>
+<td>Where each familiar responsibility and daily operation moves</td>
 </tr>
 <tr>
 <td>Architecture review</td>
@@ -168,6 +169,11 @@ different evidence classes throughout the atlas.</p>
 <td>Namespace replacement, held queues, power and safe restart</td>
 </tr>
 <tr>
+<td>Backup / identity recovery owner</td>
+<td><a href="#doc-continuity">Continuity</a></td>
+<td>What must survive together and which revocation clocks differ</td>
+</tr>
+<tr>
 <td>Test / evidence reviewer</td>
 <td><a href="#doc-verification">Verification perspective</a></td>
 <td>Exactly what local and real-peer checks establish</td>
@@ -179,7 +185,7 @@ different evidence classes throughout the atlas.</p>
 </tr>
 <tr>
 <td>Migration planner</td>
-<td><a href="#doc-transition">Transition plan</a>, <a href="#doc-capabilities">capability ledger</a></td>
+<td><a href="#doc-transition">Transition plan</a>, <a href="#doc-cutover-story">cutover story</a>, <a href="#doc-capabilities">capability ledger</a></td>
 <td>What must be proved before moving a workload</td>
 </tr>
 <tr>
@@ -3190,6 +3196,274 @@ Kubernetes/operator, manager, netd/Cilium and storage each own narrower parts
 of recovery. The comparison should identify these owners and the evidence
 they require, rather than imply that removing a service removes the failure
 mode it previously handled.</p>
+</article><article class="doc" id="doc-continuity" data-search="# continuity: what survives a restart, restore or deletion?
+
+a useful recovery unit is larger than a root disk. the target needs an
+explicit contract for application data, vm identity, declarative intent,
+network ownership and credentials. current source implements several pieces;
+a complete workload backup/restore product remains work to finish.
+
+![the desired workload recovery bundle](diagrams/rendered/light/43-recovery-bundle.svg)
+
+## preserve the right state for the intended operation
+
+| operation | intended continuity | new incarnation / separate decision |
+| --- | --- | --- |
+| in-place power cycle | same vm uid, intended retained uefi/vtpm identity and disk bindings | new qemu/swtpm children; guest application restarts |
+| container or pod replacement | same vm intent and proven durable state, subject to safe ownership | process/pod incarnations change; old writer exclusion must be established |
+| nic sandbox replacement | same configured guest nic identity and address intent | held namespace/queue incarnation changes; guest hot-unplug cooperation is required |
+| same-vm live migration | same vm uid, transferred supported identity/runtime state and shared disks | exact target adoption and network ownership transfer |
+| restore into a new vm | recovery behavior must be specified | new uid cannot casually adopt another vm&#x27;s bound identity claim |
+| vm deletion | retention/destruction follows each resource&#x27;s owner | api object disappearance is neither universal erasure nor universal credential revocation |
+
+the [recovery view](recovery.md) traces the implemented process/namespace
+mechanisms. the [storage view](storage.md) distinguishes guest luns from the
+small firmware/vtpm state pvc. neither a lease on that pvc nor kubernetes
+object deletion is a hard backend fence.
+
+## design the backup artifact as a coordinated set
+
+this is the desired recovery contract, not a new implemented export format.
+
+| part | what a usable restore procedure must establish |
+| --- | --- |
+| application data | included disks, acknowledged-write point, consistency method and verified restore |
+| firmware / tpm state | intentional preservation or replacement of identity, boot variables and dependent enrollments |
+| vm intent | supported machine, cpu/device/boot settings, disk/nic mapping and source/image provenance |
+| network | addresses, macs, policy and which environment may advertise/serve them |
+| credentials / registrations | which must be restored, rotated, re-issued or removed; recovery copies remain protected |
+| ownership record | old writer exclusion, exact restored identity and authority to destroy retained copies |
+
+the guest agent provides bounded freeze/thaw and other allowed operations.
+it does not coordinate an entire application or make a cross-disk snapshot
+atomic. the storage service provides scoped disk/image primitives and hard
+fences, rather than a complete application backup workflow. (s13–s15, s22.)
+
+define recovery time and data-loss objectives for the actual workload, then
+measure them with restore drills. this investigation supplies no rto/rpo,
+availability or performance numbers.
+
+## deletion has several revocation clocks
+
+![different authorities have different revocation clocks](diagrams/rendered/light/45-revocation-clocks.svg)
+
+| authority | relevant lifecycle | what removal alone does not establish |
+| --- | --- | --- |
+| human browser session / oidc bearer | session and token lifetime, role verification and application policy | all existing remote sessions or tokens instantly cease to exist |
+| calling service svid | workload enrollment, rotation/expiry and exact peer admission | a role change is a universal service-certificate revocation |
+| guest registration / agent | entry reconciliation, guest stop, agent eviction and certificate expiry | deleting an api entry retroactively invalidates every already-issued credential |
+| disk export | hard fence and new generation/chap on recovery | a missing kubernetes secret closes an existing target session |
+| retained backup | protected copies and explicit destruction authority | deleting the live vm destroys copied data or private identity material |
+
+these are different mechanisms, not one global logout operation. claims about
+an already-issued credential need the relying service&#x27;s actual validation and
+connection-lifetime behavior, not just a control-plane deletion event.
+
+credential cleanup must also preserve object ownership. a15 in
+[the audit](audit.md) repaired a retry that could delete another vm&#x27;s colliding
+secret name. the store now tests the expected vm/disk metadata and deletes
+only the checked uid/version, without secret get or password readback. this
+api cleanup still remains separate from hard-fencing a disk session.
+
+## optional guest identity: follow the real deletion chain
+
+![guest identity deletion and its bounded wait](diagrams/rendered/light/42-guest-identity-deletion.svg)
+
+for a vm with the guest-identity finalizer, the operator deletes its owned
+clusterstaticentries. with configured evictors it waits for the vm&#x27;s pods to
+go, leaving storage-guard draining to that owner, then calls the exact allowed
+spiffe-authenticated evictor. the external evictor service lives outside this
+repository. its documented contract scopes eviction to the vm&#x27;s tpm devid
+selectors and refuses while the related registrations remain.
+
+the source retries while pending. after 600 seconds from deletion start,
+the guest-identity finalizer can release with a `guestagentnotevicted` warning.
+without configured evictors, only the entry cleanup is performed. that
+finalizer&#x27;s release is not a successful-eviction claim, and other finalizers
+still retain their independent responsibilities. (s23,
+[the subsystem guide](../spire-vm.md).)
+
+the dated native-cluster record in [the guest identity guide](../spire-vm.md)
+reports a 2026-11-17 test in which the selected test agent disappeared within
+ten seconds and two unrelated agents stayed unchanged. that is evidence for
+that named rollout/test. it is not evidence of instantaneous revocation of
+every previously issued workload svid or acceptance on another cluster.
+
+## present the continuity decision explicitly
+
+when retiring glance/cinder or replacing keystone duties, show both the live
+workflow and the retained recovery obligations. the target can have a much
+smaller service surface while retaining disciplined data, identity and
+revocation operations. use [the task translator](operator-translation.md)
+for daily work and [the cutover story](cutover-story.md) for moving between
+clusters.
+"><h1 id="continuity--continuity-what-survives-a-restart-restore-or-deletion">Continuity: what survives a restart, restore or deletion?</h1>
+<p>A useful recovery unit is larger than a root disk. The target needs an
+explicit contract for application data, VM identity, declarative intent,
+network ownership and credentials. Current source implements several pieces;
+a complete workload backup/restore product remains work to finish.</p>
+<p><img src="diagrams/rendered/light/43-recovery-bundle.svg" alt="The desired workload recovery bundle" /></p>
+<h2 id="continuity--preserve-the-right-state-for-the-intended-operation">Preserve the right state for the intended operation</h2>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Intended continuity</th>
+<th>New incarnation / separate decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>In-place power cycle</td>
+<td>Same VM UID, intended retained UEFI/vTPM identity and disk bindings</td>
+<td>New QEMU/swtpm children; guest application restarts</td>
+</tr>
+<tr>
+<td>Container or Pod replacement</td>
+<td>Same VM intent and proven durable state, subject to safe ownership</td>
+<td>Process/Pod incarnations change; old writer exclusion must be established</td>
+</tr>
+<tr>
+<td>NIC sandbox replacement</td>
+<td>Same configured guest NIC identity and address intent</td>
+<td>Held namespace/queue incarnation changes; guest hot-unplug cooperation is required</td>
+</tr>
+<tr>
+<td>Same-VM live migration</td>
+<td>Same VM UID, transferred supported identity/runtime state and shared disks</td>
+<td>Exact target adoption and network ownership transfer</td>
+</tr>
+<tr>
+<td>Restore into a new VM</td>
+<td>Recovery behavior must be specified</td>
+<td>New UID cannot casually adopt another VM's bound identity claim</td>
+</tr>
+<tr>
+<td>VM deletion</td>
+<td>Retention/destruction follows each resource's owner</td>
+<td>API object disappearance is neither universal erasure nor universal credential revocation</td>
+</tr>
+</tbody>
+</table>
+<p>The <a href="#doc-recovery">recovery view</a> traces the implemented process/namespace
+mechanisms. The <a href="#doc-storage">storage view</a> distinguishes guest LUNs from the
+small firmware/vTPM state PVC. Neither a lease on that PVC nor Kubernetes
+object deletion is a hard backend fence.</p>
+<h2 id="continuity--design-the-backup-artifact-as-a-coordinated-set">Design the backup artifact as a coordinated set</h2>
+<p>This is the desired recovery contract, not a new implemented export format.</p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>What a usable restore procedure must establish</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Application data</td>
+<td>Included disks, acknowledged-write point, consistency method and verified restore</td>
+</tr>
+<tr>
+<td>Firmware / TPM state</td>
+<td>Intentional preservation or replacement of identity, boot variables and dependent enrollments</td>
+</tr>
+<tr>
+<td>VM intent</td>
+<td>Supported machine, CPU/device/boot settings, disk/NIC mapping and source/image provenance</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>Addresses, MACs, policy and which environment may advertise/serve them</td>
+</tr>
+<tr>
+<td>Credentials / registrations</td>
+<td>Which must be restored, rotated, re-issued or removed; recovery copies remain protected</td>
+</tr>
+<tr>
+<td>Ownership record</td>
+<td>Old writer exclusion, exact restored identity and authority to destroy retained copies</td>
+</tr>
+</tbody>
+</table>
+<p>The guest agent provides bounded freeze/thaw and other allowed operations.
+It does not coordinate an entire application or make a cross-disk snapshot
+atomic. The storage service provides scoped disk/image primitives and hard
+fences, rather than a complete application backup workflow. (S13–S15, S22.)</p>
+<p>Define recovery time and data-loss objectives for the actual workload, then
+measure them with restore drills. This investigation supplies no RTO/RPO,
+availability or performance numbers.</p>
+<h2 id="continuity--deletion-has-several-revocation-clocks">Deletion has several revocation clocks</h2>
+<p><img src="diagrams/rendered/light/45-revocation-clocks.svg" alt="Different authorities have different revocation clocks" /></p>
+<table>
+<thead>
+<tr>
+<th>Authority</th>
+<th>Relevant lifecycle</th>
+<th>What removal alone does not establish</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Human browser session / OIDC bearer</td>
+<td>Session and token lifetime, role verification and application policy</td>
+<td>All existing remote sessions or tokens instantly cease to exist</td>
+</tr>
+<tr>
+<td>Calling service SVID</td>
+<td>Workload enrollment, rotation/expiry and exact peer admission</td>
+<td>A role change is a universal service-certificate revocation</td>
+</tr>
+<tr>
+<td>Guest registration / agent</td>
+<td>Entry reconciliation, guest stop, agent eviction and certificate expiry</td>
+<td>Deleting an API entry retroactively invalidates every already-issued credential</td>
+</tr>
+<tr>
+<td>Disk export</td>
+<td>Hard fence and new generation/CHAP on recovery</td>
+<td>A missing Kubernetes Secret closes an existing target session</td>
+</tr>
+<tr>
+<td>Retained backup</td>
+<td>Protected copies and explicit destruction authority</td>
+<td>Deleting the live VM destroys copied data or private identity material</td>
+</tr>
+</tbody>
+</table>
+<p>These are different mechanisms, not one global logout operation. Claims about
+an already-issued credential need the relying service's actual validation and
+connection-lifetime behavior, not just a control-plane deletion event.</p>
+<p>Credential cleanup must also preserve object ownership. A15 in
+<a href="#doc-audit">the audit</a> repaired a retry that could delete another VM's colliding
+Secret name. The store now tests the expected VM/disk metadata and deletes
+only the checked UID/version, without Secret GET or password readback. This
+API cleanup still remains separate from hard-fencing a disk session.</p>
+<h2 id="continuity--optional-guest-identity-follow-the-real-deletion-chain">Optional guest identity: follow the real deletion chain</h2>
+<p><img src="diagrams/rendered/light/42-guest-identity-deletion.svg" alt="Guest identity deletion and its bounded wait" /></p>
+<p>For a VM with the guest-identity finalizer, the operator deletes its owned
+ClusterStaticEntries. With configured evictors it waits for the VM's Pods to
+go, leaving storage-guard draining to that owner, then calls the exact allowed
+SPIFFE-authenticated evictor. The external evictor service lives outside this
+repository. Its documented contract scopes eviction to the VM's TPM DevID
+selectors and refuses while the related registrations remain.</p>
+<p>The source retries while pending. After 600 seconds from deletion start,
+the guest-identity finalizer can release with a <code>GuestAgentNotEvicted</code> Warning.
+Without configured evictors, only the entry cleanup is performed. That
+finalizer's release is not a successful-eviction claim, and other finalizers
+still retain their independent responsibilities. (S23,
+<a href="../spire-vm.md">the subsystem guide</a>.)</p>
+<p>The dated native-cluster record in <a href="../spire-vm.md">the guest identity guide</a>
+reports a 2026-11-17 test in which the selected test agent disappeared within
+ten seconds and two unrelated agents stayed unchanged. That is evidence for
+that named rollout/test. It is not evidence of instantaneous revocation of
+every previously issued workload SVID or acceptance on another cluster.</p>
+<h2 id="continuity--present-the-continuity-decision-explicitly">Present the continuity decision explicitly</h2>
+<p>When retiring Glance/Cinder or replacing Keystone duties, show both the live
+workflow and the retained recovery obligations. The target can have a much
+smaller service surface while retaining disciplined data, identity and
+revocation operations. Use <a href="#doc-operator-translation">the task translator</a>
+for daily work and <a href="#doc-cutover-story">the cutover story</a> for moving between
+clusters.</p>
 </article><article class="doc" id="doc-verification" data-search="# what the presentation can prove
 
 use the strongest claim supported by the particular evidence collected. code
@@ -3206,6 +3480,11 @@ them together does not automatically establish a live workload outcome.
 | pinned qemu image fixture | qemu 11.1.3 qemu-img, benign local files, raw/standalone qcow2 and external dependency cases | the importer refuses extra image inputs before invoking qemu | no production image publication or live import/export test |
 | real qmp smoke | local pinned 11.1.3, machine none/tcg, private monitor sockets; compact/pretty and legacy/object monitor frontends | generated schema/types and protocol behavior work against that real peer | no firmware, kvm, guest, disk, network or migration workload |
 | real qga smoke | local qemu-ga 11.1.3, private listener/temp files and explicit rpc allowlist | sync, info/ping, a 2 mib typed file read and allowed exec/status work against that peer | no in-guest agent rollout or application consistency proof |
+| real manager launcher | current 11.1.3 pc build, tcg, pinned cached demo assets and temporary runtime | actual guest boot marker, manager probes, sigterm/qmp shutdown and child reaping pass | no kubernetes placement/cgroup admission or kvm proof |
+| real uefi/vtpm lifecycle | same local pc build, ovmf and swtpm 0.10.2, temporary retained state | endorsement identity survives replacement; tpm death fails the vm; corrupt retained state is refused | no hardware tpm, secure boot enrollment, cluster state-pv or backup product proof |
+| in-guest qrab agent | direct-kernel demo with one explicit disposable ext4 fixture | exactly one selected filesystem freezes/thaws, frozen update is refused, later fixed update hook succeeds | no multi-disk/application-consistent backup or arbitrary guest execution claim |
+| real two-manager migration | pinned local image assets, current manager/test binaries, tcg, private fixture workload apis and no guest nics | guest resumes at target; source exits migrated; later target cold boot preserves the source tpm identity | no cilium handoff, native guest luns, production spire or cross-cluster/openstack migration |
+| local kvm/container containment | disposable rootless container, explicit kvm, current manager binary and pinned image assets | manager/qemu/swtpm are direct parent/children in one constrained cgroup; guest boots and all original processes exit cleanly | no kubernetes scheduling, device-plugin, namespace/tenant, cilium/bgp or guest-lun certification |
 | original socket-peer fixture | private child process and unix connection on a supporting local kernel | peer authority does not become a replacement numeric process after exit | no live vm grant or node rollout |
 | kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp lease updates/bind failures and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplinks replace cilium; the later t05 run also exercises wireguard/nat-pmp |
 | manager nic fixture | stand-in netd and qmp peers, actual manager reconciliation | namespace token change causes ordered nic-only detach/attach with the same mac/root port | guest hot-unplug and traffic continuity require their own acceptance |
@@ -3236,6 +3515,77 @@ the binaries used here came from the locked local gitea qemu checkout,
 canonical source preparation, verified dependency archives and the locked
 local patch. downloads were disabled during configuration. this audit did
 not advance the qemu source baseline.
+
+### explicit manager and guest checks
+
+the maintained `pod_runtime`, `pod_uefi` and `pod_guest_agent` ignored tests
+also ran against a local qemu 11.1.3 build with pc devices, vnc and tpm enabled.
+they used **tcg**, the default in those fixtures. enabling kvm in a build is
+not evidence that these tests exercised kvm.
+
+guest kernel/initramfs, boot disk and ovmf inputs were copied from the local
+pinned manager image
+`sha256:2f2ab6fad013a7c7635185668388603b50acbbcb657939c2295fe4dc0f6e79e9`
+(source `490d988dda4e3cbbf91b5208cc8169aea8294afc`). the guest kernel was
+`6.12.117+deb13-amd64`. no new image was built or published for these checks.
+input hashes and exact commands are in qrab towl under the architecture work.
+
+the original guest-agent fixture passed while reporting zero frozen
+filesystems, as the old guide allowed for a ram-only demo. that result proved
+the control/status path, rather than a real `fifreeze`. the strengthened test
+formats only its private 64 mib file on the host. an exact opt-in argument,
+uuid, label, filesystem type and capacity guard a test-only guest mount before
+agent startup. the test targets that mount and requires exactly one frozen
+filesystem. it then verifies the frozen-operation gate, matching thaw count
+and a successful fixed update hook. ordinary guest disks are never formatted
+by this fixture path.
+
+the explicit local run replaced only the `init` record in the copied
+initramfs with the checked source; the other 113 records and their metadata
+were unchanged. it failed with the old zero-work fixture and passed with the
+new mounted one. this is a stronger launcher/guest test, not a new application
+backup guarantee. reproduction requirements remain in
+[the guest-agent guide](../guest-agent.md#tests).
+
+the existing `pod_migration` fixture also passed in a disposable local
+container using the pinned image&#x27;s qemu/guest/ovmf and current manager/test
+binaries mounted read-only. it transferred a running guest between managers,
+observed source completion and target guest-agent response, and deliberately
+cold-booted the target afterward to verify the source endorsement identity
+was persisted. its service certificates came from private fixture workload
+apis. the container had no external network and the vm had no guest nics.
+this tests the runtime state/identity transfer, rather than netd/cilium route
+handoff or backend storage fencing. one fixture&#x27;s emitted downtime is not a
+performance measurement or an sla.
+
+### local kvm and container containment
+
+![observed local kvm/container boundary](diagrams/rendered/light/47-container-kvm-proof.svg)
+
+a separate local fixture explicitly selected kvm. it ran the current manager
+binary in a disposable rootless container with the pinned image&#x27;s qemu,
+ovmf/swtpm and demo guest. the container had a read-only root, no external
+network, no linux capabilities, the caller&#x27;s existing `/dev/kvm` access and
+private temporary state. no cluster objects were created or changed.
+
+the guest reported uefi boot and its software-tpm endorsement identity, and
+the manager&#x27;s readiness and guest-agent ping succeeded. host process records
+showed manager as container pid 1 and qemu/swtpm as its direct children, all
+in the same container cgroup. the bounded resource api reported the imposed
+two-core and 1 gib container limits. these are limits in a small fixture,
+rather than workload sizing or performance recommendations.
+
+after sigterm the container exited with status zero. pidfds held before the
+stop confirmed all three original processes had exited, avoiding a numeric
+pid-reuse assumption. the owned container was removed afterward. the first
+harness attempt queried the agent too early; the successful fresh-state run
+used a bounded connection/ping wait. manager readiness and guest-agent
+connection remain separate observations.
+
+this strengthens the source-derived process/cgroup comparison. a local
+libpod cgroup is not a kubernetes placement/device-plugin acceptance test,
+and the vm had no guest nics or native guest luns. the openstack side remains
+the deployment model supplied by the user, rather than an inspected cluster.
 
 the networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. read the emitted skip reasons: a test function that
@@ -3316,6 +3666,36 @@ them together does not automatically establish a live workload outcome.</p>
 <td>No in-guest agent rollout or application consistency proof</td>
 </tr>
 <tr>
+<td>Real manager launcher</td>
+<td>Current 11.1.3 PC build, TCG, pinned cached demo assets and temporary runtime</td>
+<td>Actual guest boot marker, manager probes, SIGTERM/QMP shutdown and child reaping pass</td>
+<td>No Kubernetes placement/cgroup admission or KVM proof</td>
+</tr>
+<tr>
+<td>Real UEFI/vTPM lifecycle</td>
+<td>Same local PC build, OVMF and swtpm 0.10.2, temporary retained state</td>
+<td>Endorsement identity survives replacement; TPM death fails the VM; corrupt retained state is refused</td>
+<td>No hardware TPM, Secure Boot enrollment, cluster state-PV or backup product proof</td>
+</tr>
+<tr>
+<td>In-guest qrab agent</td>
+<td>Direct-kernel demo with one explicit disposable ext4 fixture</td>
+<td>Exactly one selected filesystem freezes/thaws, frozen update is refused, later fixed update hook succeeds</td>
+<td>No multi-disk/application-consistent backup or arbitrary guest execution claim</td>
+</tr>
+<tr>
+<td>Real two-manager migration</td>
+<td>Pinned local image assets, current manager/test binaries, TCG, private fixture Workload APIs and no guest NICs</td>
+<td>Guest resumes at target; source exits migrated; later target cold boot preserves the source TPM identity</td>
+<td>No Cilium handoff, native guest LUNs, production SPIRE or cross-cluster/OpenStack migration</td>
+</tr>
+<tr>
+<td>Local KVM/container containment</td>
+<td>Disposable rootless container, explicit KVM, current manager binary and pinned image assets</td>
+<td>Manager/QEMU/swtpm are direct parent/children in one constrained cgroup; guest boots and all original processes exit cleanly</td>
+<td>No Kubernetes scheduling, device-plugin, namespace/tenant, Cilium/BGP or guest-LUN certification</td>
+</tr>
+<tr>
 <td>Original socket-peer fixture</td>
 <td>Private child process and Unix connection on a supporting local kernel</td>
 <td>Peer authority does not become a replacement numeric process after exit</td>
@@ -3370,6 +3750,65 @@ QRAB_TEST_QGA=/path/to/pinned/qemu-ga \
 canonical source preparation, verified dependency archives and the locked
 local patch. Downloads were disabled during configuration. This audit did
 not advance the QEMU source baseline.</p>
+<h3 id="verification--explicit-manager-and-guest-checks">Explicit manager and guest checks</h3>
+<p>The maintained <code>pod_runtime</code>, <code>pod_uefi</code> and <code>pod_guest_agent</code> ignored tests
+also ran against a local QEMU 11.1.3 build with PC devices, VNC and TPM enabled.
+They used <strong>TCG</strong>, the default in those fixtures. Enabling KVM in a build is
+not evidence that these tests exercised KVM.</p>
+<p>Guest kernel/initramfs, boot disk and OVMF inputs were copied from the local
+pinned manager image
+<code>sha256:2f2ab6fad013a7c7635185668388603b50acbbcb657939c2295fe4dc0f6e79e9</code>
+(source <code>490d988dda4e3cbbf91b5208cc8169aea8294afc</code>). The guest kernel was
+<code>6.12.117+deb13-amd64</code>. No new image was built or published for these checks.
+Input hashes and exact commands are in qrab towl under the architecture work.</p>
+<p>The original guest-agent fixture passed while reporting zero frozen
+filesystems, as the old guide allowed for a RAM-only demo. That result proved
+the control/status path, rather than a real <code>FIFREEZE</code>. The strengthened test
+formats only its private 64 MiB file on the host. An exact opt-in argument,
+UUID, label, filesystem type and capacity guard a test-only guest mount before
+agent startup. The test targets that mount and requires exactly one frozen
+filesystem. It then verifies the frozen-operation gate, matching thaw count
+and a successful fixed update hook. Ordinary guest disks are never formatted
+by this fixture path.</p>
+<p>The explicit local run replaced only the <code>init</code> record in the copied
+initramfs with the checked source; the other 113 records and their metadata
+were unchanged. It failed with the old zero-work fixture and passed with the
+new mounted one. This is a stronger launcher/guest test, not a new application
+backup guarantee. Reproduction requirements remain in
+<a href="../guest-agent.md#tests">the guest-agent guide</a>.</p>
+<p>The existing <code>pod_migration</code> fixture also passed in a disposable local
+container using the pinned image's QEMU/guest/OVMF and current manager/test
+binaries mounted read-only. It transferred a running guest between managers,
+observed source completion and target guest-agent response, and deliberately
+cold-booted the target afterward to verify the source endorsement identity
+was persisted. Its service certificates came from private fixture Workload
+APIs. The container had no external network and the VM had no guest NICs.
+This tests the runtime state/identity transfer, rather than netd/Cilium route
+handoff or backend storage fencing. One fixture's emitted downtime is not a
+performance measurement or an SLA.</p>
+<h3 id="verification--local-kvm-and-container-containment">Local KVM and container containment</h3>
+<p><img src="diagrams/rendered/light/47-container-kvm-proof.svg" alt="Observed local KVM/container boundary" /></p>
+<p>A separate local fixture explicitly selected KVM. It ran the current manager
+binary in a disposable rootless container with the pinned image's QEMU,
+OVMF/swtpm and demo guest. The container had a read-only root, no external
+network, no Linux capabilities, the caller's existing <code>/dev/kvm</code> access and
+private temporary state. No cluster objects were created or changed.</p>
+<p>The guest reported UEFI boot and its software-TPM endorsement identity, and
+the manager's readiness and guest-agent ping succeeded. Host process records
+showed manager as container PID 1 and QEMU/swtpm as its direct children, all
+in the same container cgroup. The bounded resource API reported the imposed
+two-core and 1 GiB container limits. These are limits in a small fixture,
+rather than workload sizing or performance recommendations.</p>
+<p>After SIGTERM the container exited with status zero. pidfds held before the
+stop confirmed all three original processes had exited, avoiding a numeric
+PID-reuse assumption. The owned container was removed afterward. The first
+harness attempt queried the agent too early; the successful fresh-state run
+used a bounded connection/ping wait. Manager readiness and guest-agent
+connection remain separate observations.</p>
+<p>This strengthens the source-derived process/cgroup comparison. A local
+libpod cgroup is not a Kubernetes placement/device-plugin acceptance test,
+and the VM had no guest NICs or native guest LUNs. The OpenStack side remains
+the deployment model supplied by the user, rather than an inspected cluster.</p>
 <p>The networking fixtures can run in throwaway user/network namespaces where
 the kernel permits it. Read the emitted skip reasons: a test function that
 returns early is not evidence that its privileged or optional path ran.
@@ -4023,6 +4462,325 @@ or roll a cluster. The image lock records source/digest pins; live inspection
 and dated acceptance establish what is deployed. This architecture task does
 not automatically authorize applying example VM bundles or recreating deleted
 test VMs. Durable investigation and operational notes belong in qrab towl.</p>
+</article><article class="doc" id="doc-operator-translation" data-search="# an openstack operator&#x27;s task translator
+
+the useful replacement for an openstack command is a task, its new owner and
+the evidence that the task completed. qrab exposes kubernetes resources and
+vm-scoped management services. it does not expose a nova, neutron, glance or
+cinder compatibility endpoint.
+
+the openstack task names below follow the [2026.1 client reference](https://docs.openstack.org/python-openstackclient/2026.1/cli/command-objects/server.html).
+they are vocabulary for the comparison, not a discovery of the separate
+cluster&#x27;s enabled features or api microversions.
+
+![translate a task through its owner and outcome](diagrams/rendered/light/39-operator-task-translator.svg)
+
+## create, inspect and operate a vm
+
+| familiar task | qrab entrypoint and owner | completion evidence / important limit |
+| --- | --- | --- |
+| create server | dashboard launch or an authorized `virtualmachine` api request; operator renders controlled resources | current vm uid/generation, storage binding, manager/qemu state, nic readiness and a guest/application check |
+| choose flavor | vm cpu/memory specification, boot ceilings and kubernetes resource admission | scheduled resources and effective container capacity; required numa/pinning/hugepage policy needs its own contract |
+| show server | vm status plus selected-vm dashboard/redfish and manager-derived inventory | separate desired generation, pod incarnation, power state and guest-agent freshness |
+| console | dashboard/bmc&#x27;s authenticated, vm-scoped graphical console path | the human has the required console role and reaches the selected vm&#x27;s private vnc stream |
+| stop/start | in-place redfish power operation through the per-vm service | off leaves manager available; on starts new qemu/swtpm children using retained identity |
+| declaratively stop | set `spec.running: false` through the authorized api | operator removes the vm pod; this is a different lifecycle from in-place off |
+| reboot or power cycle | the requested redfish reset action, bounded manager command, private qmp/guest cooperation | check the selected action&#x27;s outcome; a hard reset, guest shutdown and a new qemu process are different events |
+| pause/resume | authorized vm power/control action | paused qemu still exists and retains resources; application progress has stopped |
+| resize | update the supported vm resource intent; operator/kubelet admit container growth before manager hotplug | `resize.phase=applied` is kubelet-side evidence; guest cpu/memory onlining needs guest evidence |
+| live migrate | immutable, single-use qrab migration resource | exact target adoption, one intended network owner and preserved disk/state identity; eligibility is constrained |
+| rebuild, rescue, shelve or cold move | no general equivalent is established by this atlas | define the required recovery/data/identity behavior before promising this workflow |
+
+source owners are s02–s07, s11, s16–s19 and s22 in [the evidence register](evidence.md).
+the [lifecycle view](lifecycle.md) gives the sequences. use the actual dashboard,
+redfish and crd documentation for parameters; a mapping table should not become
+an untested second command reference.
+
+## connect and protect a guest
+
+| familiar task | qrab entrypoint and owner | completion evidence / important limit |
+| --- | --- | --- |
+| port/address assignment | vm nic intent, address claims, co-located anchor pods and netd | exact vm uid/nic/anchor incarnation, applied endpoint labels and guest address |
+| security-group membership | nic security-group labels plus the platform&#x27;s cilium policies | inspect the resulting policy and test the intended allowed/denied flow; a label alone does not enforce it |
+| external reachability | stable guest ipv4 /32, frrconfiguration/frr-k8s and the upstream network | accepted route and packets from the required origins; a bgp session alone is insufficient |
+| floating ip, tenant router, overlapping subnet or ipv6 | required semantics must be specified separately | the current stable-/32 model does not establish broad neutron parity |
+| migrate an active nic | manager/netd and the supported local cilium handoff fork | attachment identity, transfer outcome, old/new routes and actual traffic; source support is not a lossless-flow guarantee |
+
+the management pod and each guest nic have different endpoint identities.
+guest packets flow through kernel tap/vhost and cilium; the netd socket grants
+descriptors and carries control, rather than relaying packet payloads. see
+[networking](network.md) and [recovery](recovery.md). (s08–s12.)
+
+## images, disks and failed nodes
+
+| familiar task | qrab owner today | completion evidence / important limit |
+| --- | --- | --- |
+| register an image | baseimage/import controller, bounded inspect/write jobs and the storage service | verified source, explicit format, capacity and sealed immutable generation |
+| create disk from image | provisioner and scoped storage clone/export verbs | recorded origin/guid, export generation and exact vm/disk chap secret |
+| grow volume | storage capacity first, projected intent, manager qmp block resize | backend and qemu capacities, then guest partition/filesystem growth |
+| attach/detach arbitrary volumes | no general interface is established here | decide required attachment lifecycle, writer exclusion and retention semantics |
+| backup/restore | a complete workload product remains work to finish | disks, firmware/vtpm identity, configuration, registrations and application consistency must be coordinated |
+| recover from node loss | storage guard plus clean-exit evidence or a hard backend fence | old writer exclusion before replacement; an unreachable node is not that proof |
+| delete vm | separate access, guest-identity, storage and proven state-claim owners | finalizer outcomes, fenced/retired disks and explicit state-pv reclaim policy |
+| destroy retained disk bytes | separate administrator-only reaper after its grace period | exact retired journal/guid, absent export objects and successful backend destruction |
+
+[nova&#x27;s evacuation procedure](https://docs.openstack.org/nova/2026.1/admin/evacuate.html)
+also requires establishing that the old host is not operational. qrab&#x27;s
+corresponding safety question is explicit disk-writer exclusion, not merely
+kubernetes rescheduling. automatic general evacuation is not established.
+(s05, s13–s15.)
+
+## replace the credential for the right question
+
+keystone&#x27;s [scoped tokens](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html)
+carry authorization context for openstack apis. the target distributes the
+questions across existing systems:
+
+| question | qrab authority |
+| --- | --- |
+| who may change kubernetes vm intent? | api authentication, rbac and admission |
+| who is this browser user? | verified oidc identity and server-side session |
+| may that user perform this vm action? | vm application roles enforced by the selected service |
+| which service is calling? | exact allowed spiffe identity and rotating workload mtls |
+| which workload is inside this guest? | optional vm-bound guest spire enrollment and selectors |
+| may this qemu access this disk export? | scoped chap/export generation; separate from user login |
+
+the dashboard uses its own serviceaccount for kubernetes operations. it is
+not per-user api impersonation. a valid svid does not grant every human role.
+see [identity](identity.md), [authority](authority.md) and the
+[capability ledger](capabilities.md) for the remaining acceptance scope.
+
+## an operator&#x27;s closing question
+
+for each familiar command, ask: which object expresses intent, which owner
+performs the effect, and which observation proves the workload result? if one
+answer is missing, record the required contract. do not hide it behind the
+name of the service being removed.
+"><h1 id="operator-translation--an-openstack-operators-task-translator">An OpenStack operator's task translator</h1>
+<p>The useful replacement for an OpenStack command is a task, its new owner and
+the evidence that the task completed. qrab exposes Kubernetes resources and
+VM-scoped management services. It does not expose a Nova, Neutron, Glance or
+Cinder compatibility endpoint.</p>
+<p>The OpenStack task names below follow the <a href="https://docs.openstack.org/python-openstackclient/2026.1/cli/command-objects/server.html">2026.1 client reference</a>.
+They are vocabulary for the comparison, not a discovery of the separate
+cluster's enabled features or API microversions.</p>
+<p><img src="diagrams/rendered/light/39-operator-task-translator.svg" alt="Translate a task through its owner and outcome" /></p>
+<h2 id="operator-translation--create-inspect-and-operate-a-vm">Create, inspect and operate a VM</h2>
+<table>
+<thead>
+<tr>
+<th>Familiar task</th>
+<th>qrab entrypoint and owner</th>
+<th>Completion evidence / important limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Create server</td>
+<td>Dashboard launch or an authorized <code>VirtualMachine</code> API request; operator renders controlled resources</td>
+<td>Current VM UID/generation, storage binding, manager/QEMU state, NIC readiness and a guest/application check</td>
+</tr>
+<tr>
+<td>Choose flavor</td>
+<td>VM CPU/memory specification, boot ceilings and Kubernetes resource admission</td>
+<td>Scheduled resources and effective container capacity; required NUMA/pinning/hugepage policy needs its own contract</td>
+</tr>
+<tr>
+<td>Show server</td>
+<td>VM status plus selected-VM dashboard/Redfish and manager-derived inventory</td>
+<td>Separate desired generation, Pod incarnation, power state and guest-agent freshness</td>
+</tr>
+<tr>
+<td>Console</td>
+<td>Dashboard/BMC's authenticated, VM-scoped graphical console path</td>
+<td>The human has the required console role and reaches the selected VM's private VNC stream</td>
+</tr>
+<tr>
+<td>Stop/start</td>
+<td>In-place Redfish power operation through the per-VM service</td>
+<td>Off leaves manager available; On starts new QEMU/swtpm children using retained identity</td>
+</tr>
+<tr>
+<td>Declaratively stop</td>
+<td>Set <code>spec.running: false</code> through the authorized API</td>
+<td>Operator removes the VM Pod; this is a different lifecycle from in-place Off</td>
+</tr>
+<tr>
+<td>Reboot or power cycle</td>
+<td>The requested Redfish reset action, bounded manager command, private QMP/guest cooperation</td>
+<td>Check the selected action's outcome; a hard reset, guest shutdown and a new QEMU process are different events</td>
+</tr>
+<tr>
+<td>Pause/resume</td>
+<td>Authorized VM power/control action</td>
+<td>Paused QEMU still exists and retains resources; application progress has stopped</td>
+</tr>
+<tr>
+<td>Resize</td>
+<td>Update the supported VM resource intent; operator/kubelet admit container growth before manager hotplug</td>
+<td><code>resize.phase=Applied</code> is kubelet-side evidence; guest CPU/memory onlining needs guest evidence</td>
+</tr>
+<tr>
+<td>Live migrate</td>
+<td>Immutable, single-use qrab migration resource</td>
+<td>Exact target adoption, one intended network owner and preserved disk/state identity; eligibility is constrained</td>
+</tr>
+<tr>
+<td>Rebuild, rescue, shelve or cold move</td>
+<td>No general equivalent is established by this atlas</td>
+<td>Define the required recovery/data/identity behavior before promising this workflow</td>
+</tr>
+</tbody>
+</table>
+<p>Source owners are S02–S07, S11, S16–S19 and S22 in <a href="#doc-evidence">the evidence register</a>.
+The <a href="#doc-lifecycle">lifecycle view</a> gives the sequences. Use the actual dashboard,
+Redfish and CRD documentation for parameters; a mapping table should not become
+an untested second command reference.</p>
+<h2 id="operator-translation--connect-and-protect-a-guest">Connect and protect a guest</h2>
+<table>
+<thead>
+<tr>
+<th>Familiar task</th>
+<th>qrab entrypoint and owner</th>
+<th>Completion evidence / important limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Port/address assignment</td>
+<td>VM NIC intent, address claims, co-located anchor Pods and netd</td>
+<td>Exact VM UID/NIC/anchor incarnation, applied endpoint labels and guest address</td>
+</tr>
+<tr>
+<td>Security-group membership</td>
+<td>NIC security-group labels plus the platform's Cilium policies</td>
+<td>Inspect the resulting policy and test the intended allowed/denied flow; a label alone does not enforce it</td>
+</tr>
+<tr>
+<td>External reachability</td>
+<td>Stable guest IPv4 /32, FRRConfiguration/frr-k8s and the upstream network</td>
+<td>Accepted route and packets from the required origins; a BGP session alone is insufficient</td>
+</tr>
+<tr>
+<td>Floating IP, tenant router, overlapping subnet or IPv6</td>
+<td>Required semantics must be specified separately</td>
+<td>The current stable-/32 model does not establish broad Neutron parity</td>
+</tr>
+<tr>
+<td>Migrate an active NIC</td>
+<td>Manager/netd and the supported local Cilium handoff fork</td>
+<td>Attachment identity, transfer outcome, old/new routes and actual traffic; source support is not a lossless-flow guarantee</td>
+</tr>
+</tbody>
+</table>
+<p>The management Pod and each guest NIC have different endpoint identities.
+Guest packets flow through kernel TAP/vhost and Cilium; the netd socket grants
+descriptors and carries control, rather than relaying packet payloads. See
+<a href="#doc-network">networking</a> and <a href="#doc-recovery">recovery</a>. (S08–S12.)</p>
+<h2 id="operator-translation--images-disks-and-failed-nodes">Images, disks and failed nodes</h2>
+<table>
+<thead>
+<tr>
+<th>Familiar task</th>
+<th>qrab owner today</th>
+<th>Completion evidence / important limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Register an image</td>
+<td>BaseImage/import controller, bounded inspect/write Jobs and the storage service</td>
+<td>Verified source, explicit format, capacity and sealed immutable generation</td>
+</tr>
+<tr>
+<td>Create disk from image</td>
+<td>Provisioner and scoped storage clone/export verbs</td>
+<td>Recorded origin/GUID, export generation and exact VM/disk CHAP Secret</td>
+</tr>
+<tr>
+<td>Grow volume</td>
+<td>Storage capacity first, projected intent, manager QMP block resize</td>
+<td>Backend and QEMU capacities, then guest partition/filesystem growth</td>
+</tr>
+<tr>
+<td>Attach/detach arbitrary volumes</td>
+<td>No general interface is established here</td>
+<td>Decide required attachment lifecycle, writer exclusion and retention semantics</td>
+</tr>
+<tr>
+<td>Backup/restore</td>
+<td>A complete workload product remains work to finish</td>
+<td>Disks, firmware/vTPM identity, configuration, registrations and application consistency must be coordinated</td>
+</tr>
+<tr>
+<td>Recover from node loss</td>
+<td>Storage guard plus clean-exit evidence or a hard backend fence</td>
+<td>Old writer exclusion before replacement; an unreachable node is not that proof</td>
+</tr>
+<tr>
+<td>Delete VM</td>
+<td>Separate access, guest-identity, storage and proven state-claim owners</td>
+<td>Finalizer outcomes, fenced/retired disks and explicit state-PV reclaim policy</td>
+</tr>
+<tr>
+<td>Destroy retained disk bytes</td>
+<td>Separate administrator-only reaper after its grace period</td>
+<td>Exact retired journal/GUID, absent export objects and successful backend destruction</td>
+</tr>
+</tbody>
+</table>
+<p><a href="https://docs.openstack.org/nova/2026.1/admin/evacuate.html">Nova's evacuation procedure</a>
+also requires establishing that the old host is not operational. qrab's
+corresponding safety question is explicit disk-writer exclusion, not merely
+Kubernetes rescheduling. Automatic general evacuation is not established.
+(S05, S13–S15.)</p>
+<h2 id="operator-translation--replace-the-credential-for-the-right-question">Replace the credential for the right question</h2>
+<p>Keystone's <a href="https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html">scoped tokens</a>
+carry authorization context for OpenStack APIs. The target distributes the
+questions across existing systems:</p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>qrab authority</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Who may change Kubernetes VM intent?</td>
+<td>API authentication, RBAC and admission</td>
+</tr>
+<tr>
+<td>Who is this browser user?</td>
+<td>Verified OIDC identity and server-side session</td>
+</tr>
+<tr>
+<td>May that user perform this VM action?</td>
+<td>VM application roles enforced by the selected service</td>
+</tr>
+<tr>
+<td>Which service is calling?</td>
+<td>Exact allowed SPIFFE identity and rotating workload mTLS</td>
+</tr>
+<tr>
+<td>Which workload is inside this guest?</td>
+<td>Optional VM-bound guest SPIRE enrollment and selectors</td>
+</tr>
+<tr>
+<td>May this QEMU access this disk export?</td>
+<td>Scoped CHAP/export generation; separate from user login</td>
+</tr>
+</tbody>
+</table>
+<p>The dashboard uses its own ServiceAccount for Kubernetes operations. It is
+not per-user API impersonation. A valid SVID does not grant every human role.
+See <a href="#doc-identity">identity</a>, <a href="#doc-authority">authority</a> and the
+<a href="#doc-capabilities">capability ledger</a> for the remaining acceptance scope.</p>
+<h2 id="operator-translation--an-operators-closing-question">An operator's closing question</h2>
+<p>For each familiar command, ask: which object expresses intent, which owner
+performs the effect, and which observation proves the workload result? If one
+answer is missing, record the required contract. Do not hide it behind the
+name of the service being removed.</p>
 </article><article class="doc" id="doc-capabilities" data-search="# capability ledger: what must be true before retiring a service
 
 this ledger describes the required replacement subset. **implemented** is a
@@ -4371,6 +5129,11 @@ vm accepts writes, &quot;turn the old vm back on&quot; is not sufficient rollbac
 reconciliation or an application-specific failback is needed. record who owns
 the retained source, credentials, routes and eventual destruction. a snapshot
 without its consistency and ownership contract is not a complete rollback.
+
+the [one-workload storyboard](cutover-story.md) presents this plan as a
+rehearsal narrative. the [operator task translator](operator-translation.md)
+maps daily work, and [continuity](continuity.md) identifies the coordinated
+recovery artifact and separate revocation clocks.
 "><h1 id="transition--transition-view-move-responsibilities-and-workloads-deliberately">Transition view: move responsibilities and workloads deliberately</h1>
 <p>The OpenStack and qrab deployments are in different Kubernetes clusters.
 This is not an in-place Neutron backend switch or a libvirt configuration
@@ -4474,6 +5237,244 @@ VM accepts writes, &quot;turn the old VM back on&quot; is not sufficient rollbac
 reconciliation or an application-specific failback is needed. Record who owns
 the retained source, credentials, routes and eventual destruction. A snapshot
 without its consistency and ownership contract is not a complete rollback.</p>
+<p>The <a href="#doc-cutover-story">one-workload storyboard</a> presents this plan as a
+rehearsal narrative. The <a href="#doc-operator-translation">operator task translator</a>
+maps daily work, and <a href="#doc-continuity">continuity</a> identifies the coordinated
+recovery artifact and separate revocation clocks.</p>
+</article><article class="doc" id="doc-cutover-story" data-search="# one workload, two clusters: a cutover storyboard
+
+this is a desired rehearsal for moving one workload from the supplied
+openstack environment to qrab. it is not a performed migration, a claim about
+the old storage backend, or a promise of cross-platform live migration.
+the [transition plan](transition.md) describes the broader service retirement;
+this story follows one application&#x27;s data and authority.
+
+![a simple cutover overview](diagrams/rendered/light/44-cutover-overview.svg)
+
+## scene 1: write the workload&#x27;s contract
+
+call the workload **ledger**. the name is illustrative; no actual vm is
+identified. its owner records the root and data disks, application consistency
+method, firmware/cpu/device requirements, network addresses and policy,
+identity/enrollment, management automation, acceptable downtime and rollback
+point. openstack uuids and qrab uids belong to different identity systems.
+record both rather than treating an equal display name as continuity.
+
+unknowns in this investigation include the openstack release, image/volume
+backends, firmware/tpm configuration and the application&#x27;s data contract.
+resolve those from the old environment before choosing a conversion method.
+the codebase cannot answer them by inference.
+
+## scene 2: build a rehearsal without competing authority
+
+prepare the required target cluster primitives, image generation, disk
+capacity, vm specification, management roles and guest policy. use an isolated
+test address and copied data for rehearsal. if boot requires a converted disk,
+prove its format, provenance, boot mode and driver compatibility.
+
+the current importer accepts an explicit raw/qcow2 single-file source. it
+rejects qcow2 backing files and external data dependencies before conversion.
+an old root disk with a backing chain needs a separately supported flattening
+or export step; dropping it into the importer does not make the dependencies
+disappear. a storage backend snapshot also needs a defined way to produce the
+supported transfer representation. (s15, a04 in [the audit](audit.md).)
+
+rehearse the guest&#x27;s application, console/power roles, nic policy/routes,
+resource growth, data recovery and any required guest-agent behavior. a
+successful manager readiness probe is one observation; it is not the
+application&#x27;s acceptance result.
+
+![the cross-cluster cutover sequence](diagrams/rendered/light/40-cross-cluster-cutover.svg)
+
+## scene 3: define the consistency point and stop the source writer
+
+choose the application&#x27;s consistency method: for example, its own clean
+shutdown or a proven coordinated backup workflow. define which writes are
+included and which acknowledged transactions the target must contain. a
+filesystem freeze primitive alone is not a full multi-disk or distributed
+application backup contract.
+
+complete the final supported transfer and verify content. establish that the
+old vm cannot continue writing to the authoritative data. preserve its
+retained recovery copy under an explicit policy. shared storage, copied
+storage and application-level replication need different proofs; no one
+backend is assumed here.
+
+boot identity is another decision. qrab binds its retained uefi/vtpm state to
+the immutable qrab vm uid. copying an old libvirt tpm directory into a new
+state claim is not an established transfer procedure. either provision a new
+identity and re-enroll dependent consumers, or implement and verify the exact
+continuity procedure required by the workload. (s05, s23.)
+
+## scene 4: transfer network and application authority
+
+activate the target only through the chosen data ownership procedure. move
+the public service&#x27;s route, address, dns or upstream forwarding according to
+the explicit network plan. two clusters can each run cilium and frr without
+sharing an address-ownership protocol. a qrab stable /32 does not transfer an
+openstack address by itself.
+
+verify the actual user path, data correctness, policy and observation from
+the required origins. record the old/new vm identities, disk generations,
+image/source digests, network ownership and acceptance time. management
+reachability, an endpoint ready bit and an established bgp session are useful
+parts of that evidence, rather than substitutes for an application check.
+
+## scene 5: cross the rollback boundary deliberately
+
+![rollback changes when the target accepts writes](diagrams/rendered/light/41-cutover-rollback.svg)
+
+before the target accepts authoritative writes, returning to the unchanged
+source may be a simple ownership/route reversal under the rehearsed plan.
+after the target accepts writes, the source is stale. returning requires
+data reconciliation or an application-specific failback that preserves the
+accepted writes. starting both copies risks two writers and two network
+authorities.
+
+state the rollback policy in the same record as the cutover. include who may
+restart the retained source, what prevents an accidental start, the maximum
+retention window and the final destruction procedure. a retained snapshot
+without those ownership rules is incomplete rollback documentation.
+
+## scene 6: retire the old dependency after its consumers move
+
+delete the old workload only under its agreed data/identity retention policy.
+retire nova/libvirt, neutron/ovn, keystone, glance/cinder or their databases
+and message services when their last actual consumer and retained obligation
+has an owner in the target. one migrated guest does not establish that every
+service can leave the old cluster.
+
+for ledger, keep a short evidence record:
+
+| record | example of the information to capture |
+| --- | --- |
+| identity | old uuid; new immutable vm uid; intentional new or preserved guest identity |
+| data | consistency point; disk mapping; transfer checks; authoritative writer; restore evidence |
+| network | old/new address authority; route/dns change; allow/deny and user-path observations |
+| control | management roles; service enrollment; exact tested images and configuration |
+| acceptance | application outcome, accepted-write boundary and responsible workload owner |
+| rollback | last simple reversal point; later failback procedure; retained source and destruction date |
+
+this record is a desired workload acceptance artifact. source tests in
+[verification](verification.md) support individual mechanisms; they do not
+populate an unperformed cutover record.
+"><h1 id="cutover-story--one-workload-two-clusters-a-cutover-storyboard">One workload, two clusters: a cutover storyboard</h1>
+<p>This is a desired rehearsal for moving one workload from the supplied
+OpenStack environment to qrab. It is not a performed migration, a claim about
+the old storage backend, or a promise of cross-platform live migration.
+The <a href="#doc-transition">transition plan</a> describes the broader service retirement;
+this story follows one application's data and authority.</p>
+<p><img src="diagrams/rendered/light/44-cutover-overview.svg" alt="A simple cutover overview" /></p>
+<h2 id="cutover-story--scene-1-write-the-workloads-contract">Scene 1: write the workload's contract</h2>
+<p>Call the workload <strong>Ledger</strong>. The name is illustrative; no actual VM is
+identified. Its owner records the root and data disks, application consistency
+method, firmware/CPU/device requirements, network addresses and policy,
+identity/enrollment, management automation, acceptable downtime and rollback
+point. OpenStack UUIDs and qrab UIDs belong to different identity systems.
+Record both rather than treating an equal display name as continuity.</p>
+<p>Unknowns in this investigation include the OpenStack release, image/volume
+backends, firmware/TPM configuration and the application's data contract.
+Resolve those from the old environment before choosing a conversion method.
+The codebase cannot answer them by inference.</p>
+<h2 id="cutover-story--scene-2-build-a-rehearsal-without-competing-authority">Scene 2: build a rehearsal without competing authority</h2>
+<p>Prepare the required target cluster primitives, image generation, disk
+capacity, VM specification, management roles and guest policy. Use an isolated
+test address and copied data for rehearsal. If boot requires a converted disk,
+prove its format, provenance, boot mode and driver compatibility.</p>
+<p>The current importer accepts an explicit raw/qcow2 single-file source. It
+rejects qcow2 backing files and external data dependencies before conversion.
+An old root disk with a backing chain needs a separately supported flattening
+or export step; dropping it into the importer does not make the dependencies
+disappear. A storage backend snapshot also needs a defined way to produce the
+supported transfer representation. (S15, A04 in <a href="#doc-audit">the audit</a>.)</p>
+<p>Rehearse the guest's application, console/power roles, NIC policy/routes,
+resource growth, data recovery and any required guest-agent behavior. A
+successful manager readiness probe is one observation; it is not the
+application's acceptance result.</p>
+<p><img src="diagrams/rendered/light/40-cross-cluster-cutover.svg" alt="The cross-cluster cutover sequence" /></p>
+<h2 id="cutover-story--scene-3-define-the-consistency-point-and-stop-the-source-writer">Scene 3: define the consistency point and stop the source writer</h2>
+<p>Choose the application's consistency method: for example, its own clean
+shutdown or a proven coordinated backup workflow. Define which writes are
+included and which acknowledged transactions the target must contain. A
+filesystem freeze primitive alone is not a full multi-disk or distributed
+application backup contract.</p>
+<p>Complete the final supported transfer and verify content. Establish that the
+old VM cannot continue writing to the authoritative data. Preserve its
+retained recovery copy under an explicit policy. Shared storage, copied
+storage and application-level replication need different proofs; no one
+backend is assumed here.</p>
+<p>Boot identity is another decision. qrab binds its retained UEFI/vTPM state to
+the immutable qrab VM UID. Copying an old libvirt TPM directory into a new
+state claim is not an established transfer procedure. Either provision a new
+identity and re-enroll dependent consumers, or implement and verify the exact
+continuity procedure required by the workload. (S05, S23.)</p>
+<h2 id="cutover-story--scene-4-transfer-network-and-application-authority">Scene 4: transfer network and application authority</h2>
+<p>Activate the target only through the chosen data ownership procedure. Move
+the public service's route, address, DNS or upstream forwarding according to
+the explicit network plan. Two clusters can each run Cilium and FRR without
+sharing an address-ownership protocol. A qrab stable /32 does not transfer an
+OpenStack address by itself.</p>
+<p>Verify the actual user path, data correctness, policy and observation from
+the required origins. Record the old/new VM identities, disk generations,
+image/source digests, network ownership and acceptance time. Management
+reachability, an endpoint Ready bit and an established BGP session are useful
+parts of that evidence, rather than substitutes for an application check.</p>
+<h2 id="cutover-story--scene-5-cross-the-rollback-boundary-deliberately">Scene 5: cross the rollback boundary deliberately</h2>
+<p><img src="diagrams/rendered/light/41-cutover-rollback.svg" alt="Rollback changes when the target accepts writes" /></p>
+<p>Before the target accepts authoritative writes, returning to the unchanged
+source may be a simple ownership/route reversal under the rehearsed plan.
+After the target accepts writes, the source is stale. Returning requires
+data reconciliation or an application-specific failback that preserves the
+accepted writes. Starting both copies risks two writers and two network
+authorities.</p>
+<p>State the rollback policy in the same record as the cutover. Include who may
+restart the retained source, what prevents an accidental start, the maximum
+retention window and the final destruction procedure. A retained snapshot
+without those ownership rules is incomplete rollback documentation.</p>
+<h2 id="cutover-story--scene-6-retire-the-old-dependency-after-its-consumers-move">Scene 6: retire the old dependency after its consumers move</h2>
+<p>Delete the old workload only under its agreed data/identity retention policy.
+Retire Nova/libvirt, Neutron/OVN, Keystone, Glance/Cinder or their databases
+and message services when their last actual consumer and retained obligation
+has an owner in the target. One migrated guest does not establish that every
+service can leave the old cluster.</p>
+<p>For Ledger, keep a short evidence record:</p>
+<table>
+<thead>
+<tr>
+<th>Record</th>
+<th>Example of the information to capture</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Identity</td>
+<td>Old UUID; new immutable VM UID; intentional new or preserved guest identity</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>Consistency point; disk mapping; transfer checks; authoritative writer; restore evidence</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>Old/new address authority; route/DNS change; allow/deny and user-path observations</td>
+</tr>
+<tr>
+<td>Control</td>
+<td>Management roles; service enrollment; exact tested images and configuration</td>
+</tr>
+<tr>
+<td>Acceptance</td>
+<td>Application outcome, accepted-write boundary and responsible workload owner</td>
+</tr>
+<tr>
+<td>Rollback</td>
+<td>Last simple reversal point; later failback procedure; retained source and destruction date</td>
+</tr>
+</tbody>
+</table>
+<p>This record is a desired workload acceptance artifact. Source tests in
+<a href="#doc-verification">verification</a> support individual mechanisms; they do not
+populate an unperformed cutover record.</p>
 </article><article class="doc" id="doc-decisions" data-search="# architecture decisions for the target
 
 these are proposed/confirmed design contracts for presentation and further
@@ -5189,6 +6190,7 @@ captions and light/dark/print variants are in [the catalog](diagrams.md).
 | network review | [html](exports/networking.html) | [pptx](exports/networking.pptx) | [pdf](exports/networking.pdf) |
 | storage review | [html](exports/storage.html) | [pptx](exports/storage.pptx) | [pdf](exports/storage.pdf) |
 | identity review | [html](exports/identity.html) | [pptx](exports/identity.pptx) | [pdf](exports/identity.pdf) |
+| openstack operator / cutover | [html](exports/operator.html) | [pptx](exports/operator.pptx) | [pdf](exports/operator.pdf) |
 
 the decks have speaker notes. html supports arrow keys, notes (`n`) and
 fullscreen. native boundary figures in pptx are editable shapes; mermaid
@@ -5313,6 +6315,20 @@ for a skeptical review of what the collected tests actually establish.
 the latest explicit networking verification includes the previously skipped
 wireguard cases; [verification](verification.md) distinguishes that local
 provider fixture from production vpn and cilium/bgp acceptance.
+
+## openstack operator and cutover workshop
+
+the operator deck starts from daily tasks, then follows one workload between
+the two clusters. it separates guest off from declarative pod removal,
+container resize from guest onlining, disk recovery from rescheduling, and
+data cutover from network authority. it finishes with rollback after accepted
+writes, the desired recovery bundle and the different credential/deletion
+lifetimes. this is a practical handover story for an openstack operator.
+
+use [the task translator](operator-translation.md) as the desk reference,
+[the cutover storyboard](cutover-story.md) as the rehearsal narrative and
+[continuity](continuity.md) for the recovery discussion. cross-platform
+live migration and a complete backup/restore product remain unestablished.
 "><h1 id="presentations--presentation-variants">Presentation variants</h1>
 <p>The same evidence supports different stories. Keep the simple matched
 OpenStack/qrab boundary pair at the center, and use detailed diagrams only
@@ -5363,6 +6379,12 @@ captions and light/dark/print variants are in <a href="#doc-gallery">the catalog
 <td><a href="exports/identity.html">HTML</a></td>
 <td><a href="exports/identity.pptx">PPTX</a></td>
 <td><a href="exports/identity.pdf">PDF</a></td>
+</tr>
+<tr>
+<td>OpenStack operator / cutover</td>
+<td><a href="exports/operator.html">HTML</a></td>
+<td><a href="exports/operator.pptx">PPTX</a></td>
+<td><a href="exports/operator.pdf">PDF</a></td>
 </tr>
 </tbody>
 </table>
@@ -5510,6 +6532,17 @@ for a skeptical review of what the collected tests actually establish.</p>
 <p>The latest explicit networking verification includes the previously skipped
 WireGuard cases; <a href="#doc-verification">verification</a> distinguishes that local
 provider fixture from production VPN and Cilium/BGP acceptance.</p>
+<h2 id="presentations--openstack-operator-and-cutover-workshop">OpenStack operator and cutover workshop</h2>
+<p>The operator deck starts from daily tasks, then follows one workload between
+the two clusters. It separates guest Off from declarative Pod removal,
+container resize from guest onlining, disk recovery from rescheduling, and
+data cutover from network authority. It finishes with rollback after accepted
+writes, the desired recovery bundle and the different credential/deletion
+lifetimes. This is a practical handover story for an OpenStack operator.</p>
+<p>Use <a href="#doc-operator-translation">the task translator</a> as the desk reference,
+<a href="#doc-cutover-story">the cutover storyboard</a> as the rehearsal narrative and
+<a href="#doc-continuity">continuity</a> for the recovery discussion. Cross-platform
+live migration and a complete backup/restore product remain unestablished.</p>
 </article><article class="doc" id="doc-upstream-diagrams" data-search="# upstream openstack diagrams as a comparison reference
 
 these unmodified images are from the openstack contributors&#x27; neutron 2026.1
@@ -6066,6 +7099,44 @@ was performed by this audit.
 **merged source:** `dd2f604ea097740c59475766487589e6b84ff6b0`.
 **tracking:** qrab `work/netd-cilium-provider-process-authority`.
 
+## a15 — a credential cleanup name could refer to another vm
+
+**location:** operator `provision::secretstore::delete`. **repair baseline:**
+`e00a555`.
+
+the name `&lt;vm&gt;-disk-&lt;disk&gt;` is not an ownership proof. valid pairs `a` /
+`b-disk-c` and `a-disk-b` / `c` produce the same name. a normal removed-disk
+cleanup can delete its old secret and then fail to record its status. if the
+other vm creates its own credential before the retry, the old name-only
+delete can remove that other vm&#x27;s secret. generic operator admission checks
+the old object&#x27;s internal ownership shape, rather than the intended vm uid
+of this particular reconciliation.
+
+a private api test using the actual secret renderer and credential store
+failed before the fix with `foreign credential deleted`. no live credential
+was changed. the repair sends only json patch `test` operations for the
+expected vm owner, role labels and disk annotation, requesting a
+`partialobjectmetadata` response with no full-object fallback. it validates
+the returned single controller owner and object identity, then deletes with
+both secret uid and resourceversion preconditions.
+
+![scoped credential cleanup](diagrams/rendered/light/46-secret-cleanup-authority.svg)
+
+the operator retains no secret get/list/watch permission and reads no
+credential data for this check. a foreign/malformed owner is refused; an
+object replacement or credential update between check and deletion conflicts;
+a missing object is idempotent. the implementation preserves the established
+secret naming and admission contract rather than broadening api access.
+
+six private api cases exercise the actual store, including the two-step
+release/retry collision, changed uid/version, metadata-only negotiation and
+missing/ambiguous identity. the complete runtime gate and strict clippy pass.
+these tests establish local client behavior, not a production rollout or a
+storage fence: deleting a secret still does not close an existing disk session.
+
+**merged source:** `506b7c4a128fc96f954887747a7ba576bb4e5c4e`.
+**tracking:** qrab `work/disk-secret-cleanup-object-authority`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -6094,6 +7165,28 @@ logging code is unchanged; this is not a claimed payload-leak repair.
 
 **merged test repair:** `0642b5999aead05daeac7ee2d2f375880a77b0fc`.
 **tracking:** qrab `work/dashboard-trace-capture-isolation`.
+
+## validation extension: freeze a real guest filesystem
+
+an explicit real guest-agent run passed with zero frozen filesystems, which
+the old ram-only fixture documentation allowed. it exercised rpc/status/gating
+but did not prove `fifreeze` on a filesystem. a positive assertion demonstrated
+that limitation by failing against the old input.
+
+the ignored launcher test now formats only its own private 64 mib regular
+file on the host. a reserved argument, uuid, label, ext4 type and size opt into
+the fixture guest&#x27;s mount before agent startup. the guest never formats an
+ordinary disk. the test selects that exact mount and requires one frozen
+filesystem, matching thaw, frozen update refusal and a successful later update.
+
+the explicit 11.1.3 tcg run passes with `froze 1 filesystem(s)`. the normal
+runtime gate and strict clippy pass. a local verification initramfs replaced
+only `init` among 114 records from the pinned cached image; all other payloads
+and metadata were unchanged. this strengthens the test evidence, rather than
+repairing a claimed production data leak or providing a backup product.
+
+**merged test/fixture extension:** `3f1ac7c2704e55736f3e91f42ff1b5721965e31d`.
+**tracking:** qrab `work/guest-freeze-positive-live-fixture`.
 
 ## investigated concern rejected by the real policy contract
 
@@ -6498,6 +7591,36 @@ platform trust prerequisite. No live-node exploit, BPF map, image or rollout
 was performed by this audit.</p>
 <p><strong>Merged source:</strong> <code>dd2f604ea097740c59475766487589e6b84ff6b0</code>.
 <strong>Tracking:</strong> qrab <code>work/netd-cilium-provider-process-authority</code>.</p>
+<h2 id="audit--a15--a-credential-cleanup-name-could-refer-to-another-vm">A15 — a credential cleanup name could refer to another VM</h2>
+<p><strong>Location:</strong> operator <code>provision::SecretStore::delete</code>. <strong>Repair baseline:</strong>
+<code>e00a555</code>.</p>
+<p>The name <code>&lt;vm&gt;-disk-&lt;disk&gt;</code> is not an ownership proof. Valid pairs <code>a</code> /
+<code>b-disk-c</code> and <code>a-disk-b</code> / <code>c</code> produce the same name. A normal removed-disk
+cleanup can delete its old Secret and then fail to record its status. If the
+other VM creates its own credential before the retry, the old name-only
+DELETE can remove that other VM's Secret. Generic operator admission checks
+the old object's internal ownership shape, rather than the intended VM UID
+of this particular reconciliation.</p>
+<p>A private API test using the actual Secret renderer and credential store
+failed before the fix with <code>foreign credential deleted</code>. No live credential
+was changed. The repair sends only JSON Patch <code>test</code> operations for the
+expected VM owner, role labels and disk annotation, requesting a
+<code>PartialObjectMetadata</code> response with no full-object fallback. It validates
+the returned single controller owner and object identity, then deletes with
+both Secret UID and resourceVersion preconditions.</p>
+<p><img src="diagrams/rendered/light/46-secret-cleanup-authority.svg" alt="Scoped credential cleanup" /></p>
+<p>The operator retains no Secret GET/list/watch permission and reads no
+credential data for this check. A foreign/malformed owner is refused; an
+object replacement or credential update between check and deletion conflicts;
+a missing object is idempotent. The implementation preserves the established
+Secret naming and admission contract rather than broadening API access.</p>
+<p>Six private API cases exercise the actual store, including the two-step
+release/retry collision, changed UID/version, metadata-only negotiation and
+missing/ambiguous identity. The complete runtime gate and strict Clippy pass.
+These tests establish local client behavior, not a production rollout or a
+storage fence: deleting a Secret still does not close an existing disk session.</p>
+<p><strong>Merged source:</strong> <code>506b7c4a128fc96f954887747a7ba576bb4e5c4e</code>.
+<strong>Tracking:</strong> qrab <code>work/disk-secret-cleanup-object-authority</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -6520,6 +7643,23 @@ The dashboard suite, strict Clippy and combined full gate pass. Production
 logging code is unchanged; this is not a claimed payload-leak repair.</p>
 <p><strong>Merged test repair:</strong> <code>0642b5999aead05daeac7ee2d2f375880a77b0fc</code>.
 <strong>Tracking:</strong> qrab <code>work/dashboard-trace-capture-isolation</code>.</p>
+<h2 id="audit--validation-extension-freeze-a-real-guest-filesystem">Validation extension: freeze a real guest filesystem</h2>
+<p>An explicit real guest-agent run passed with zero frozen filesystems, which
+the old RAM-only fixture documentation allowed. It exercised RPC/status/gating
+but did not prove <code>FIFREEZE</code> on a filesystem. A positive assertion demonstrated
+that limitation by failing against the old input.</p>
+<p>The ignored launcher test now formats only its own private 64 MiB regular
+file on the host. A reserved argument, UUID, label, ext4 type and size opt into
+the fixture guest's mount before agent startup. The guest never formats an
+ordinary disk. The test selects that exact mount and requires one frozen
+filesystem, matching thaw, frozen update refusal and a successful later update.</p>
+<p>The explicit 11.1.3 TCG run passes with <code>froze 1 filesystem(s)</code>. The normal
+runtime gate and strict Clippy pass. A local verification initramfs replaced
+only <code>init</code> among 114 records from the pinned cached image; all other payloads
+and metadata were unchanged. This strengthens the test evidence, rather than
+repairing a claimed production data leak or providing a backup product.</p>
+<p><strong>Merged test/fixture extension:</strong> <code>3f1ac7c2704e55736f3e91f42ff1b5721965e31d</code>.
+<strong>Tracking:</strong> qrab <code>work/guest-freeze-positive-live-fixture</code>.</p>
 <h2 id="audit--investigated-concern-rejected-by-the-real-policy-contract">Investigated concern rejected by the real policy contract</h2>
 <p>The audit initially suspected two <code>ingress: [{}]</code> CiliumNetworkPolicy examples
 allowed unrelated ingress. Tests of the exact importer manifest and NIC
@@ -6588,6 +7728,14 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 
 | t07 | [endpoint ownership/http fixtures](../../projects/qrab-netd/src/cilium/http.rs), [actual control handler regression](../../projects/qrab-netd/src/status_tests.rs) | exact identity labels, unique attachment mutation and bounded local http | live handoff/traffic continuity or acceptance on every cilium release |
 
+| t08 | [credential cleanup](../../projects/operator/src/provision.rs), [private api ownership/race fixtures](../../projects/operator/src/provision/secret_tests.rs) | test-only metadata patch binds the intended vm/disk; delete carries checked secret uid/version without reading credential data | a live rollout, arbitrary secret access or backend writer exclusion |
+
+| t09 | [real manager launcher](../../projects/manager/tests/pod_runtime.rs), [uefi/vtpm lifecycle](../../projects/manager/tests/pod_uefi.rs), [guest-agent fixture](../../projects/manager/tests/pod_guest_agent.rs) | explicit local tcg guest boot, process cleanup, retained software-tpm identity, corruption refusal and one-filesystem freeze/thaw | kvm, kubernetes/cilium/bgp, hardware attestation, backend storage or application backup acceptance |
+
+| t10 | [real two-manager migration fixture](../../projects/manager/tests/pod_migration.rs) | explicit local tcg guest resume, source migrated outcome and persisted tpm identity after a later cold boot | nic/cilium/bgp handoff, guest luns, production spire or openstack transfer |
+
+| t11 | [direct supervision](../../projects/manager/src/pod/process.rs), [resource accounting](../../projects/manager/src/pod/resources.rs), dated local kvm/container fixture described in [verification](verification.md) | current manager, qemu and swtpm share one bounded local cgroup; guest boot/ping and original-process exit observed | kubernetes placement/device injection, either cluster&#x27;s tenant isolation, cilium/bgp or backend disk acceptance |
+
 ## external sources
 
 checked on 2026-11-17. versioned openstack 2026.1 documentation is used to
@@ -6607,6 +7755,9 @@ tree. the date of the evidence check does not make every diagram a new design.
 | u10 | [kubernetes container state and readiness](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-states) | running container state and additional pod readiness gates are distinct |
 | u09 | [kubernetes conditional api updates](https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources) | object version conditions, conflict detection and retry requirements |
 | u08 | [openstack architectural design](https://docs.openstack.org/arch-design/design.html) | historical conceptual/logical overview; not the user&#x27;s deployment topology |
+| u11 | [openstack server task reference](https://docs.openstack.org/python-openstackclient/2026.1/cli/command-objects/server.html) | familiar operation vocabulary for the task translator; not compatible qrab commands |
+| u12 | [nova evacuation](https://docs.openstack.org/nova/2026.1/admin/evacuate.html) | failed-host recovery requires establishing the old host is not operational |
+| u13 | [keystone token scopes](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html) | openstack api authorization context; distinct target identity questions |
 
 ## rules for a defensible comparison
 
@@ -6829,6 +7980,10 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T05 | <a href="../../projects/qrab-netd/tests/netns.rs">Isolated VPN/kernel fixtures</a> with temporary official wireguard-tools 1.0.20260223 | All six explicit namespace fixtures executed without skips, including real WireGuard kill-switch and tunnel-only NAT-PMP | Production provider, Cilium/BGP or guest workload acceptance |</p>
 <p>| T06 | <a href="../../projects/qrab-netd/src/cilium.rs">Cilium provider capture/execution fixtures</a> and <a href="../../projects/qrab-netd/src/process.rs">held process resources</a> | Explicit original-peer/path replacement and distinct mount/PID namespace execution | Live Cilium bpftool/map behavior, release or rollout |</p>
 <p>| T07 | <a href="../../projects/qrab-netd/src/cilium/http.rs">Endpoint ownership/HTTP fixtures</a>, <a href="../../projects/qrab-netd/src/status_tests.rs">actual control handler regression</a> | Exact identity labels, unique attachment mutation and bounded local HTTP | Live handoff/traffic continuity or acceptance on every Cilium release |</p>
+<p>| T08 | <a href="../../projects/operator/src/provision.rs">Credential cleanup</a>, <a href="../../projects/operator/src/provision/secret_tests.rs">private API ownership/race fixtures</a> | Test-only metadata patch binds the intended VM/disk; delete carries checked Secret UID/version without reading credential data | A live rollout, arbitrary Secret access or backend writer exclusion |</p>
+<p>| T09 | <a href="../../projects/manager/tests/pod_runtime.rs">Real manager launcher</a>, <a href="../../projects/manager/tests/pod_uefi.rs">UEFI/vTPM lifecycle</a>, <a href="../../projects/manager/tests/pod_guest_agent.rs">guest-agent fixture</a> | Explicit local TCG guest boot, process cleanup, retained software-TPM identity, corruption refusal and one-filesystem freeze/thaw | KVM, Kubernetes/Cilium/BGP, hardware attestation, backend storage or application backup acceptance |</p>
+<p>| T10 | <a href="../../projects/manager/tests/pod_migration.rs">Real two-manager migration fixture</a> | Explicit local TCG guest resume, source migrated outcome and persisted TPM identity after a later cold boot | NIC/Cilium/BGP handoff, guest LUNs, production SPIRE or OpenStack transfer |</p>
+<p>| T11 | <a href="../../projects/manager/src/pod/process.rs">Direct supervision</a>, <a href="../../projects/manager/src/pod/resources.rs">resource accounting</a>, dated local KVM/container fixture described in <a href="#doc-verification">verification</a> | Current manager, QEMU and swtpm share one bounded local cgroup; guest boot/ping and original-process exit observed | Kubernetes placement/device injection, either cluster's tenant isolation, Cilium/BGP or backend disk acceptance |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.
@@ -6893,6 +8048,21 @@ tree. The date of the evidence check does not make every diagram a new design.</
 <td><a href="https://docs.openstack.org/arch-design/design.html">OpenStack architectural design</a></td>
 <td>Historical conceptual/logical overview; not the user's deployment topology</td>
 </tr>
+<tr>
+<td>U11</td>
+<td><a href="https://docs.openstack.org/python-openstackclient/2026.1/cli/command-objects/server.html">OpenStack server task reference</a></td>
+<td>Familiar operation vocabulary for the task translator; not compatible qrab commands</td>
+</tr>
+<tr>
+<td>U12</td>
+<td><a href="https://docs.openstack.org/nova/2026.1/admin/evacuate.html">Nova evacuation</a></td>
+<td>Failed-host recovery requires establishing the old host is not operational</td>
+</tr>
+<tr>
+<td>U13</td>
+<td><a href="https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html">Keystone token scopes</a></td>
+<td>OpenStack API authorization context; distinct target identity questions</td>
+</tr>
 </tbody>
 </table>
 <h2 id="evidence--rules-for-a-defensible-comparison">Rules for a defensible comparison</h2>
@@ -6930,7 +8100,7 @@ boundary, not an authenticated public management service.</p>
 <h3>Processes, containers and privileged helpers</h3><div class="scope">implemented · S02, S04, S06, S21</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/04-process-containment.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="04-process-containment" src="diagrams/rendered/light/04-process-containment.svg" alt="Processes, containers and privileged helpers"></a>
 <p>QEMU and swtpm are manager children. Restricted VM/anchor Pods rely on separate privileged device and network helpers; privilege does not disappear.</p><a href="diagrams/04-process-containment.mmd">Editable source</a> · <a href="diagrams/rendered/png/04-process-containment.png">PNG</a></section><section class="diagram-card" data-filter="05-cgroup-comparison containerized libvirt versus a container-owned vm comparison the openstack side is the supplied deployment model. the qrab side shows direct qemu supervision within the manager container cgroup.">
-<h3>Containerized libvirt versus a container-owned VM</h3><div class="scope">comparison · S02, S04</div>
+<h3>Containerized libvirt versus a container-owned VM</h3><div class="scope">comparison · S02, S04, T11</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/05-cgroup-comparison.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="05-cgroup-comparison" src="diagrams/rendered/light/05-cgroup-comparison.svg" alt="Containerized libvirt versus a container-owned VM"></a>
 <p>The OpenStack side is the supplied deployment model. The qrab side shows direct QEMU supervision within the manager container cgroup.</p><a href="diagrams/05-cgroup-comparison.mmd">Editable source</a> · <a href="diagrams/rendered/png/05-cgroup-comparison.png">PNG</a></section><section class="diagram-card" data-filter="06-two-networks-to-one two network planes become one cilium fabric comparison reusing cilium removes the ovn guest fabric while preserving distinct endpoint identities for management and every guest nic.">
 <h3>Two network planes become one Cilium fabric</h3><div class="scope">comparison · S08, S09, U02</div>
@@ -7031,7 +8201,34 @@ boundary, not an authenticated public management service.</p>
 <p>Network peer admission does not authenticate a local tool namespace. The protected Cilium socket original peer and held resource handles select that provider. Private fixtures exercise the binding and namespace transition without changing live BPF maps.</p><a href="diagrams/37-provider-authority.mmd">Editable source</a> · <a href="diagrams/rendered/png/37-provider-authority.png">PNG</a></section><section class="diagram-card" data-filter="38-endpoint-attachment verify the owner and pin the endpoint attachment audited local handoff resource contract the name locates a resource, exact labels establish own-vm/nic ownership, and unique cni attachment identity selects the effect. name rebinding cannot retarget the patch. this is a local api contract, not a live migration/traffic outcome.">
 <h3>Verify the owner and pin the endpoint attachment</h3><div class="scope">audited local handoff resource contract · S09, S11, T07</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/38-endpoint-attachment.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="38-endpoint-attachment" src="diagrams/rendered/light/38-endpoint-attachment.svg" alt="Verify the owner and pin the endpoint attachment"></a>
-<p>The name locates a resource, exact labels establish own-VM/NIC ownership, and unique CNI attachment identity selects the effect. Name rebinding cannot retarget the PATCH. This is a local API contract, not a live migration/traffic outcome.</p><a href="diagrams/38-endpoint-attachment.mmd">Editable source</a> · <a href="diagrams/rendered/png/38-endpoint-attachment.png">PNG</a></section></div></article></main></div><script>
+<p>The name locates a resource, exact labels establish own-VM/NIC ownership, and unique CNI attachment identity selects the effect. Name rebinding cannot retarget the PATCH. This is a local API contract, not a live migration/traffic outcome.</p><a href="diagrams/38-endpoint-attachment.mmd">Editable source</a> · <a href="diagrams/rendered/png/38-endpoint-attachment.png">PNG</a></section><section class="diagram-card" data-filter="39-operator-task-translator translate the task, owner and outcome comparison / current ownership three daily tasks mapped to their narrower target owners and observable outcomes. the mapping does not imply openstack api compatibility or a general automatic evacuation product.">
+<h3>Translate the task, owner and outcome</h3><div class="scope">comparison / current ownership · S02, S03, S04, S08, S09, S13, S14, U11, U12</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/39-operator-task-translator.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="39-operator-task-translator" src="diagrams/rendered/light/39-operator-task-translator.svg" alt="Translate the task, owner and outcome"></a>
+<p>Three daily tasks mapped to their narrower target owners and observable outcomes. The mapping does not imply OpenStack API compatibility or a general automatic evacuation product.</p><a href="diagrams/39-operator-task-translator.json">Editable source</a> · <a href="diagrams/rendered/png/39-operator-task-translator.png">PNG</a></section><section class="diagram-card" data-filter="40-cross-cluster-cutover one workload moves between two clusters desired rehearsal / not performed a workload-specific cold cutover story: isolated rehearsal, consistency, one writer, final transfer, network authority and acceptance. no openstack-to-qrab live migration or storage backend is assumed.">
+<h3>One workload moves between two clusters</h3><div class="scope">desired rehearsal / not performed · S05, S08, S13, S15</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/40-cross-cluster-cutover.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="40-cross-cluster-cutover" src="diagrams/rendered/light/40-cross-cluster-cutover.svg" alt="One workload moves between two clusters"></a>
+<p>A workload-specific cold cutover story: isolated rehearsal, consistency, one writer, final transfer, network authority and acceptance. No OpenStack-to-qrab live migration or storage backend is assumed.</p><a href="diagrams/40-cross-cluster-cutover.mmd">Editable source</a> · <a href="diagrams/rendered/png/40-cross-cluster-cutover.png">PNG</a></section><section class="diagram-card" data-filter="41-cutover-rollback rollback changes after target writes desired workload contract the retained source becomes stale after the target accepts writes. later failback must reconcile data and authority; restarting the old vm alone is not a sufficient procedure.">
+<h3>Rollback changes after target writes</h3><div class="scope">desired workload contract · S05, S13, S14</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/41-cutover-rollback.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="41-cutover-rollback" src="diagrams/rendered/light/41-cutover-rollback.svg" alt="Rollback changes after target writes"></a>
+<p>The retained source becomes stale after the target accepts writes. Later failback must reconcile data and authority; restarting the old VM alone is not a sufficient procedure.</p><a href="diagrams/41-cutover-rollback.mmd">Editable source</a> · <a href="diagrams/rendered/png/41-cutover-rollback.png">PNG</a></section><section class="diagram-card" data-filter="42-guest-identity-deletion guest identity cleanup has a bounded wait implemented source / external service contract the guest-identity finalizer removes owned entries, optionally stops pods and calls the scoped evictor, and can release with a warning after 600 seconds. other finalizers and previously issued credential lifetimes remain separate.">
+<h3>Guest identity cleanup has a bounded wait</h3><div class="scope">implemented source / external service contract · S23, L02</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/42-guest-identity-deletion.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="42-guest-identity-deletion" src="diagrams/rendered/light/42-guest-identity-deletion.svg" alt="Guest identity cleanup has a bounded wait"></a>
+<p>The guest-identity finalizer removes owned entries, optionally stops Pods and calls the scoped evictor, and can release with a Warning after 600 seconds. Other finalizers and previously issued credential lifetimes remain separate.</p><a href="diagrams/42-guest-identity-deletion.mmd">Editable source</a> · <a href="diagrams/rendered/png/42-guest-identity-deletion.png">PNG</a></section><section class="diagram-card" data-filter="43-recovery-bundle a restore needs more than disk bytes desired recovery product a complete workload recovery procedure coordinates data, boot identity, vm intent, network authority, credentials and ownership. individual primitives exist; the full backup/restore product and measured rto/rpo are not established.">
+<h3>A restore needs more than disk bytes</h3><div class="scope">desired recovery product · S05, S13, S14, S15, S22, S23</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/43-recovery-bundle.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="43-recovery-bundle" src="diagrams/rendered/light/43-recovery-bundle.svg" alt="A restore needs more than disk bytes"></a>
+<p>A complete workload recovery procedure coordinates data, boot identity, VM intent, network authority, credentials and ownership. Individual primitives exist; the full backup/restore product and measured RTO/RPO are not established.</p><a href="diagrams/43-recovery-bundle.json">Editable source</a> · <a href="diagrams/rendered/png/43-recovery-bundle.png">PNG</a></section><section class="diagram-card" data-filter="44-cutover-overview move one workload, then retire its old owner desired operational contract / current mechanisms a slide-sized desired cutover: isolated rehearsal, final consistent data, one target/network authority and explicit retention/failback. the accepted-write boundary changes rollback; no performed transfer is implied.">
+<h3>Move one workload, then retire its old owner</h3><div class="scope">desired operational contract / current mechanisms · S05, S08, S13, S15</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/44-cutover-overview.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="44-cutover-overview" src="diagrams/rendered/light/44-cutover-overview.svg" alt="Move one workload, then retire its old owner"></a>
+<p>A slide-sized desired cutover: isolated rehearsal, final consistent data, one target/network authority and explicit retention/failback. The accepted-write boundary changes rollback; no performed transfer is implied.</p><a href="diagrams/44-cutover-overview.json">Editable source</a> · <a href="diagrams/rendered/png/44-cutover-overview.png">PNG</a></section><section class="diagram-card" data-filter="45-revocation-clocks different authorities have different revocation clocks desired operational contract / current mechanisms a slide-sized continuity view separates human sessions, workload/guest svids, disk writer authority and retained copies. each needs its own validation, expiry, fencing or destruction evidence.">
+<h3>Different authorities have different revocation clocks</h3><div class="scope">desired operational contract / current mechanisms · S05, S14, S18, S19, S20, S23</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/45-revocation-clocks.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="45-revocation-clocks" src="diagrams/rendered/light/45-revocation-clocks.svg" alt="Different authorities have different revocation clocks"></a>
+<p>A slide-sized continuity view separates human sessions, workload/guest SVIDs, disk writer authority and retained copies. Each needs its own validation, expiry, fencing or destruction evidence.</p><a href="diagrams/45-revocation-clocks.json">Editable source</a> · <a href="diagrams/rendered/png/45-revocation-clocks.png">PNG</a></section><section class="diagram-card" data-filter="46-secret-cleanup-authority credential cleanup binds the intended vm and secret implemented boundary repair a test-only metadata patch checks the intended vm/disk without reading secret data. conditional deletion carries the checked object uid/version, so a colliding name, replacement or rotation cannot authorize the wrong cleanup.">
+<h3>Credential cleanup binds the intended VM and Secret</h3><div class="scope">implemented boundary repair · S13, T08</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/46-secret-cleanup-authority.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="46-secret-cleanup-authority" src="diagrams/rendered/light/46-secret-cleanup-authority.svg" alt="Credential cleanup binds the intended VM and Secret"></a>
+<p>A test-only metadata patch checks the intended VM/disk without reading Secret data. Conditional deletion carries the checked object UID/version, so a colliding name, replacement or rotation cannot authorize the wrong cleanup.</p><a href="diagrams/46-secret-cleanup-authority.mmd">Editable source</a> · <a href="diagrams/rendered/png/46-secret-cleanup-authority.png">PNG</a></section><section class="diagram-card" data-filter="47-container-kvm-proof observed local kvm/container boundary dated local fixture / not cluster certification an explicit kvm fixture observes manager pid1 and direct qemu/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. it does not establish kubernetes placement, guest networking or storage-backend acceptance.">
+<h3>Observed local KVM/container boundary</h3><div class="scope">dated local fixture / not cluster certification · S04, S05, S06, T11</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/47-container-kvm-proof.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="47-container-kvm-proof" src="diagrams/rendered/light/47-container-kvm-proof.svg" alt="Observed local KVM/container boundary"></a>
+<p>An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. It does not establish Kubernetes placement, guest networking or storage-backend acceptance.</p><a href="diagrams/47-container-kvm-proof.json">Editable source</a> · <a href="diagrams/rendered/png/47-container-kvm-proof.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

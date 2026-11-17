@@ -1,0 +1,22 @@
+{
+  "title": "Translate the task, owner and outcome",
+  "subtitle": "Familiar OpenStack work moves across narrower Kubernetes, runtime and platform owners.",
+  "note": "These are responsibility mappings. No OpenStack API compatibility or automatic workload acceptance is implied.",
+  "boundaries": [],
+  "boxes": [
+    {"x":60,"y":210,"w":450,"h":150,"kind":"replace","kicker":"FAMILIAR TASK","lines":["Start a guest","Create / place / boot"]},
+    {"x":575,"y":210,"w":450,"h":150,"kind":"qrab","kicker":"TARGET OWNERS","lines":["Kubernetes → operator → manager","Intent / placement / local QEMU"]},
+    {"x":1090,"y":210,"w":450,"h":150,"kind":"foundation","kicker":"OBSERVE THE RESULT","lines":["Current VM / Pod / QEMU state","Then test the guest application"]},
+    {"x":60,"y":415,"w":450,"h":150,"kind":"replace","kicker":"FAMILIAR TASK","lines":["Connect and protect a NIC","Address / policy / external route"]},
+    {"x":575,"y":415,"w":450,"h":150,"kind":"qrab","kicker":"TARGET OWNERS","lines":["Anchor / netd / Cilium / FRR","Attachment / identity / forwarding"]},
+    {"x":1090,"y":415,"w":450,"h":150,"kind":"foundation","kicker":"OBSERVE THE RESULT","lines":["Exact endpoint / policy / route","Then test the intended traffic"]},
+    {"x":60,"y":620,"w":450,"h":150,"kind":"replace","kicker":"FAMILIAR TASK","lines":["Recover after node loss","Exclude the old disk writer"]},
+    {"x":575,"y":620,"w":450,"h":150,"kind":"qrab","kicker":"TARGET OWNERS","lines":["Storage guard + backend fence","Preserve unknown ownership"]},
+    {"x":1090,"y":620,"w":450,"h":150,"kind":"foundation","kicker":"OBSERVE THE RESULT","lines":["Clean exit or hard fence evidence","Then admit the replacement"]}
+  ],
+  "arrows": [
+    {"points":[[510,285],[575,285]]}, {"points":[[1025,285],[1090,285]]},
+    {"points":[[510,490],[575,490]]}, {"points":[[1025,490],[1090,490]]},
+    {"points":[[510,695],[575,695]]}, {"points":[[1025,695],[1090,695]]}
+  ]
+}

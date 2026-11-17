@@ -22,7 +22,7 @@ different evidence classes throughout the atlas.
 | Audience / time | Start here | What it answers |
 | --- | --- | --- |
 | Presenter / five minutes | [Executive brief](executive.md) | What remains, what is replaced, and why |
-| OpenStack operator | [Service replacement map](replacement-map.md) | Where each familiar responsibility moves |
+| OpenStack operator | [Service replacement map](replacement-map.md), [task translator](operator-translation.md) | Where each familiar responsibility and daily operation moves |
 | Architecture review | [Current structure](current-state.md), [desired state](desired-state.md) | What the code does versus what we intend |
 | Rust developer | [Code map](code-map.md), [boundary contracts](boundaries.md) | Which crate owns an operation and where to change it |
 | Network engineer | [Network comparison](network.md) | OVN/Cilium separation versus per-NIC Cilium endpoints |
@@ -31,9 +31,10 @@ different evidence classes throughout the atlas.
 | Cross-cutting architecture reviewer | [Authority and lifetimes](authority.md) | Bind a checked identity to the resource actually used |
 | Team / system owner | [Operating model](operating-model.md) | Separate roles, processes, dependencies and operational ownership |
 | Recovery reviewer | [Resource lifetimes and recovery](recovery.md) | Namespace replacement, held queues, power and safe restart |
+| Backup / identity recovery owner | [Continuity](continuity.md) | What must survive together and which revocation clocks differ |
 | Test / evidence reviewer | [Verification perspective](verification.md) | Exactly what local and real-peer checks establish |
 | On-call engineer | [Failure and recovery](operations.md), [lifecycle flows](lifecycle.md) | Which failures stop which operations |
-| Migration planner | [Transition plan](transition.md), [capability ledger](capabilities.md) | What must be proved before moving a workload |
+| Migration planner | [Transition plan](transition.md), [cutover story](cutover-story.md), [capability ledger](capabilities.md) | What must be proved before moving a workload |
 | Skeptical reviewer | [Questions and answers](questions.md), [evidence register](evidence.md) | Limits, assumptions, and supporting source |
 | Visual reader | [Diagram catalog](diagrams.md) | Reusable boundary, flow, sequence and state diagrams |
 | OpenStack reference reader | [Original upstream diagrams](upstream-diagrams.md) | Attributed OVN reference figures, separate from the supplied deployment |

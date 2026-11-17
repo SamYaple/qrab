@@ -52,6 +52,14 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 
 | T07 | [Endpoint ownership/HTTP fixtures](../../projects/qrab-netd/src/cilium/http.rs), [actual control handler regression](../../projects/qrab-netd/src/status_tests.rs) | Exact identity labels, unique attachment mutation and bounded local HTTP | Live handoff/traffic continuity or acceptance on every Cilium release |
 
+| T08 | [Credential cleanup](../../projects/operator/src/provision.rs), [private API ownership/race fixtures](../../projects/operator/src/provision/secret_tests.rs) | Test-only metadata patch binds the intended VM/disk; delete carries checked Secret UID/version without reading credential data | A live rollout, arbitrary Secret access or backend writer exclusion |
+
+| T09 | [Real manager launcher](../../projects/manager/tests/pod_runtime.rs), [UEFI/vTPM lifecycle](../../projects/manager/tests/pod_uefi.rs), [guest-agent fixture](../../projects/manager/tests/pod_guest_agent.rs) | Explicit local TCG guest boot, process cleanup, retained software-TPM identity, corruption refusal and one-filesystem freeze/thaw | KVM, Kubernetes/Cilium/BGP, hardware attestation, backend storage or application backup acceptance |
+
+| T10 | [Real two-manager migration fixture](../../projects/manager/tests/pod_migration.rs) | Explicit local TCG guest resume, source migrated outcome and persisted TPM identity after a later cold boot | NIC/Cilium/BGP handoff, guest LUNs, production SPIRE or OpenStack transfer |
+
+| T11 | [Direct supervision](../../projects/manager/src/pod/process.rs), [resource accounting](../../projects/manager/src/pod/resources.rs), dated local KVM/container fixture described in [verification](verification.md) | Current manager, QEMU and swtpm share one bounded local cgroup; guest boot/ping and original-process exit observed | Kubernetes placement/device injection, either cluster's tenant isolation, Cilium/BGP or backend disk acceptance |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
@@ -71,6 +79,9 @@ tree. The date of the evidence check does not make every diagram a new design.
 | U10 | [Kubernetes container state and readiness](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-states) | Running container state and additional Pod readiness gates are distinct |
 | U09 | [Kubernetes conditional API updates](https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources) | Object version conditions, conflict detection and retry requirements |
 | U08 | [OpenStack architectural design](https://docs.openstack.org/arch-design/design.html) | Historical conceptual/logical overview; not the user's deployment topology |
+| U11 | [OpenStack server task reference](https://docs.openstack.org/python-openstackclient/2026.1/cli/command-objects/server.html) | Familiar operation vocabulary for the task translator; not compatible qrab commands |
+| U12 | [Nova evacuation](https://docs.openstack.org/nova/2026.1/admin/evacuate.html) | Failed-host recovery requires establishing the old host is not operational |
+| U13 | [Keystone token scopes](https://docs.openstack.org/keystone/2026.1/admin/tokens-overview.html) | OpenStack API authorization context; distinct target identity questions |
 
 ## Rules for a defensible comparison
 

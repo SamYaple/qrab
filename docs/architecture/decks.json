@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "17d7d21d86f193475ec8a8884a3ccbbcf837810d",
+  "reviewed_through": "3f1ac7c2704e55736f3e91f42ff1b5721965e31d",
   "decks": [
     {
       "id": "leadership",
@@ -328,6 +328,17 @@
           ]
         },
         {
+          "kind": "diagram",
+          "diagram": "47-container-kvm-proof",
+          "notes": "Dated local rootless KVM proof using source3f1ac7c manager binary and pinned image assets. Host cgroup/process records and bounded resources matched container limits; UEFI/TPM guest and ping worked; held pidfds showed clean original-process exit after SIGTERM. Local libpod containment is not a Kubernetes/device-plugin, guest network or storage acceptance test.",
+          "evidence": [
+            "S04",
+            "S05",
+            "S06",
+            "T11"
+          ]
+        },
+        {
           "kind": "points",
           "title": "A private QMP owner; a bounded public operation",
           "points": [
@@ -529,6 +540,29 @@
             "M02",
             "T01",
             "L01"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Bind cleanup to the resource that was checked",
+          "cards": [
+            {
+              "title": "Check the intended owner",
+              "body": "Atomic metadata tests bind the expected VM UID, disk and controller."
+            },
+            {
+              "title": "Preserve the checked object",
+              "body": "DELETE carries the Secret UID and version. Replacement or rotation conflicts."
+            },
+            {
+              "title": "Keep credential access narrow",
+              "body": "Metadata response only. No password readback or Secret GET/list/watch permission."
+            }
+          ],
+          "notes": "A15: valid VM/disk names can collide. The old store deleted the other VM credential in a failing-before private API regression. The repair uses atomic metadata tests and UID/version-conditioned deletion with no Secret GET/list/watch or password readback. Source 506b7c4; no rollout implied. The detailed sequence remains in audit.md and figure46; this slide is the presentation summary.",
+          "evidence": [
+            "S13",
+            "T08"
           ]
         },
         {
@@ -1358,6 +1392,193 @@
             "S19",
             "S20",
             "S23"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operator",
+      "title": "OpenStack operator handover",
+      "style": "light",
+      "minutes": 20,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "An OpenStack operator in the qrab model",
+          "subtitle": "Daily tasks / workload cutover / continuity",
+          "notes": "A practical handover workshop. The OpenStack cluster is the supplied baseline; no actual cross-cluster migration was performed by this investigation.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S08",
+            "S13",
+            "U11"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "39-operator-task-translator",
+          "notes": "Translate the operation through its owner and completion evidence. Kubernetes placement, local QEMU supervision, networking and storage each retain explicit responsibilities. General automatic evacuation is not established.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S08",
+            "S13",
+            "U11",
+            "U12"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Guest power and Pod lifetime are separate",
+          "points": [
+            "In-place Off stops QEMU/swtpm and leaves manager reachable.",
+            "Declarative spec.running=false removes the VM Pod.",
+            "Observe guest power, current Pod incarnation and application state separately."
+          ],
+          "notes": "Use the supported Redfish action and VM API. This is not an OpenStack command alias. Retained identity follows its own proven ownership contract.",
+          "evidence": [
+            "S02",
+            "S03",
+            "S04",
+            "S05",
+            "S19"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Growth crosses more than one boundary",
+          "points": [
+            "Kubelet admits container growth before manager CPU/memory hotplug.",
+            "Disk capacity grows at the backend before QMP block resize.",
+            "Guest onlining and filesystem growth need their own evidence."
+          ],
+          "notes": "Applied container resize is not guest onlining. Current source has upward growth and boot ceilings; broad shrink/restart and volume attachment semantics should be checked against the capability ledger.",
+          "evidence": [
+            "S02",
+            "S04",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-storage-overview",
+          "notes": "Provisioning calls and guest block I/O have different owners and paths. Deleting API resources does not itself fence an existing writer.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "A failed node is an ownership problem",
+          "points": [
+            "Preserve unknown disk ownership while the old writer may still act.",
+            "Require clean-exit evidence or a hard backend fence before replacement.",
+            "Reconciliation and rescheduling do not manufacture durable bytes."
+          ],
+          "notes": "Nova also has failed-host operational preconditions. This comparison does not assume the old cluster storage backend or an equivalent automated evacuation workflow in qrab.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14",
+            "U12"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "44-cutover-overview",
+          "notes": "Desired single-workload rehearsal, not a performed transfer. Inventory source firmware/disks first, rehearse on isolated data/address, establish consistency and stop the old writer, then transfer target/network authority.",
+          "evidence": [
+            "S05",
+            "S08",
+            "S13",
+            "S15"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Rollback changes after the target accepts writes",
+          "cards": [
+            {
+              "title": "Before target writes",
+              "body": "Use the rehearsed ownership and route reversal. The retained source must still be current."
+            },
+            {
+              "title": "After target writes",
+              "body": "Source data is stale. Reconcile accepted writes before an application-specific failback."
+            },
+            {
+              "title": "Retain with an owner",
+              "body": "Control accidental restarts, protect copies and define eventual destruction."
+            }
+          ],
+          "notes": "Desired workload cutover contract. The full state diagram remains in cutover-story.md. Starting the old VM after target writes is not sufficient rollback and may create competing data/network authority.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "43-recovery-bundle",
+          "notes": "This figure states a desired backup/restore product. Existing disk, state, guest-agent and identity primitives are pieces; no complete coordinated exporter or measured RTO/RPO is claimed.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14",
+            "S15",
+            "S22",
+            "S23"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "45-revocation-clocks",
+          "notes": "Human sessions, calling service SVIDs, guest registrations, disk fences and retained backups have different revocation/removal mechanisms. The detailed source sequence in the handbook explains the optional guest-identity 600-second warning outcome.",
+          "evidence": [
+            "S05",
+            "S14",
+            "S18",
+            "S19",
+            "S20",
+            "S23"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Retire the service after its last obligation moves",
+          "points": [
+            "Inventory actual consumers and workload requirements.",
+            "Record data, network, credential and retained-copy ownership.",
+            "Keep source changes, image publication and rollout as separate operations."
+          ],
+          "notes": "This investigation authorizes documentation and source repairs, not an automatic cluster rollout. Existing platform and workload responsibilities remain even when OpenStack service names leave the target.",
+          "evidence": [
+            "S13",
+            "S14",
+            "M01",
+            "M02"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "The handover record should answer three questions",
+          "points": [
+            "Which object expresses the desired operation?",
+            "Which owner has authority to perform the effect?",
+            "Which observation proves the workload outcome?"
+          ],
+          "notes": "Use operator-translation.md as the task reference, cutover-story.md for rehearsal, continuity.md for recovery, and evidence.md for source boundaries.",
+          "evidence": [
+            "S02",
+            "S03",
+            "S04",
+            "S13",
+            "T01"
           ]
         }
       ]

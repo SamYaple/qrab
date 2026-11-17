@@ -13,6 +13,7 @@ captions and light/dark/print variants are in [the catalog](diagrams.md).
 | Network review | [HTML](exports/networking.html) | [PPTX](exports/networking.pptx) | [PDF](exports/networking.pdf) |
 | Storage review | [HTML](exports/storage.html) | [PPTX](exports/storage.pptx) | [PDF](exports/storage.pdf) |
 | Identity review | [HTML](exports/identity.html) | [PPTX](exports/identity.pptx) | [PDF](exports/identity.pdf) |
+| OpenStack operator / cutover | [HTML](exports/operator.html) | [PPTX](exports/operator.pptx) | [PDF](exports/operator.pdf) |
 
 The decks have speaker notes. HTML supports arrow keys, notes (`N`) and
 fullscreen. Native boundary figures in PPTX are editable shapes; Mermaid
@@ -137,3 +138,17 @@ for a skeptical review of what the collected tests actually establish.
 The latest explicit networking verification includes the previously skipped
 WireGuard cases; [verification](verification.md) distinguishes that local
 provider fixture from production VPN and Cilium/BGP acceptance.
+
+## OpenStack operator and cutover workshop
+
+The operator deck starts from daily tasks, then follows one workload between
+the two clusters. It separates guest Off from declarative Pod removal,
+container resize from guest onlining, disk recovery from rescheduling, and
+data cutover from network authority. It finishes with rollback after accepted
+writes, the desired recovery bundle and the different credential/deletion
+lifetimes. This is a practical handover story for an OpenStack operator.
+
+Use [the task translator](operator-translation.md) as the desk reference,
+[the cutover storyboard](cutover-story.md) as the rehearsal narrative and
+[continuity](continuity.md) for the recovery discussion. Cross-platform
+live migration and a complete backup/restore product remain unestablished.

@@ -93,7 +93,7 @@ QEMU and swtpm are manager children. Restricted VM/anchor Pods rely on separate 
 
 ## 05-cgroup-comparison: Containerized libvirt versus a container-owned VM
 
-**Scope:** comparison. **Evidence:** S02, S04.
+**Scope:** comparison. **Evidence:** S02, S04, T11.
 
 The OpenStack side is the supplied deployment model. The qrab side shows direct QEMU supervision within the manager container cgroup.
 
@@ -430,3 +430,93 @@ The name locates a resource, exact labels establish own-VM/NIC ownership, and un
 ![Verify the owner and pin the endpoint attachment](diagrams/rendered/light/38-endpoint-attachment.svg)
 
 [Editable source](diagrams/38-endpoint-attachment.mmd) · [Light SVG](diagrams/rendered/light/38-endpoint-attachment.svg) · [Dark SVG](diagrams/rendered/dark/38-endpoint-attachment.svg) · [Print SVG](diagrams/rendered/print/38-endpoint-attachment.svg) · [PNG](diagrams/rendered/png/38-endpoint-attachment.png)
+
+## 39-operator-task-translator: Translate the task, owner and outcome
+
+**Scope:** comparison / current ownership. **Evidence:** S02, S03, S04, S08, S09, S13, S14, U11, U12.
+
+Three daily tasks mapped to their narrower target owners and observable outcomes. The mapping does not imply OpenStack API compatibility or a general automatic evacuation product.
+
+![Translate the task, owner and outcome](diagrams/rendered/light/39-operator-task-translator.svg)
+
+[Editable source](diagrams/39-operator-task-translator.json) · [Light SVG](diagrams/rendered/light/39-operator-task-translator.svg) · [Dark SVG](diagrams/rendered/dark/39-operator-task-translator.svg) · [Print SVG](diagrams/rendered/print/39-operator-task-translator.svg) · [PNG](diagrams/rendered/png/39-operator-task-translator.png)
+
+## 40-cross-cluster-cutover: One workload moves between two clusters
+
+**Scope:** desired rehearsal / not performed. **Evidence:** S05, S08, S13, S15.
+
+A workload-specific cold cutover story: isolated rehearsal, consistency, one writer, final transfer, network authority and acceptance. No OpenStack-to-qrab live migration or storage backend is assumed.
+
+![One workload moves between two clusters](diagrams/rendered/light/40-cross-cluster-cutover.svg)
+
+[Editable source](diagrams/40-cross-cluster-cutover.mmd) · [Light SVG](diagrams/rendered/light/40-cross-cluster-cutover.svg) · [Dark SVG](diagrams/rendered/dark/40-cross-cluster-cutover.svg) · [Print SVG](diagrams/rendered/print/40-cross-cluster-cutover.svg) · [PNG](diagrams/rendered/png/40-cross-cluster-cutover.png)
+
+## 41-cutover-rollback: Rollback changes after target writes
+
+**Scope:** desired workload contract. **Evidence:** S05, S13, S14.
+
+The retained source becomes stale after the target accepts writes. Later failback must reconcile data and authority; restarting the old VM alone is not a sufficient procedure.
+
+![Rollback changes after target writes](diagrams/rendered/light/41-cutover-rollback.svg)
+
+[Editable source](diagrams/41-cutover-rollback.mmd) · [Light SVG](diagrams/rendered/light/41-cutover-rollback.svg) · [Dark SVG](diagrams/rendered/dark/41-cutover-rollback.svg) · [Print SVG](diagrams/rendered/print/41-cutover-rollback.svg) · [PNG](diagrams/rendered/png/41-cutover-rollback.png)
+
+## 42-guest-identity-deletion: Guest identity cleanup has a bounded wait
+
+**Scope:** implemented source / external service contract. **Evidence:** S23, L02.
+
+The guest-identity finalizer removes owned entries, optionally stops Pods and calls the scoped evictor, and can release with a Warning after 600 seconds. Other finalizers and previously issued credential lifetimes remain separate.
+
+![Guest identity cleanup has a bounded wait](diagrams/rendered/light/42-guest-identity-deletion.svg)
+
+[Editable source](diagrams/42-guest-identity-deletion.mmd) · [Light SVG](diagrams/rendered/light/42-guest-identity-deletion.svg) · [Dark SVG](diagrams/rendered/dark/42-guest-identity-deletion.svg) · [Print SVG](diagrams/rendered/print/42-guest-identity-deletion.svg) · [PNG](diagrams/rendered/png/42-guest-identity-deletion.png)
+
+## 43-recovery-bundle: A restore needs more than disk bytes
+
+**Scope:** desired recovery product. **Evidence:** S05, S13, S14, S15, S22, S23.
+
+A complete workload recovery procedure coordinates data, boot identity, VM intent, network authority, credentials and ownership. Individual primitives exist; the full backup/restore product and measured RTO/RPO are not established.
+
+![A restore needs more than disk bytes](diagrams/rendered/light/43-recovery-bundle.svg)
+
+[Editable source](diagrams/43-recovery-bundle.json) · [Light SVG](diagrams/rendered/light/43-recovery-bundle.svg) · [Dark SVG](diagrams/rendered/dark/43-recovery-bundle.svg) · [Print SVG](diagrams/rendered/print/43-recovery-bundle.svg) · [PNG](diagrams/rendered/png/43-recovery-bundle.png)
+
+## 44-cutover-overview: Move one workload, then retire its old owner
+
+**Scope:** desired operational contract / current mechanisms. **Evidence:** S05, S08, S13, S15.
+
+A slide-sized desired cutover: isolated rehearsal, final consistent data, one target/network authority and explicit retention/failback. The accepted-write boundary changes rollback; no performed transfer is implied.
+
+![Move one workload, then retire its old owner](diagrams/rendered/light/44-cutover-overview.svg)
+
+[Editable source](diagrams/44-cutover-overview.json) · [Light SVG](diagrams/rendered/light/44-cutover-overview.svg) · [Dark SVG](diagrams/rendered/dark/44-cutover-overview.svg) · [Print SVG](diagrams/rendered/print/44-cutover-overview.svg) · [PNG](diagrams/rendered/png/44-cutover-overview.png)
+
+## 45-revocation-clocks: Different authorities have different revocation clocks
+
+**Scope:** desired operational contract / current mechanisms. **Evidence:** S05, S14, S18, S19, S20, S23.
+
+A slide-sized continuity view separates human sessions, workload/guest SVIDs, disk writer authority and retained copies. Each needs its own validation, expiry, fencing or destruction evidence.
+
+![Different authorities have different revocation clocks](diagrams/rendered/light/45-revocation-clocks.svg)
+
+[Editable source](diagrams/45-revocation-clocks.json) · [Light SVG](diagrams/rendered/light/45-revocation-clocks.svg) · [Dark SVG](diagrams/rendered/dark/45-revocation-clocks.svg) · [Print SVG](diagrams/rendered/print/45-revocation-clocks.svg) · [PNG](diagrams/rendered/png/45-revocation-clocks.png)
+
+## 46-secret-cleanup-authority: Credential cleanup binds the intended VM and Secret
+
+**Scope:** implemented boundary repair. **Evidence:** S13, T08.
+
+A test-only metadata patch checks the intended VM/disk without reading Secret data. Conditional deletion carries the checked object UID/version, so a colliding name, replacement or rotation cannot authorize the wrong cleanup.
+
+![Credential cleanup binds the intended VM and Secret](diagrams/rendered/light/46-secret-cleanup-authority.svg)
+
+[Editable source](diagrams/46-secret-cleanup-authority.mmd) · [Light SVG](diagrams/rendered/light/46-secret-cleanup-authority.svg) · [Dark SVG](diagrams/rendered/dark/46-secret-cleanup-authority.svg) · [Print SVG](diagrams/rendered/print/46-secret-cleanup-authority.svg) · [PNG](diagrams/rendered/png/46-secret-cleanup-authority.png)
+
+## 47-container-kvm-proof: Observed local KVM/container boundary
+
+**Scope:** dated local fixture / not cluster certification. **Evidence:** S04, S05, S06, T11.
+
+An explicit KVM fixture observes manager PID1 and direct QEMU/swtpm children in one bounded rootless-container cgroup, guest boot/ping and clean original-process exit. It does not establish Kubernetes placement, guest networking or storage-backend acceptance.
+
+![Observed local KVM/container boundary](diagrams/rendered/light/47-container-kvm-proof.svg)
+
+[Editable source](diagrams/47-container-kvm-proof.json) · [Light SVG](diagrams/rendered/light/47-container-kvm-proof.svg) · [Dark SVG](diagrams/rendered/dark/47-container-kvm-proof.svg) · [Print SVG](diagrams/rendered/print/47-container-kvm-proof.svg) · [PNG](diagrams/rendered/png/47-container-kvm-proof.png)
