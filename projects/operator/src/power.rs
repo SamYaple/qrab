@@ -616,6 +616,11 @@ mod tests {
     #[tokio::test]
     async fn reads_the_state_over_http_and_reports_failures_as_errors() {
         use axum::{http::StatusCode, routing::get, Router};
+        // Production supplies its SPIFFE TLS config. This plain-HTTP
+        // fixture uses reqwest's default backend, which still needs an
+        // explicit provider with rustls-no-provider, even without HTTPS.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let app = Router::new()
@@ -635,41 +640,23 @@ mod tests {
             );
         tokio::spawn(async move { axum::serve(listener, app).await });
         assert_eq!(
-            fetch(
-                &reqwest::Client::builder().no_proxy().build().unwrap(),
-                &format!("{origin}/metrics")
-            )
-            .await,
+            fetch(&client, &format!("{origin}/metrics")).await,
             Ok(PowerState::Off)
         );
-        assert!(fetch(
-            &reqwest::Client::builder().no_proxy().build().unwrap(),
-            &format!("{origin}/empty")
-        )
-        .await
-        .unwrap_err()
-        .contains("no current"));
-        assert!(fetch(
-            &reqwest::Client::builder().no_proxy().build().unwrap(),
-            &format!("{origin}/busy")
-        )
-        .await
-        .unwrap_err()
-        .contains("503"));
-        assert!(fetch(
-            &reqwest::Client::builder().no_proxy().build().unwrap(),
-            &format!("{origin}/huge")
-        )
-        .await
-        .unwrap_err()
-        .contains("bound"));
+        assert!(fetch(&client, &format!("{origin}/empty"))
+            .await
+            .unwrap_err()
+            .contains("no current"));
+        assert!(fetch(&client, &format!("{origin}/busy"))
+            .await
+            .unwrap_err()
+            .contains("503"));
+        assert!(fetch(&client, &format!("{origin}/huge"))
+            .await
+            .unwrap_err()
+            .contains("bound"));
         let started = std::time::Instant::now();
-        assert!(fetch(
-            &reqwest::Client::builder().no_proxy().build().unwrap(),
-            &format!("{origin}/stalled")
-        )
-        .await
-        .is_err());
+        assert!(fetch(&client, &format!("{origin}/stalled")).await.is_err());
         assert!(started.elapsed() < READ_TIMEOUT * 2);
         let pod: Pod = serde_json::from_value(json!({"metadata":{"name":"test-vm"}})).unwrap();
         assert_eq!(metrics_url(&pod), Err("the VM Pod has no IP".into()));
