@@ -180,7 +180,6 @@ fn agent(api: Api<Pod>, store: reflector::Store<Pod>) -> Arc<Agent> {
         peers_busy: Default::default(),
         peer_tls: Mutex::new(None),
         peer_strangers: Default::default(),
-        tunnels: Mutex::default(),
         forwarded: Mutex::default(),
     })
 }
@@ -214,6 +213,7 @@ fn fake_plumbed(agent: &Agent, summary: &str) -> (tempfile::TempDir, Arc<AtomicB
             anchor,
             verified_at: Instant::now(),
             summary: summary.into(),
+            vpn: None,
         },
     );
     (root, stop)
@@ -244,15 +244,14 @@ async fn delayed_vpn_port_cannot_be_published_on_a_replacement_pod() {
     let server = Server::new(pod(NEW, "20"));
     let (store, _writer) = reflector::store();
     let agent = agent(server.api.clone(), store);
-    agent
-        .forwarded
-        .lock()
-        .unwrap()
-        .insert(OLD.into(), (Instant::now(), Ok(45000)));
+    let (_root, _stop) = fake_plumbed(&agent, "applied plan");
+    let ready = agent.plumbed.lock().unwrap().get(OLD).unwrap().clone();
     let worker = agent.clone();
-    tokio::task::spawn_blocking(move || worker.report_port(&pod(OLD, "10"), &Ok(45000)))
-        .await
-        .unwrap();
+    tokio::task::spawn_blocking(move || {
+        worker.finish_port_round(&pod(OLD, "10"), &ready, &Ok(45000))
+    })
+    .await
+    .unwrap();
     assert!(server.condition(PORT_FORWARD_CONDITION).is_none());
     assert!(!agent.forwarded.lock().unwrap().contains_key(OLD));
 }
@@ -381,4 +380,121 @@ async fn namespace_discovery_uses_the_current_container_instead_of_an_older_live
             .unwrap()
             .ino()
     );
+}
+
+#[tokio::test]
+async fn a_late_port_round_cannot_publish_for_a_replaced_namespace() {
+    let server = Server::new(pod(OLD, "11"));
+    let (store, _writer) = reflector::store();
+    let agent = agent(server.api.clone(), store);
+    let (root, _stop) = fake_plumbed(&agent, "old plan");
+    let old = agent.plumbed.lock().unwrap().get(OLD).unwrap().clone();
+    let link = root.path().join("7/ns/net");
+    std::fs::rename(&link, root.path().join("7/ns/old-net")).unwrap();
+    std::fs::write(&link, "new namespace").unwrap();
+    let mut replacement = old.clone();
+    replacement.anchor = Arc::new(Anchor::find(root.path(), &pod(OLD, "11")).unwrap());
+    agent
+        .plumbed
+        .lock()
+        .unwrap()
+        .insert(OLD.into(), replacement);
+    let worker = agent.clone();
+    let accepted = tokio::task::spawn_blocking(move || {
+        worker.finish_port_round(&pod(OLD, "11"), &old, &Ok(45000))
+    })
+    .await
+    .unwrap();
+    assert!(!accepted);
+    assert!(agent.forwarded.lock().unwrap().is_empty());
+    assert!(server.condition(PORT_FORWARD_CONDITION).is_none());
+}
+
+#[tokio::test]
+async fn applied_config_generations_preserve_healthy_rounds_and_discard_old_completions() {
+    let server = Server::new(pod(OLD, "11"));
+    let (store, _writer) = reflector::store();
+    let agent = agent(server.api.clone(), store);
+    let (_root, _stop) = fake_plumbed(&agent, "plan A");
+    let mut a = agent.plumbed.lock().unwrap().get(OLD).unwrap().clone();
+    a.vpn = Some(AppliedVpn {
+        digest: [1; 32],
+        gateway: Some(qrab_netd::GUEST_GATEWAY),
+    });
+    agent.remember_applied(OLD.into(), a.clone());
+    let (worker, original) = (agent.clone(), a.clone());
+    assert!(
+        tokio::task::spawn_blocking(move || worker.finish_port_round(
+            &pod(OLD, "11"),
+            &original,
+            &Ok(45000)
+        ))
+        .await
+        .unwrap()
+    );
+    let before = agent.forwarded.lock().unwrap().get(OLD).unwrap().at;
+    let mut verified_again = a.clone();
+    verified_again.verified_at = Instant::now();
+    agent.remember_applied(OLD.into(), verified_again);
+    assert_eq!(agent.forwarded.lock().unwrap().get(OLD).unwrap().at, before);
+    let mut b = a.clone();
+    b.vpn.as_mut().unwrap().digest = [2; 32];
+    agent.remember_applied(OLD.into(), b);
+    assert!(agent.forwarded.lock().unwrap().is_empty());
+    let worker = agent.clone();
+    assert!(
+        !tokio::task::spawn_blocking(move || worker.finish_port_round(
+            &pod(OLD, "12"),
+            &a,
+            &Ok(45001)
+        ))
+        .await
+        .unwrap()
+    );
+    assert!(agent.forwarded.lock().unwrap().is_empty());
+    assert_eq!(
+        server.state.lock().unwrap().requests.len(),
+        1,
+        "late results must not publish status"
+    );
+}
+
+#[tokio::test]
+async fn disabling_applied_forwarding_reports_unmapped_even_after_cache_reset() {
+    let mut target = pod(OLD, "11");
+    target.metadata.annotations.as_mut().unwrap().insert(
+        qrab_netd::vpn::VPN_ANNOTATION.into(),
+        qrab_netd::vpn::VPN_WIREGUARD.into(),
+    );
+    let server = Server::new(target.clone());
+    server.state.lock().unwrap().object["status"]["conditions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":PORT_FORWARD_CONDITION,"status":"True","message":"45000"}));
+    let (store, mut writer) = reflector::store();
+    let agent = agent(server.api.clone(), store);
+    let (_root, _stop) = fake_plumbed(&agent, "forwarding disabled");
+    let mut ready = agent.plumbed.lock().unwrap().get(OLD).unwrap().clone();
+    ready.vpn = Some(AppliedVpn {
+        digest: [2; 32],
+        gateway: None,
+    });
+    agent.remember_applied(OLD.into(), ready);
+    writer.apply_watcher_event(&watcher::Event::Apply(target));
+    let worker = agent.clone();
+    tokio::task::spawn_blocking(move || worker.renew_port_forwards())
+        .await
+        .unwrap();
+    assert_eq!(
+        server.condition(PORT_FORWARD_CONDITION).unwrap()["status"],
+        "False"
+    );
+    assert!(agent
+        .forwarded
+        .lock()
+        .unwrap()
+        .get(OLD)
+        .unwrap()
+        .result
+        .is_err());
 }

@@ -516,7 +516,23 @@ pub fn import_conntrack(
 /// The config mounted by the already-verified current anchor container.
 /// Never rescan arbitrary same-UID processes for a convenient older mount.
 pub fn read_tunnel(process: &Process) -> Result<crate::vpn::Tunnel, String> {
-    read_tunnel_text(process).and_then(|text| crate::vpn::Tunnel::parse(&text))
+    tunnel_snapshot(process).map(|snapshot| snapshot.tunnel)
+}
+
+/// The parsed plan and fingerprint of the exact same bounded byte snapshot.
+#[derive(Debug)]
+pub struct TunnelSnapshot {
+    pub tunnel: crate::vpn::Tunnel,
+    pub digest: [u8; 32],
+}
+
+pub fn tunnel_snapshot(process: &Process) -> Result<TunnelSnapshot, String> {
+    use sha2::{Digest, Sha256};
+    let text = read_tunnel_text(process)?;
+    Ok(TunnelSnapshot {
+        tunnel: crate::vpn::Tunnel::parse(&text)?,
+        digest: Sha256::digest(text.as_bytes()).into(),
+    })
 }
 
 /// A digest read through that same held container reference.
@@ -748,6 +764,38 @@ fn socket2_udp(tap: &str) -> io::Result<std::net::UdpSocket> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_tunnel_snapshot_keeps_the_digest_of_the_bytes_actually_parsed() {
+        use sha2::{Digest, Sha256};
+        let root = tempfile::tempdir().unwrap();
+        let mount = root.path().join("7/root/run/qrab-vpn");
+        std::fs::create_dir_all(&mount).unwrap();
+        let path = mount.join("wg.conf");
+        let config = |address: &str| {
+            format!("[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 10.2.0.2/32\nDNS = 10.2.0.1\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nEndpoint = {address}:51820\n")
+        };
+        let a = config("203.0.113.9");
+        let b = config("203.0.113.10");
+        let process = Process::open(root.path(), 7).unwrap();
+        std::fs::write(&path, &a).unwrap();
+        let earlier = tunnel_digest(&process).unwrap();
+        std::fs::write(&path, &b).unwrap();
+        let applied = tunnel_snapshot(&process).unwrap();
+        assert_eq!(applied.tunnel.endpoint.to_string(), "203.0.113.10:51820");
+        assert_eq!(
+            applied.digest,
+            <[u8; 32]>::from(Sha256::digest(b.as_bytes()))
+        );
+        assert_ne!(applied.digest, earlier);
+        std::fs::write(&path, &a).unwrap();
+        let desired = tunnel_digest(&process).unwrap();
+        // Recording the pre-plumb digest would falsely consider restored A
+        // applied, even though the parsed/applied plan was B.
+        assert_eq!(earlier, desired);
+        assert_ne!(applied.digest, desired);
+        assert_eq!(applied.tunnel.endpoint.to_string(), "203.0.113.10:51820");
+    }
 
     #[test]
     fn dhcp_namespace_setup_must_succeed_before_the_responder_is_reported_started() {

@@ -32,14 +32,41 @@ fn log(event: &str, detail: serde_json::Value) {
     eprintln!("{}", serde_json::json!({"event": event, "detail": detail}));
 }
 
-/// One NAT-PMP round: when, and the forwarded port or why not.
-type PortRound = (Instant, Result<u16, String>);
+/// A namespace/config generation, independent of process-reference refresh.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Generation {
+    namespace: String,
+    digest: Option<[u8; 32]>,
+}
+
+#[derive(Clone)]
+struct PortRound {
+    generation: Generation,
+    at: Instant,
+    result: Result<u16, String>,
+}
+
+#[derive(Clone, Copy)]
+struct AppliedVpn {
+    digest: [u8; 32],
+    gateway: Option<std::net::Ipv4Addr>,
+}
 
 #[derive(Clone)]
 struct Plumbed {
     anchor: Arc<Anchor>,
     verified_at: Instant,
     summary: String,
+    vpn: Option<AppliedVpn>,
+}
+
+impl Plumbed {
+    fn generation(&self) -> Generation {
+        Generation {
+            namespace: self.anchor.token(),
+            digest: self.vpn.map(|vpn| vpn.digest),
+        }
+    }
 }
 
 struct Agent {
@@ -68,8 +95,6 @@ struct Agent {
     /// Peer connections refused for not coming from a host link (logged at
     /// powers of two).
     peer_strangers: std::sync::atomic::AtomicU64,
-    /// VPN anchor UID → digest of the config last plumbed.
-    tunnels: Mutex<HashMap<String, [u8; 32]>>,
     /// Port-forwarding anchor UID → the last NAT-PMP round and its result.
     forwarded: Mutex<HashMap<String, PortRound>>,
 }
@@ -110,13 +135,20 @@ impl Agent {
             .retain(|uid, _| live.contains(uid));
         for pod in anchors {
             let uid = pod.uid().unwrap_or_default();
-            let Ok(anchor) = self.ready_anchor(&pod) else {
+            let Ok(ready) = self.ready_plan(&pod) else {
                 continue;
             };
-            let previous = self.forwarded.lock().unwrap().get(&uid).cloned();
-            let due = previous.as_ref().is_none_or(|(at, result)| {
-                at.elapsed()
-                    >= if result.is_ok() {
+            let generation = ready.generation();
+            let previous = self
+                .forwarded
+                .lock()
+                .unwrap()
+                .get(&uid)
+                .filter(|round| round.generation == generation)
+                .cloned();
+            let due = previous.as_ref().is_none_or(|round| {
+                round.at.elapsed()
+                    >= if round.result.is_ok() {
                         natpmp::RENEW
                     } else {
                         Duration::from_secs(10)
@@ -125,40 +157,81 @@ impl Agent {
             if !due {
                 continue;
             }
-            let Ok(tunnel) = sys::read_tunnel(anchor.process()) else {
-                continue;
+            // Renew what was actually applied, not a newer desired file that
+            // may be waiting for plumbing. No private key is retained here.
+            let result = match ready.vpn.and_then(|vpn| vpn.gateway) {
+                Some(gateway) => match ready.anchor.namespace() {
+                    Ok(ns) => sys::in_namespace(ns, move || Ok(sys::map_forwarded_port(gateway)))
+                        .unwrap_or_else(|e| Err(e.to_string())),
+                    Err(error) => Err(error.to_string()),
+                },
+                None => Err("port forwarding is not requested or has no gateway".into()),
             };
-            let gateway = match (tunnel.port_forwarding, tunnel.gateway()) {
-                (true, Some(gateway)) => gateway,
-                _ => {
-                    if previous.is_some() {
-                        self.forwarded.lock().unwrap().remove(&uid);
-                        self.report_port(&pod, &Err("port forwarding is not requested".into()));
-                    }
-                    continue;
-                }
-            };
-            let result = match anchor.namespace() {
-                Ok(ns) => sys::in_namespace(ns, move || Ok(sys::map_forwarded_port(gateway)))
-                    .unwrap_or_else(|e| Err(e.to_string())),
-                Err(error) => Err(error.to_string()),
-            };
-            let changed = previous.as_ref().map(|(_, r)| r) != Some(&result);
-            self.forwarded
-                .lock()
-                .unwrap()
-                .insert(uid, (Instant::now(), result.clone()));
-            if changed {
-                log(
-                    "port_forward",
-                    serde_json::json!({"pod": pod.name_any(), "result": format!("{result:?}")}),
-                );
-                self.report_port(&pod, &result);
-            }
+            self.finish_port_round(&pod, &ready, &result);
         }
     }
 
-    fn report_port(&self, pod: &Pod, result: &Result<u16, String>) {
+    fn remember_applied(&self, uid: String, ready: Plumbed) -> String {
+        let summary = ready.summary.clone();
+        let mut plans = self.plumbed.lock().unwrap();
+        if plans
+            .get(&uid)
+            .is_none_or(|old| old.generation() != ready.generation())
+        {
+            self.forwarded.lock().unwrap().remove(&uid);
+        }
+        plans.insert(uid, ready);
+        summary
+    }
+
+    /// Complete only for the still-applied namespace/config. Hold the plan
+    /// guard through cache insertion so a replacement cannot be overwritten
+    /// by a late round. API status remains a separately conditional observation.
+    fn finish_port_round(&self, pod: &Pod, ready: &Plumbed, result: &Result<u16, String>) -> bool {
+        let uid = pod.uid().unwrap_or_default();
+        let generation = ready.generation();
+        let plans = self.plumbed.lock().unwrap();
+        if !plans.get(&uid).is_some_and(|current| {
+            current.generation() == generation && current.anchor.ensure_for(pod).is_ok()
+        }) {
+            return false;
+        }
+        let mut rounds = self.forwarded.lock().unwrap();
+        let changed = rounds
+            .get(&uid)
+            .filter(|round| round.generation == generation)
+            .map(|round| &round.result)
+            != Some(result);
+        rounds.insert(
+            uid.clone(),
+            PortRound {
+                generation: generation.clone(),
+                at: Instant::now(),
+                result: result.clone(),
+            },
+        );
+        drop(rounds);
+        drop(plans);
+        if changed {
+            log(
+                "port_forward",
+                serde_json::json!({"pod":pod.name_any(),"result":format!("{result:?}")}),
+            );
+        }
+        if changed && !self.report_port(pod, result) {
+            // A failed old report must not remove another generation's round.
+            let mut rounds = self.forwarded.lock().unwrap();
+            if rounds
+                .get(&uid)
+                .is_some_and(|round| round.generation == generation)
+            {
+                rounds.remove(&uid);
+            }
+        }
+        true
+    }
+
+    fn report_port(&self, pod: &Pod, result: &Result<u16, String>) -> bool {
         let (ok, message) = match result {
             Ok(port) => (true, port.to_string()),
             Err(error) => (false, error.clone()),
@@ -179,34 +252,36 @@ impl Agent {
                 "report_failed",
                 serde_json::json!({"pod": name, "error": error.to_string()}),
             );
-            // Report again next round.
-            self.forwarded
-                .lock()
-                .unwrap()
-                .remove(&pod.uid().unwrap_or_default());
+            return false;
         }
+        true
     }
 
     fn ready_anchor(&self, pod: &Pod) -> Result<Arc<Anchor>, String> {
+        self.ready_plan(pod).map(|ready| ready.anchor)
+    }
+
+    fn ready_plan(&self, pod: &Pod) -> Result<Plumbed, String> {
         let uid = pod.uid().ok_or("Pod has no UID")?;
-        let anchor = self
+        let ready = self
             .plumbed
             .lock()
             .unwrap()
             .get(&uid)
-            .map(|ready| ready.anchor.clone())
+            .cloned()
             .ok_or("NIC is not plumbed yet")?;
+        let anchor = &ready.anchor;
         anchor.ensure_for(pod).map_err(|e| e.to_string())?;
         if !self
             .dhcp
             .lock()
             .unwrap()
             .get(&uid)
-            .is_some_and(|worker| worker.serves(&anchor))
+            .is_some_and(|worker| worker.serves(anchor))
         {
             return Err("NIC DHCP responder is not running".into());
         }
-        Ok(anchor)
+        Ok(ready)
     }
 
     fn invalidate_ready(&self, uid: &str) {
@@ -224,13 +299,25 @@ impl Agent {
             .map_err(|e| e.to_string())
     }
 
-    fn plumb(&self, pod: &Pod) -> Result<(String, Arc<Anchor>), String> {
+    fn plumb(&self, pod: &Pod) -> Result<Plumbed, String> {
         let uid = pod.uid().ok_or("Pod has no UID")?;
         let anchor = self.anchor_for(pod)?;
         let mut plan = NicPlan::for_anchor(pod)?;
-        if NicPlan::is_vpn(pod) {
-            plan = plan.with_tunnel(sys::read_tunnel(anchor.process())?);
-        }
+        let vpn = if NicPlan::is_vpn(pod) {
+            let snapshot = sys::tunnel_snapshot(anchor.process())?;
+            let applied = AppliedVpn {
+                digest: snapshot.digest,
+                gateway: snapshot
+                    .tunnel
+                    .port_forwarding
+                    .then(|| snapshot.tunnel.gateway())
+                    .flatten(),
+            };
+            plan = plan.with_tunnel(snapshot.tunnel);
+            Some(applied)
+        } else {
+            None
+        };
         let resolver = sys::pod_resolver(anchor.process());
         let summary = match &plan.vpn {
             Some(tunnel) => format!(
@@ -244,7 +331,7 @@ impl Agent {
             Some(tunnel) => tunnel.dns.first().copied(),
             None => Some(qrab_netd::GUEST_GATEWAY),
         };
-        let vpn = plan.vpn.is_some();
+        let is_vpn = plan.vpn.is_some();
         let mtu = sys::in_namespace(anchor.namespace().map_err(|e| e.to_string())?, move || {
             sys::apply(&plan, resolver)
         })
@@ -254,7 +341,7 @@ impl Agent {
             ip: guest_ip,
             seconds: 86400,
             dns,
-            mtu: vpn.then(|| u16::try_from(mtu).unwrap_or(1420)),
+            mtu: is_vpn.then(|| u16::try_from(mtu).unwrap_or(1420)),
         };
         // The socket belongs to the namespace; the offered lease belongs
         // to the applied plan. Refresh the latter without rebinding port 67.
@@ -280,7 +367,12 @@ impl Agent {
             }
         }
         anchor.ensure_for(pod).map_err(|e| e.to_string())?;
-        Ok((summary, anchor))
+        Ok(Plumbed {
+            summary,
+            anchor,
+            verified_at: Instant::now(),
+            vpn,
+        })
     }
 
     fn grant(&self, stream: &UnixStream) -> Result<String, String> {
@@ -720,15 +812,19 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         }
         // A rewritten VPN Secret (a server switch) is applied on the next
         // tick, not at the next re-verify.
-        let digest = NicPlan::is_vpn(pod)
+        let is_vpn = NicPlan::is_vpn(pod);
+        let digest = is_vpn
             .then(|| {
-                agent
-                    .anchor_for(pod)
-                    .ok()
-                    .and_then(|anchor| sys::tunnel_digest(anchor.process()))
+                cached
+                    .as_ref()
+                    .filter(|_| current)
+                    .and_then(|ready| sys::tunnel_digest(ready.anchor.process()))
             })
             .flatten();
-        let rewritten = digest.is_some_and(|d| agent.tunnels.lock().unwrap().get(&uid) != Some(&d));
+        let rewritten = is_vpn
+            && cached
+                .as_ref()
+                .is_some_and(|ready| ready.vpn.map(|vpn| vpn.digest) != digest);
         if fresh && !rewritten {
             // A previous status PATCH may have conflicted or failed after
             // successful kernel work. Retry from this current watch snapshot
@@ -743,34 +839,13 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         let outcome = tokio::task::spawn_blocking(move || worker.plumb(&target))
             .await
             .unwrap_or_else(|e| Err(e.to_string()));
-        let outcome = outcome.map(|(summary, anchor)| {
-            agent.plumbed.lock().unwrap().insert(
-                uid.clone(),
-                Plumbed {
-                    anchor,
-                    verified_at: Instant::now(),
-                    summary: summary.clone(),
-                },
+        let outcome = outcome.map(|ready| agent.remember_applied(uid.clone(), ready));
+        if let Err(error) = &outcome {
+            agent.invalidate_ready(&uid);
+            log(
+                "plumb_failed",
+                serde_json::json!({"pod":pod.name_any(),"error":error}),
             );
-            summary
-        });
-        match &outcome {
-            Ok(_) => {
-                if let Some(digest) = digest {
-                    agent.tunnels.lock().unwrap().insert(uid.clone(), digest);
-                    // A new server needs a new mapping right away.
-                    if rewritten {
-                        agent.forwarded.lock().unwrap().remove(&uid);
-                    }
-                }
-            }
-            Err(error) => {
-                agent.invalidate_ready(&uid);
-                log(
-                    "plumb_failed",
-                    serde_json::json!({"pod": pod.name_any(), "error": error}),
-                );
-            }
         }
         report(pods, agent, pod, &outcome).await;
     }
@@ -783,11 +858,6 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         .retain(|uid, _| live.contains(uid));
     agent
         .plumbed
-        .lock()
-        .unwrap()
-        .retain(|uid, _| live.contains(uid));
-    agent
-        .tunnels
         .lock()
         .unwrap()
         .retain(|uid, _| live.contains(uid));
@@ -918,7 +988,6 @@ async fn main() -> Result<()> {
         peer_tls: Mutex::new(None),
         peer_strangers: Default::default(),
         forwarded: Mutex::default(),
-        tunnels: Mutex::default(),
     });
     // Keep local TAP/DHCP plumbing available while SPIRE is unavailable.
     // Conntrack peers fail closed until this node has its exact SVID. The
