@@ -79,6 +79,24 @@ the sealed volume. `retired: true` calls `vm-image-retire`, which the
 storage host refuses while clones still descend from the snapshot (the
 importer retries).
 
+Kubernetes child names are reusable. The importer accepts a Job only when it
+has the exact current BaseImage controller UID, and consumes a report only
+from a Pod controlled by that observed Job UID. Successful reports require a
+zero container exit code. Job cleanup checks UID/resourceVersion, including
+the identity of a Job whose report was consumed. A create conflict must prove
+the existing Job's owner before it is accepted.
+
+Stage-Secret cleanup atomically tests its BaseImage owner and labels using a
+no-op JSON patch, requests only metadata, then deletes that UID/version. It
+does not require Secret get/list/watch or read the password back. A rotated
+or recreated Secret is retained on conflict. Status/finalizer writes refresh
+the API version while requiring the same BaseImage UID, generation, spec and
+deletion state. The parent is also checked before reconciliation and storage
+mutations, so a known stale object cannot change the backend before its later
+status write is refused. Finalizer changes preserve other controllers' entries. These
+API conditions do not make the backend storage operations one transaction;
+intentional adoption of an existing sealed backend generation is unchanged.
+
 Both Jobs run the importer's image (`qrab/operator`, which carries
 `/opt/qemu/bin/qemu-img` built from `vendor/qemu` with libiscsi) as
 `qrab-operator image-job inspect|write`, with no Kubernetes token

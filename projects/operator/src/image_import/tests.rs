@@ -5,6 +5,8 @@ use crate::{
 };
 use std::sync::Mutex;
 
+mod kube;
+
 #[derive(Default)]
 struct FakeCluster {
     jobs: Mutex<Vec<(String, JobState)>>,
@@ -17,39 +19,55 @@ struct FakeCluster {
 
 #[async_trait::async_trait]
 impl ImportCluster for FakeCluster {
-    async fn job(&self, name: &str) -> Result<Option<JobState>> {
+    async fn check_image(&self, _: &BaseImage) -> Result<()> {
+        Ok(())
+    }
+    async fn job(&self, _: &BaseImage, name: &str) -> Result<Option<ObservedJob>> {
         Ok(self
             .jobs
             .lock()
             .unwrap()
             .iter()
             .find(|(n, _)| n == name)
-            .map(|(_, s)| s.clone()))
+            .map(|(_, s)| ObservedJob {
+                state: s.clone(),
+                uid: "job-uid".into(),
+                resource_version: "1".into(),
+            }))
     }
-    async fn create_job(&self, job: &serde_json::Value) -> Result<()> {
+    async fn create_job(&self, _: &BaseImage, job: &serde_json::Value) -> Result<()> {
         let name = job["metadata"]["name"].as_str().unwrap().to_owned();
         self.jobs.lock().unwrap().push((name, JobState::Running));
         self.created.lock().unwrap().push(job.clone());
         Ok(())
     }
-    async fn delete_job(&self, name: &str) -> Result<()> {
+    async fn delete_job(&self, _: &BaseImage, name: &str, _: Option<&ObservedJob>) -> Result<()> {
         self.jobs.lock().unwrap().retain(|(n, _)| n != name);
         Ok(())
     }
-    async fn apply_secret(&self, secret: &serde_json::Value) -> Result<()> {
+    async fn apply_secret(&self, _: &BaseImage, secret: &serde_json::Value) -> Result<()> {
         self.secrets.lock().unwrap().push(secret.clone());
         Ok(())
     }
-    async fn delete_secret(&self, name: &str) -> Result<()> {
+    async fn delete_secret(&self, _: &BaseImage, name: &str) -> Result<()> {
         self.deleted_secrets.lock().unwrap().push(name.into());
         Ok(())
     }
-    async fn patch_status(&self, _: &str, status: &BaseImageStatus) -> Result<()> {
+    async fn patch_status(&self, _: &BaseImage, status: &BaseImageStatus) -> Result<()> {
         *self.status.lock().unwrap() = Some(status.clone());
         Ok(())
     }
-    async fn set_finalizers(&self, _: &str, finalizers: &[String]) -> Result<()> {
-        *self.finalizers.lock().unwrap() = Some(finalizers.to_vec());
+    async fn set_finalizer(&self, image: &BaseImage, present: bool) -> Result<()> {
+        let mut finalizers: Vec<_> = image
+            .finalizers()
+            .iter()
+            .filter(|f| *f != FINALIZER)
+            .cloned()
+            .collect();
+        if present {
+            finalizers.push(FINALIZER.into());
+        }
+        *self.finalizers.lock().unwrap() = Some(finalizers);
         Ok(())
     }
 }
