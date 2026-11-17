@@ -62,6 +62,7 @@ tree. The date of the evidence check does not make every diagram a new design.
 | U05 | [Kubernetes access control](https://kubernetes.io/docs/concepts/security/controlling-access/) | Authentication, authorization and admission as separate API gates |
 | U06 | [Cilium BGP scope](https://docs.cilium.io/en/stable/network/bgp-control-plane/bgp-control-plane/) | Route advertisement is distinct from datapath programming; not qrab's FRR implementation |
 | U07 | [Cilium policy enforcement](https://docs.cilium.io/en/stable/security/policy/intro/) | Directional default policy and selection behavior |
+| U10 | [Kubernetes container state and readiness](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-states) | Running container state and additional Pod readiness gates are distinct |
 | U09 | [Kubernetes conditional API updates](https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources) | Object version conditions, conflict detection and retry requirements |
 | U08 | [OpenStack architectural design](https://docs.openstack.org/arch-design/design.html) | Historical conceptual/logical overview; not the user's deployment topology |
 

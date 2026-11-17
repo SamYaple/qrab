@@ -1,0 +1,92 @@
+{
+  "title": "Current identity selects the held resource",
+  "subtitle": "A Pod UID can outlive several containers and network namespaces.",
+  "note": "Unresolved container identity waits. A process restart in the same namespace preserves the attachment token.",
+  "boundaries": [],
+  "boxes": [
+    {
+      "x": 80,
+      "y": 185,
+      "w": 1440,
+      "h": 130,
+      "kind": "qrab",
+      "kicker": "OBSERVED KUBERNETES SNAPSHOT",
+      "lines": [
+        "Pod UID U + current running anchor container ID B"
+      ]
+    },
+    {
+      "x": 80,
+      "y": 395,
+      "w": 650,
+      "h": 200,
+      "kind": "replace",
+      "kicker": "REFUSE THE STALE INCARNATION",
+      "lines": [
+        "Same Pod UID U, older container A",
+        "Still live in namespace A",
+        "Existence alone is insufficient authority"
+      ]
+    },
+    {
+      "x": 870,
+      "y": 395,
+      "w": 650,
+      "h": 200,
+      "kind": "foundation",
+      "kicker": "SELECT THE CURRENT INCARNATION",
+      "lines": [
+        "Current container B",
+        "Match trusted cgroup + held proc directory",
+        "Open and verify namespace B"
+      ]
+    },
+    {
+      "x": 300,
+      "y": 685,
+      "w": 1000,
+      "h": 95,
+      "kind": "qrab",
+      "kicker": "USE THE VERIFIED RESOURCE",
+      "lines": [
+        "Held process / namespace files \u2192 TAP and vhost queue descriptors"
+      ]
+    }
+  ],
+  "arrows": [
+    {
+      "points": [
+        [
+          1195,
+          315
+        ],
+        [
+          1195,
+          395
+        ]
+      ],
+      "label": "match"
+    },
+    {
+      "points": [
+        [
+          1195,
+          595
+        ],
+        [
+          1195,
+          635
+        ],
+        [
+          800,
+          635
+        ],
+        [
+          800,
+          685
+        ]
+      ],
+      "label": "held references"
+    }
+  ]
+}

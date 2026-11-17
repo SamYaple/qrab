@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "033746a467bebccd87627e1530ec00a306a1a6ec",
+  "reviewed_through": "8b1c4f236fde3f56c2826d5ad49b4bc1477e0408",
   "decks": [
     {
       "id": "leadership",
@@ -865,6 +865,17 @@
             "S10",
             "A05",
             "A06"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "35-current-container-authority",
+          "notes": "A11 adds current running container identity to Pod membership and held-resource checks. The test references are fake proc/API entries linked to real throwaway namespaces, not a recreated production sandbox. The anchor can be Running before its readiness gate is true.",
+          "evidence": [
+            "A11",
+            "S08",
+            "S09",
+            "U10"
           ]
         },
         {

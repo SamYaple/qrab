@@ -24,6 +24,10 @@ disk fence remain different contracts.
 
 ## Case 1: a NIC sandbox changes beneath a running VM
 
+Discovery uses the current running anchor container identified by the Pod
+snapshot, rather than the lowest live PID under its UID. It waits through
+unresolved container startup without requiring the Pod readiness gate first.
+
 QEMU holds queue descriptors for a particular kernel namespace. Keeping the
 same API Pod UID does not move those descriptors into a replacement sandbox.
 netd therefore identifies a plumbed attachment with an opaque token containing

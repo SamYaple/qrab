@@ -346,6 +346,42 @@ static NoCloud configuration. No live profile, Pod or route was changed.
 **Merged source:** `033746a467bebccd87627e1530ec00a306a1a6ec`.
 **Tracking:** qrab `work/netd-dhcp-lease-generation`.
 
+## A11 — an older live same-UID process could select the wrong namespace or mount
+
+**Affected source:** netd anchor discovery, cached-context checks and VPN reads.
+**Repair baseline:** `ced3234`.
+
+Discovery selected the first process beneath a Pod UID. That did not distinguish
+an older live container/sandbox from the running anchor container identified
+by the current Pod snapshot. Mounted-config discovery could likewise select a
+convenient older same-UID mount. The private regression selected reference 7
+when the API fixture identified reference 9 as current.
+
+Selection now joins the declared regular `anchor` container's observed Running
+status and complete runtime ID to the direct container cgroup scope beneath
+the trusted Pod component. Pod UID/container ID come from one bounded cgroup
+read. Held process/namespace references are rechecked against that Pod snapshot;
+VPN files are read through the selected process instead of rescanning by UID.
+Operator and node service share the unchanged container-name constant.
+
+A current Running container is required even when it is not Ready. Missing,
+terminated, unknown or ambiguous identity waits for a usable observation.
+This can wait through image pull; it has no readiness cycle because the anchor
+executable only waits for termination. Same-namespace process restart preserves
+the attachment token and DHCP socket. Supported conventional cgroups use full
+64-hex containerd/CRI-O/Docker-style IDs; unsupported layouts fail closed.
+
+Default tests cover current selection, stale cache, missing/terminated status,
+direct scope identity and selected mount reads. The explicit kernel fixture
+keeps two real namespace holders alive while private fake-proc/API entries
+select the newer one; it also proves old namespace-file lifetime after task
+exit. A separate native read-only sample matched containerd's API ID to its
+host cgroup. Neither is a live CRI recreation/rollout. Full runtime and
+client-only checks passed; two optional kernel VPN fixtures still skipped.
+
+**Merged source:** `8b1c4f236fde3f56c2826d5ad49b4bc1477e0408`.
+**Tracking:** qrab `work/netd-current-container-namespace`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's

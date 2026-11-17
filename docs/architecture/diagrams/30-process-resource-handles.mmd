@@ -4,7 +4,7 @@ flowchart TB
     end
     identity --> api["API-owned VM / own NIC authorization"]
     subgraph anchor["Anchor resource authority"]
-        process["Held anchor process directory"] --> membership["Match intended Pod UID"] --> resource["Opened namespace / mounted file"] --> effect["Use held resource descriptor"]
+        process["Held anchor process directory"] --> membership["Match Pod UID / current container ID"] --> resource["Opened namespace / mounted file"] --> effect["Use held resource descriptor"]
     end
     api --> process
     changed["Numeric PID / path replaced"] -.->|"cannot redirect held references"| resource

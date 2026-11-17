@@ -442,7 +442,20 @@
         "L01"
       ],
       "source": "34-evidence-classes.json"
+    },
+    {
+      "id": "35-current-container-authority",
+      "source": "35-current-container-authority.json",
+      "title": "Current container identity selects the held resource",
+      "status": "audited current-container/resource contract",
+      "caption": "A still-live older same-UID process is not the current anchor container. The API-observed running container, trusted direct cgroup and held process/namespace resources must agree. Same-namespace process refresh preserves the attachment token; unresolved startup waits.",
+      "evidence": [
+        "S08",
+        "S09",
+        "S10",
+        "U10"
+      ]
     }
   ],
-  "reviewed_through": "033746a467bebccd87627e1530ec00a306a1a6ec"
+  "reviewed_through": "8b1c4f236fde3f56c2826d5ad49b4bc1477e0408"
 }

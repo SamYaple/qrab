@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 033746a467be · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>27 document views · 38 unique diagrams · 6 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 8b1c4f236fde · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>27 document views · 39 unique diagrams · 6 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -2442,7 +2442,8 @@ this is a useful architecture-review perspective alongside the service map.
 | state claim name | pvc uid, vm-bound initialized state, lease and driver attachment contract | retain/recover the intended identity rather than silently initializing another |
 | dashboard launch label | recorded launch/vm/claim/group provenance under protected api writers | cleanup of created resources is separate from current access grants |
 | local socket pid | original connector pidfd, validated cgroup/pod and held proc directory | dead/reused numeric processes cannot substitute another actor |
-| namespace path | already-open namespace descriptor from the validated anchor process | entry/fd grants use that resource through completion |
+| current anchor process | observed running container id joined to pod uid and direct trusted cgroup | an older live same-uid process cannot substitute its namespace or mount |
+| namespace path | already-open namespace descriptor from the validated current anchor process | entry/fd grants use that resource through completion |
 | ready anchor pod uid | current namespace token backed by a held resource | a same-uid sandbox replacement invalidates stale readiness and queue binding |
 | descriptor-bearing reply | complete bounded frame plus owned scm_rights resources | fragmentation, parse errors and truncation cannot lose track of installed fds |
 | mounted vpn file | read relative to the validated held process directory, with a bound | a later pid path cannot select another process&#x27;s mount/root |
@@ -2478,6 +2479,13 @@ connection and the human&#x27;s oidc management role.
 
 the [recovery perspective](recovery.md) follows same-uid namespace changes and
 local descriptor-bearing frame failures. a07/a08 record those repairs.
+
+![current container and held resources](diagrams/rendered/light/35-current-container-authority.svg)
+
+a11 binds resource discovery to the observed running anchor container. running
+and ready answer different questions; see [kubernetes pod lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-states).
+the separate namespace token changes only when the actual kernel namespace
+changes, so a process refresh in the same namespace need not replug a nic.
 
 ## apply the same review to cleanup and images
 
@@ -2544,8 +2552,13 @@ This is a useful architecture-review perspective alongside the service map.</p>
 <td>Dead/reused numeric processes cannot substitute another actor</td>
 </tr>
 <tr>
+<td>Current anchor process</td>
+<td>Observed Running container ID joined to Pod UID and direct trusted cgroup</td>
+<td>An older live same-UID process cannot substitute its namespace or mount</td>
+</tr>
+<tr>
 <td>Namespace path</td>
-<td>Already-open namespace descriptor from the validated anchor process</td>
+<td>Already-open namespace descriptor from the validated current anchor process</td>
 <td>Entry/FD grants use that resource through completion</td>
 </tr>
 <tr>
@@ -2607,6 +2620,11 @@ kernel/Pod authority checks, separate from the node-to-node SPIFFE conntrack
 connection and the human's OIDC management role.</p>
 <p>The <a href="#doc-recovery">recovery perspective</a> follows same-UID namespace changes and
 local descriptor-bearing frame failures. A07/A08 record those repairs.</p>
+<p><img src="diagrams/rendered/light/35-current-container-authority.svg" alt="Current container and held resources" /></p>
+<p>A11 binds resource discovery to the observed running anchor container. Running
+and Ready answer different questions; see <a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-states">Kubernetes Pod lifecycle</a>.
+The separate namespace token changes only when the actual kernel namespace
+changes, so a process refresh in the same namespace need not replug a NIC.</p>
 <h2 id="authority--apply-the-same-review-to-cleanup-and-images">Apply the same review to cleanup and images</h2>
 <p>State-PVC adoption and access-group deletion must follow the resources the
 launch created, even when current grants change. Object UID/resourceVersion
@@ -2854,6 +2872,10 @@ disk fence remain different contracts.
 
 ## case 1: a nic sandbox changes beneath a running vm
 
+discovery uses the current running anchor container identified by the pod
+snapshot, rather than the lowest live pid under its uid. it waits through
+unresolved container startup without requiring the pod readiness gate first.
+
 qemu holds queue descriptors for a particular kernel namespace. keeping the
 same api pod uid does not move those descriptors into a replacement sandbox.
 netd therefore identifies a plumbed attachment with an opaque token containing
@@ -3015,6 +3037,9 @@ audit and connects them to the larger VM lifecycle.</p>
 effects. The <a href="#doc-storage">storage view</a> explains why a state lease and a hard
 disk fence remain different contracts.</p>
 <h2 id="recovery--case-1-a-nic-sandbox-changes-beneath-a-running-vm">Case 1: a NIC sandbox changes beneath a running VM</h2>
+<p>Discovery uses the current running anchor container identified by the Pod
+snapshot, rather than the lowest live PID under its UID. It waits through
+unresolved container startup without requiring the Pod readiness gate first.</p>
 <p>QEMU holds queue descriptors for a particular kernel namespace. Keeping the
 same API Pod UID does not move those descriptors into a replacement sandbox.
 netd therefore identifies a plumbed attachment with an opaque token containing
@@ -5816,6 +5841,42 @@ static nocloud configuration. no live profile, pod or route was changed.
 **merged source:** `033746a467bebccd87627e1530ec00a306a1a6ec`.
 **tracking:** qrab `work/netd-dhcp-lease-generation`.
 
+## a11 — an older live same-uid process could select the wrong namespace or mount
+
+**affected source:** netd anchor discovery, cached-context checks and vpn reads.
+**repair baseline:** `ced3234`.
+
+discovery selected the first process beneath a pod uid. that did not distinguish
+an older live container/sandbox from the running anchor container identified
+by the current pod snapshot. mounted-config discovery could likewise select a
+convenient older same-uid mount. the private regression selected reference 7
+when the api fixture identified reference 9 as current.
+
+selection now joins the declared regular `anchor` container&#x27;s observed running
+status and complete runtime id to the direct container cgroup scope beneath
+the trusted pod component. pod uid/container id come from one bounded cgroup
+read. held process/namespace references are rechecked against that pod snapshot;
+vpn files are read through the selected process instead of rescanning by uid.
+operator and node service share the unchanged container-name constant.
+
+a current running container is required even when it is not ready. missing,
+terminated, unknown or ambiguous identity waits for a usable observation.
+this can wait through image pull; it has no readiness cycle because the anchor
+executable only waits for termination. same-namespace process restart preserves
+the attachment token and dhcp socket. supported conventional cgroups use full
+64-hex containerd/cri-o/docker-style ids; unsupported layouts fail closed.
+
+default tests cover current selection, stale cache, missing/terminated status,
+direct scope identity and selected mount reads. the explicit kernel fixture
+keeps two real namespace holders alive while private fake-proc/api entries
+select the newer one; it also proves old namespace-file lifetime after task
+exit. a separate native read-only sample matched containerd&#x27;s api id to its
+host cgroup. neither is a live cri recreation/rollout. full runtime and
+client-only checks passed; two optional kernel vpn fixtures still skipped.
+
+**merged source:** `8b1c4f236fde3f56c2826d5ad49b4bc1477e0408`.
+**tracking:** qrab `work/netd-current-container-namespace`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -6129,6 +6190,35 @@ two optional VPN fixtures skipped for missing tools.</p>
 static NoCloud configuration. No live profile, Pod or route was changed.</p>
 <p><strong>Merged source:</strong> <code>033746a467bebccd87627e1530ec00a306a1a6ec</code>.
 <strong>Tracking:</strong> qrab <code>work/netd-dhcp-lease-generation</code>.</p>
+<h2 id="audit--a11--an-older-live-same-uid-process-could-select-the-wrong-namespace-or-mount">A11 — an older live same-UID process could select the wrong namespace or mount</h2>
+<p><strong>Affected source:</strong> netd anchor discovery, cached-context checks and VPN reads.
+<strong>Repair baseline:</strong> <code>ced3234</code>.</p>
+<p>Discovery selected the first process beneath a Pod UID. That did not distinguish
+an older live container/sandbox from the running anchor container identified
+by the current Pod snapshot. Mounted-config discovery could likewise select a
+convenient older same-UID mount. The private regression selected reference 7
+when the API fixture identified reference 9 as current.</p>
+<p>Selection now joins the declared regular <code>anchor</code> container's observed Running
+status and complete runtime ID to the direct container cgroup scope beneath
+the trusted Pod component. Pod UID/container ID come from one bounded cgroup
+read. Held process/namespace references are rechecked against that Pod snapshot;
+VPN files are read through the selected process instead of rescanning by UID.
+Operator and node service share the unchanged container-name constant.</p>
+<p>A current Running container is required even when it is not Ready. Missing,
+terminated, unknown or ambiguous identity waits for a usable observation.
+This can wait through image pull; it has no readiness cycle because the anchor
+executable only waits for termination. Same-namespace process restart preserves
+the attachment token and DHCP socket. Supported conventional cgroups use full
+64-hex containerd/CRI-O/Docker-style IDs; unsupported layouts fail closed.</p>
+<p>Default tests cover current selection, stale cache, missing/terminated status,
+direct scope identity and selected mount reads. The explicit kernel fixture
+keeps two real namespace holders alive while private fake-proc/API entries
+select the newer one; it also proves old namespace-file lifetime after task
+exit. A separate native read-only sample matched containerd's API ID to its
+host cgroup. Neither is a live CRI recreation/rollout. Full runtime and
+client-only checks passed; two optional kernel VPN fixtures still skipped.</p>
+<p><strong>Merged source:</strong> <code>8b1c4f236fde3f56c2826d5ad49b4bc1477e0408</code>.
+<strong>Tracking:</strong> qrab <code>work/netd-current-container-namespace</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -6219,6 +6309,7 @@ tree. the date of the evidence check does not make every diagram a new design.
 | u05 | [kubernetes access control](https://kubernetes.io/docs/concepts/security/controlling-access/) | authentication, authorization and admission as separate api gates |
 | u06 | [cilium bgp scope](https://docs.cilium.io/en/stable/network/bgp-control-plane/bgp-control-plane/) | route advertisement is distinct from datapath programming; not qrab&#x27;s frr implementation |
 | u07 | [cilium policy enforcement](https://docs.cilium.io/en/stable/security/policy/intro/) | directional default policy and selection behavior |
+| u10 | [kubernetes container state and readiness](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-states) | running container state and additional pod readiness gates are distinct |
 | u09 | [kubernetes conditional api updates](https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources) | object version conditions, conflict detection and retry requirements |
 | u08 | [openstack architectural design](https://docs.openstack.org/arch-design/design.html) | historical conceptual/logical overview; not the user&#x27;s deployment topology |
 
@@ -6490,6 +6581,11 @@ tree. The date of the evidence check does not make every diagram a new design.</
 <td>Directional default policy and selection behavior</td>
 </tr>
 <tr>
+<td>U10</td>
+<td><a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-states">Kubernetes container state and readiness</a></td>
+<td>Running container state and additional Pod readiness gates are distinct</td>
+</tr>
+<tr>
 <td>U09</td>
 <td><a href="https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources">Kubernetes conditional API updates</a></td>
 <td>Object version conditions, conflict detection and retry requirements</td>
@@ -6625,7 +6721,10 @@ boundary, not an authenticated public management service.</p>
 <p>Selected dependency and runtime relationships. A shared Rust control type is not another service and does not grant a management service ownership of private QMP. This is not a complete dependency/deployment graph.</p><a href="diagrams/33-library-runtime-views.mmd">Editable source</a> · <a href="diagrams/rendered/png/33-library-runtime-views.png">PNG</a></section><section class="diagram-card" data-filter="34-evidence-classes four different kinds of evidence review method / selected evidence classes source, manifest, local real-peer fixture and named live observation answer different questions. desired state and the user-supplied openstack baseline remain separately labeled. no progression to deployed acceptance is implied.">
 <h3>Four different kinds of evidence</h3><div class="scope">review method / selected evidence classes · T01, M01, L01</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/34-evidence-classes.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="34-evidence-classes" src="diagrams/rendered/light/34-evidence-classes.svg" alt="Four different kinds of evidence"></a>
-<p>Source, manifest, local real-peer fixture and named live observation answer different questions. Desired state and the user-supplied OpenStack baseline remain separately labeled. No progression to deployed acceptance is implied.</p><a href="diagrams/34-evidence-classes.json">Editable source</a> · <a href="diagrams/rendered/png/34-evidence-classes.png">PNG</a></section></div></article></main></div><script>
+<p>Source, manifest, local real-peer fixture and named live observation answer different questions. Desired state and the user-supplied OpenStack baseline remain separately labeled. No progression to deployed acceptance is implied.</p><a href="diagrams/34-evidence-classes.json">Editable source</a> · <a href="diagrams/rendered/png/34-evidence-classes.png">PNG</a></section><section class="diagram-card" data-filter="35-current-container-authority current container identity selects the held resource audited current-container/resource contract a still-live older same-uid process is not the current anchor container. the api-observed running container, trusted direct cgroup and held process/namespace resources must agree. same-namespace process refresh preserves the attachment token; unresolved startup waits.">
+<h3>Current container identity selects the held resource</h3><div class="scope">audited current-container/resource contract · S08, S09, S10, U10</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/35-current-container-authority.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="35-current-container-authority" src="diagrams/rendered/light/35-current-container-authority.svg" alt="Current container identity selects the held resource"></a>
+<p>A still-live older same-UID process is not the current anchor container. The API-observed running container, trusted direct cgroup and held process/namespace resources must agree. Same-namespace process refresh preserves the attachment token; unresolved startup waits.</p><a href="diagrams/35-current-container-authority.json">Editable source</a> · <a href="diagrams/rendered/png/35-current-container-authority.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

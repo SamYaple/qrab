@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "fc923a72f79bad73ea3eddfe3eaff11f6b5431d618a9cda2344430f23791651d",
+  "catalog_sha256": "59cec7a101f1ea484678d6e2cc2597445d8286ed57e0441d5dc188234abf9fae",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -398,15 +398,15 @@
       "width": 1568
     },
     "30-process-resource-handles": {
-      "height": 1000,
+      "height": 1018,
       "outputs": {
-        "dark/30-process-resource-handles.svg": "5616a574644aa092fd21f370d8cdb1ac9d0eea4c59c3aabc4c7c53c303030af7",
-        "light/30-process-resource-handles.svg": "61f8cf8f81b74ad0d9a6af974aab996e06d4d7cfd4cbdf32135b266201891a21",
-        "png/30-process-resource-handles.png": "af3899ad98c0181132ba3ea9fe2ef2cd7cb9ad6798952ee2fdbeb5f3c1bc9c8a",
-        "print/30-process-resource-handles.svg": "a86645954dadf186b022ed7c5273b45623bf72da51c21b93cf41d129ba469289"
+        "dark/30-process-resource-handles.svg": "b733f17523fb69de28958716acac8efa89d6dee9f1c3b5f2e6b26282fc56e114",
+        "light/30-process-resource-handles.svg": "5cb3fe1dacbcce89cc61ac00798dd1bdc5adfade4723550f8ddddb93ffe5c6eb",
+        "png/30-process-resource-handles.png": "220a88f2a6ac987d74c47b63f9cd132c1a05df123bcd43c74012765aaa4fff1d",
+        "print/30-process-resource-handles.svg": "144a9624b8160437f576a9a36d77e3709fc2c8db7a985c3d33db89d766e9c5b5"
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
-      "source_sha256": "137b57c0bf48bbea9368010a2506c59a977504c63d491f42a60da6905b0461ec",
+      "source_sha256": "6a7da53ecb7542c797d8043dadcaadfc30b85b626824f6da51f5d9830280dc28",
       "width": 409
     },
     "31-namespace-incarnation": {
@@ -455,6 +455,18 @@
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "57be69ece37eaf35f5922068c5d07bbc2a3ac8f06c01e77f5eefff80e61c63c4",
+      "width": 1600
+    },
+    "35-current-container-authority": {
+      "height": 900,
+      "outputs": {
+        "dark/35-current-container-authority.svg": "b1a8dca682465cfeec176c4e437afc41e051e9a6a8de5931994ca1c6a7ca7c70",
+        "light/35-current-container-authority.svg": "6652cd83ef4f5b2e5f78a7dfca4dd86b0cfe83ae95fca51a0c40f75c164425e8",
+        "png/35-current-container-authority.png": "ad5b779a4918e8b0c88034b08d3634e7b8693ce8aebaea916c2c03137ad41903",
+        "print/35-current-container-authority.svg": "82cf9ff7de3158232af8452bb22a7e3c40a7487551eacd0a35527a35cb8b9ed4"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "5562c34dbcfa2b7e0375c7a8a1919ec7cbd9dafc7c52954d8b508c0b05b4be6b",
       "width": 1600
     }
   },

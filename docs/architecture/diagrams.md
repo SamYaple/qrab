@@ -390,3 +390,13 @@ Source, manifest, local real-peer fixture and named live observation answer diff
 ![Four different kinds of evidence](diagrams/rendered/light/34-evidence-classes.svg)
 
 [Editable source](diagrams/34-evidence-classes.json) · [Light SVG](diagrams/rendered/light/34-evidence-classes.svg) · [Dark SVG](diagrams/rendered/dark/34-evidence-classes.svg) · [Print SVG](diagrams/rendered/print/34-evidence-classes.svg) · [PNG](diagrams/rendered/png/34-evidence-classes.png)
+
+## 35-current-container-authority: Current container identity selects the held resource
+
+**Scope:** audited current-container/resource contract. **Evidence:** S08, S09, S10, U10.
+
+A still-live older same-UID process is not the current anchor container. The API-observed running container, trusted direct cgroup and held process/namespace resources must agree. Same-namespace process refresh preserves the attachment token; unresolved startup waits.
+
+![Current container identity selects the held resource](diagrams/rendered/light/35-current-container-authority.svg)
+
+[Editable source](diagrams/35-current-container-authority.json) · [Light SVG](diagrams/rendered/light/35-current-container-authority.svg) · [Dark SVG](diagrams/rendered/dark/35-current-container-authority.svg) · [Print SVG](diagrams/rendered/print/35-current-container-authority.svg) · [PNG](diagrams/rendered/png/35-current-container-authority.png)

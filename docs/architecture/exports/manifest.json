@@ -2,16 +2,16 @@
   "checks": {
     "browser": "154.0.8037.57",
     "diagrams.pdf": {
-      "bytes": 4074241,
-      "pages": 38
+      "bytes": 4083089,
+      "pages": 39
     },
     "engineering.pdf": {
       "bytes": 589498,
       "pages": 18
     },
     "handbook.pdf": {
-      "bytes": 1776814,
-      "pages": 79
+      "bytes": 1787769,
+      "pages": 80
     },
     "identity.pdf": {
       "bytes": 482408,
@@ -22,8 +22,8 @@
       "pages": 10
     },
     "networking.pdf": {
-      "bytes": 418670,
-      "pages": 12
+      "bytes": 423017,
+      "pages": 13
     },
     "operations.pdf": {
       "bytes": 86602,
@@ -38,18 +38,18 @@
     "contrib/docs/build-atlas.py": "05e4648afe2d8610e1c6b37c9dc335b9194c17d830b6a3886d99b3e07db18028",
     "contrib/docs/requirements.txt": "3eee92c2120a85d6daafadfb99d698507a86959af9aa9cd1d89bdab6330bf5f3",
     "docs/architecture/README.md": "94a9343354cd14e3395c06fd2d16bfd91d99182aebf1b49f1088b70e6f438064",
-    "docs/architecture/audit.md": "e107d4b8134308ada3b49b244a337e035c53c1c3faf823e6c32a567308f556d3",
-    "docs/architecture/authority.md": "fb09a63f32c9ba6e93bf4b5b89e749af9cc7f80f3ac973d393c64fb3ed3c902f",
+    "docs/architecture/audit.md": "49c9bc792600d7249ab6f11d008f9b387d97646887b383a5a5fd719d145c79db",
+    "docs/architecture/authority.md": "7f9edc3a1a79553c982c5c27798ccf674e1d198273aa3c326e8a1baa63978080",
     "docs/architecture/boundaries.md": "ee34988157b3fae3a7b5c49a407b8d2c7da36126e5ddf28bfee742a828e8a03d",
     "docs/architecture/capabilities.md": "e9b47dfe55ab71d32825c4708b40ff68f0049f4dd168e22cf49f10167ddf333e",
     "docs/architecture/code-map.md": "4a2a691b292288f43cd4d68da2aef33339f9eed2dedc487449a17a3a123f05d5",
     "docs/architecture/current-state.md": "74ca0ecdc8c8655af238e3e5620fd21efe9287a2c337730cd4e2adacbdaf0992",
     "docs/architecture/decisions.md": "712bedfea6e982a66c8a6122e1fae65dc110ea5d4b755fe96ba62f2187651140",
-    "docs/architecture/decks.json": "57aff76f92c7946b152801ccc11470d78a6219a6c102410f6fc1c5a2fa55be68",
+    "docs/architecture/decks.json": "d8e91360bd6745fb4bb04aa396371d540360e935dfa17599b89caf9cf9617128",
     "docs/architecture/desired-state.md": "8dd9ba3ecc38f5de9b528c80875eeaf26021c12f315b4e387fd5c61e466be8f7",
-    "docs/architecture/diagrams/catalog.json": "fc923a72f79bad73ea3eddfe3eaff11f6b5431d618a9cda2344430f23791651d",
-    "docs/architecture/diagrams/rendered/manifest.json": "dc03bab4cd2eceb76d66f14029a847d72ef02d73ab96152e6d6277ec42bcdf28",
-    "docs/architecture/evidence.md": "3f7674e46bb97cad2a11c1d8660a0b6020976519265f3ccd080940d7eced27ee",
+    "docs/architecture/diagrams/catalog.json": "59cec7a101f1ea484678d6e2cc2597445d8286ed57e0441d5dc188234abf9fae",
+    "docs/architecture/diagrams/rendered/manifest.json": "ca3ef5bcff353e1b021fcbd9a591493045c7e90c4ceb9628bf46cf2b57aa3776",
+    "docs/architecture/evidence.md": "56e8b4602a63ac0e8d0045bba6283012a57fa8921311826928ecdb56addfadaf",
     "docs/architecture/executive.md": "a96cb5f09a86592025368ce992187cab4cd57f98fabca73e8774ff3633c96690",
     "docs/architecture/field-guide.md": "0d21f9a6f4927bb6a2c65bb949074e224b28cc1d9c98c5c07bd78b4dac7b62bb",
     "docs/architecture/glossary.md": "471fa5449ed3fc66959f2202b22a17d81d378d361fecf51e69c7220ee55b3ef0",
@@ -60,7 +60,7 @@
     "docs/architecture/operations.md": "1b7f7d7ea851d30ca5c3eee3b33786565b0096e5e755541a831026fadede217c",
     "docs/architecture/presentations.md": "342a9ff5dca864d91d5562b4268f9b7a9939bbaadb9a844754adaf22c273574e",
     "docs/architecture/questions.md": "33cb13770783451ed3bf47ee34af4fec23164f60d6c04d10f2bdd5b08b031a6b",
-    "docs/architecture/recovery.md": "89526c278fb9ea66e2ef2348de79a9837534299db28ffcacb23c420e85281b8e",
+    "docs/architecture/recovery.md": "4a3285be06b0f04f57ff66932c61646e2f6474fe6ac7aeeb03ee20cbfcf982db",
     "docs/architecture/replacement-map.md": "36d4b3d5eb156c552c7a9255ebbf7697092e1cdb05649100885b1d44e3e4942c",
     "docs/architecture/security.md": "4868b4ee1575e325170c562fd2123d6da9b5f3a8252d0573b6eee42fb11756e4",
     "docs/architecture/storage.md": "b9bd5865cacb896af454c55ca238e583b549dff21118aa962f5efc75ceb828be",
@@ -72,31 +72,31 @@
     "docs/architecture/verification.md": "78e8196b6f6aaad35e3093c3ec2143d3a01b542f20de56bf2841818d93258f8d"
   },
   "outputs": {
-    "docs/architecture/atlas.html": "2b71d3759be53950d3e50a07a04a5743d2b1e13e7d1fb0af36b82c09d1608cbd",
-    "docs/architecture/exports/diagrams.html": "442efecd58c3215531bd1935afab7ef78c2a0724638faad0d5ea57a67e3ce547",
-    "docs/architecture/exports/diagrams.pdf": "649f31097f7c45852166b23a87c15db089ce42552785a03511045eadce9d1a16",
+    "docs/architecture/atlas.html": "c822d5dec859b47eb8ec37dafc6e800fbbf617fa886368bc57a7e824b9e92fe3",
+    "docs/architecture/exports/diagrams.html": "5a09541e9edca6b1b43bd43bd8387badf2cba29b971e0bb83b33773ef3215ce0",
+    "docs/architecture/exports/diagrams.pdf": "62266f5f8f19601c230cc2b06d458d450253c9ae48bc78f88a313fde7fbf6eea",
     "docs/architecture/exports/engineering.html": "e947188012323ca553aa4a0bc2f3ac1cf5f4c456630ee0f0612d4811ee47c264",
-    "docs/architecture/exports/engineering.pdf": "78a531b7b28c096c3e5650512e31bfa6a7af2a34edb8d8008e098849156843b4",
-    "docs/architecture/exports/engineering.pptx": "1bd203d1595f0780ab1d75c40b1c4cca5436bf24c61e90d5c097c627dd3d0ad5",
-    "docs/architecture/exports/handbook.pdf": "0cc4b6505ccb476d7f97b583fb88ea4607349d36cc6dc47a586c61687766d2b3",
+    "docs/architecture/exports/engineering.pdf": "d4a329acf3662e340652de930c16ed9112f224578005c0423bb10130f1eaa659",
+    "docs/architecture/exports/engineering.pptx": "b093e88d12e230c23b2449bca23abe3e47927a376d571d9cea8b5db68abd9f47",
+    "docs/architecture/exports/handbook.pdf": "11bcdc66f2190064077dcf9df479a06b4806eb2de6b1d3a023eea175c82cd7ec",
     "docs/architecture/exports/identity.html": "46dbf07c7dc2a56b0fba8749f1abd117724ad05e1750330940fa870220679fc4",
-    "docs/architecture/exports/identity.pdf": "f285853b70ceb970ff8838f35ec68b7d3886644651fa32616c933c8669d2a39c",
-    "docs/architecture/exports/identity.pptx": "c0b0affa7b164405b6ea1e9128fb2be28d1d0de357326a49f384d56aeca56730",
+    "docs/architecture/exports/identity.pdf": "56d57fd88f6654da12b80cea5584686e7425594d02fc087dc8c8f1a59d3af1d2",
+    "docs/architecture/exports/identity.pptx": "5e26bc179cf9025fd1ea45666ae6b3ebba4a1e72631daefb365b9b49cb1071f4",
     "docs/architecture/exports/leadership.html": "a3f50771d528f2e9f2d3a7b1e59d8be9fe2d93af7dd2bf184458cb9599f6a8b9",
-    "docs/architecture/exports/leadership.pdf": "2efef0952dc0ee22e61a655c7e5d85b0ccfc1db6cda90ee6f4f5e2ba4d497191",
-    "docs/architecture/exports/leadership.pptx": "54e14773c911dcaad7d6fb6f6ec048d1c41f98f8e097950f1179c3ea2077311d",
-    "docs/architecture/exports/networking.html": "366e3c952c165f7fb9b8a18e82c2cbf7c27e41e6bcf8d33fe0f41ec6f63f247d",
-    "docs/architecture/exports/networking.pdf": "41a8f447c069ba0a852d6d399e5dccefdeb4ea522799f2f0509d5b03b2af8653",
-    "docs/architecture/exports/networking.pptx": "3151500042672d7d3483477389b17d83e85ae403019111e98a33b09dad018a65",
+    "docs/architecture/exports/leadership.pdf": "4c09464d6dce56785834825f3c4f098a6d1d52dab781e0f1305d866c39905a91",
+    "docs/architecture/exports/leadership.pptx": "8f93d7e4074d6795ccf94f540780be2fb936ba3d9d82ffcfea4f43aac02dc573",
+    "docs/architecture/exports/networking.html": "ac455a77f8e6ac7cfcb862ac6bed9dd5a2a75b5e72db43fff8350ca01ebd1dd8",
+    "docs/architecture/exports/networking.pdf": "72d0b098787163ef53771327583aa639e31ea74cc3c173dd5fb2cb35bf2a47ca",
+    "docs/architecture/exports/networking.pptx": "86b6ce34f3d4f5fdf2f8f6dd6880bd91db5adf5f6496315d5a71dac6159fdec6",
     "docs/architecture/exports/operations.html": "f704e3bfbfb20b29a74285178f13b10fe4139e220e7e73c13cd1b8cfb8f6db0a",
-    "docs/architecture/exports/operations.pdf": "391a0338839d7f5635ea880d33e11cbd1f62d8aaa04de353b5a9605ddb511c13",
-    "docs/architecture/exports/operations.pptx": "0df0cf507511d8f425554ef0777afff15dcac41a3f7c75d805d8b464a7568155",
-    "docs/architecture/exports/qrab-architecture.zip": "625db9c4f8d9833cffae1bc6e0a90bd3cccf35caca7608b389dce79cca87cd95",
+    "docs/architecture/exports/operations.pdf": "a01f5fb34a7d47f66d635c116bb30f7b423834006a255e780d45c00814733ce6",
+    "docs/architecture/exports/operations.pptx": "c95f03560bb260268cb3f215be231b2e77522b0bb64edb94d8512e6d77a01dc2",
+    "docs/architecture/exports/qrab-architecture.zip": "a5902a83bc48d1892cb0797416a1932b3d8e7098272a9d81544acebfc90ed52e",
     "docs/architecture/exports/storage.html": "53c72bd44169700acf9122f839a317b2bea6d146c5031a71ee6ab1d03c6c985c",
-    "docs/architecture/exports/storage.pdf": "2568fe80d606bd39159c57368379a506bd00024b4776f5069ca63f8f51790fde",
-    "docs/architecture/exports/storage.pptx": "d98297f4b9b8161b4dd75d448cc512b5844e5b715a172666800d3059ebd0c585"
+    "docs/architecture/exports/storage.pdf": "2ae41a01f60e40629fb41662b0e4ceba82242dc1bfa6b0cbeaeffdee5e93b63e",
+    "docs/architecture/exports/storage.pptx": "9302312b1fdd33d32754d5596d7a17cda85bea0af52e97052b89404787db8e18"
   },
-  "reviewed_through": "033746a467bebccd87627e1530ec00a306a1a6ec",
+  "reviewed_through": "8b1c4f236fde3f56c2826d5ad49b4bc1477e0408",
   "tools": {
     "Pillow": "13.0.0",
     "markdown-it-py": "4.3.0",
