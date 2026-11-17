@@ -314,6 +314,38 @@ fencing or live guest health. Kubernetes documents
 **Merged source:** `a5373c384c5679d2cc0218930bf8ff8f730da21b`.
 **Tracking:** qrab `work/netd-status-pod-incarnation`.
 
+## A10 — DHCP could serve stale configuration or report startup before binding
+
+**Affected source:** netd applied-plan/DHCP worker lifecycle.
+**Repair baseline:** `dc5d8c2`.
+
+A healthy namespace-bound responder retained its original copied lease even
+when later plumbing applied a different VPN address/DNS/MTU. Separately,
+`serve_dhcp` reported thread creation as success before namespace entry or UDP
+binding ran. A setup failure could therefore coexist with reported readiness.
+
+The responder now binds its socket in the verified namespace before returning
+success. That socket carries the namespace for subsequent I/O. Each request
+reads one complete shared lease snapshot; reapplying a plan updates a healthy
+same-namespace responder without rebinding port 67. A process-reference refresh
+invalidates grants while preserving a potentially reusable namespace socket.
+A changed namespace or removed Pod retires it. Failed responders invalidate
+fresh readiness and retry; the socket closes before exit is published.
+
+The invalid-namespace startup regression failed before the change and passes
+after. An isolated real-link fixture received both the original and updated
+address, DNS, MTU and lease duration from the same worker. A second bind failed
+synchronously with AddrInUse while the first server continued to answer.
+Default worker/readiness tests, client-only compilation and the full runtime
+gate passed; the explicit isolated kernel suite exercised four paths while
+two optional VPN fixtures skipped for missing tools.
+
+This updates later DHCP answers; it does not force a guest to renew or rewrite
+static NoCloud configuration. No live profile, Pod or route was changed.
+
+**Merged source:** `033746a467bebccd87627e1530ec00a306a1a6ec`.
+**Tracking:** qrab `work/netd-dhcp-lease-generation`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's

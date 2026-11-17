@@ -5,8 +5,9 @@ sequenceDiagram
     participant Q as QEMU / guest
     K->>K: Replace sandbox, keep API Pod UID
     Note over K,N: Namespace A and namespace B are different resources
-    N->>N: Invalidate old context and stop old DHCP
+    N->>N: Invalidate old ready context
     N->>N: Hold / verify B, apply network plan
+    N->>N: Retire old worker and bind current DHCP
     M->>N: Probe own NIC
     N-->>M: New opaque Pod + namespace token
     M->>Q: device_del

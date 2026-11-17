@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "a25e61f5914f05914130e0f9fce2db190346e376270dacb72b69636ca503deea",
+  "catalog_sha256": "fc923a72f79bad73ea3eddfe3eaff11f6b5431d618a9cda2344430f23791651d",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -410,15 +410,15 @@
       "width": 409
     },
     "31-namespace-incarnation": {
-      "height": 1055,
+      "height": 1146,
       "outputs": {
-        "dark/31-namespace-incarnation.svg": "bf2152c98351751970c59f3c3cc3c9faa980487b4f656f0f1c2d80b9121b2ac3",
-        "light/31-namespace-incarnation.svg": "17284a9feb005bf35e6aa85f26c8d6ffb80b669278e8fc3d7182cc8c75b80af9",
-        "png/31-namespace-incarnation.png": "fc964b8e03f07a649aa8c8cf0af0dc2109adbbd0974ff6bae1cef4c4830f325e",
-        "print/31-namespace-incarnation.svg": "3d5d6f02873c2d40fc331496991fc85dc69fb8915ec2cb34db3254910141a14d"
+        "dark/31-namespace-incarnation.svg": "f75e11fbd4b812dad020684812b4cec9f3386df74b5045abaa9e98a5a2cbd1e7",
+        "light/31-namespace-incarnation.svg": "7472198c5a14cedfecc3797c3191d6918c690ee9e8d390a9be8fb65123bd33b7",
+        "png/31-namespace-incarnation.png": "5a12578e918069a70d64ef3a63d06848e11cf058b293441e7ac84f258c53e55c",
+        "print/31-namespace-incarnation.svg": "235c9791a8a4634bd45bea6092d2356e78871b30f14c3be67a884f75830eddf3"
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
-      "source_sha256": "bdf52b0e5bb2593dca20f9bfda21f62f01fd6337d51b59283f7538bd57099bf1",
+      "source_sha256": "b04b11684b81ee8fe306cf2d59781bda11a101d7a8020893783c9afe80c7d021",
       "width": 853
     },
     "32-descriptor-frame": {

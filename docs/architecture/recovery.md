@@ -31,8 +31,8 @@ the Pod UID and the held namespace's device/inode identity. Its open namespace
 file pins that resource while the ready context refers to it.
 
 When the held process no longer occupies that namespace, netd invalidates its
-cached readiness, stops the old namespace-bound DHCP worker, and prepares the
-replacement. Grant and probe use the same verified context. A netd restart
+cached readiness and resolves the replacement. A healthy DHCP socket is reused
+if the namespace stays the same; a changed namespace retires the old worker. Grant and probe use the same verified context. A netd restart
 observing the same namespace produces the same token, avoiding an unnecessary
 VM-wide unplug cycle.
 
@@ -48,6 +48,12 @@ The source and regression evidence are A07 in [the audit](audit.md). The
 kernel fixture exercises real throwaway namespaces and held files. The manager
 fixture exercises QMP ordering against a stand-in; neither proves a particular
 guest OS's hot-unplug behavior or a live Cilium/BGP path.
+
+A10 also separates lease changes from namespace changes. A healthy responder
+reads the latest complete applied lease without rebinding its socket. Setup
+must successfully bind before readiness is published; worker exit invalidates
+that readiness. These changes affect subsequent DHCP answers, not a forced
+guest renewal or static network configuration.
 
 ## Case 2: the local attachment service becomes unavailable
 

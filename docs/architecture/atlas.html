@@ -12,7 +12,7 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through a5373c384c56 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 033746a467be · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
 <div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>27 document views · 38 unique diagrams · 6 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
@@ -2861,8 +2861,8 @@ the pod uid and the held namespace&#x27;s device/inode identity. its open namesp
 file pins that resource while the ready context refers to it.
 
 when the held process no longer occupies that namespace, netd invalidates its
-cached readiness, stops the old namespace-bound dhcp worker, and prepares the
-replacement. grant and probe use the same verified context. a netd restart
+cached readiness and resolves the replacement. a healthy dhcp socket is reused
+if the namespace stays the same; a changed namespace retires the old worker. grant and probe use the same verified context. a netd restart
 observing the same namespace produces the same token, avoiding an unnecessary
 vm-wide unplug cycle.
 
@@ -2878,6 +2878,12 @@ the source and regression evidence are a07 in [the audit](audit.md). the
 kernel fixture exercises real throwaway namespaces and held files. the manager
 fixture exercises qmp ordering against a stand-in; neither proves a particular
 guest os&#x27;s hot-unplug behavior or a live cilium/bgp path.
+
+a10 also separates lease changes from namespace changes. a healthy responder
+reads the latest complete applied lease without rebinding its socket. setup
+must successfully bind before readiness is published; worker exit invalidates
+that readiness. these changes affect subsequent dhcp answers, not a forced
+guest renewal or static network configuration.
 
 ## case 2: the local attachment service becomes unavailable
 
@@ -3015,8 +3021,8 @@ netd therefore identifies a plumbed attachment with an opaque token containing
 the Pod UID and the held namespace's device/inode identity. Its open namespace
 file pins that resource while the ready context refers to it.</p>
 <p>When the held process no longer occupies that namespace, netd invalidates its
-cached readiness, stops the old namespace-bound DHCP worker, and prepares the
-replacement. Grant and probe use the same verified context. A netd restart
+cached readiness and resolves the replacement. A healthy DHCP socket is reused
+if the namespace stays the same; a changed namespace retires the old worker. Grant and probe use the same verified context. A netd restart
 observing the same namespace produces the same token, avoiding an unnecessary
 VM-wide unplug cycle.</p>
 <p>The manager compares tokens. On a change it requests device removal, waits
@@ -3029,6 +3035,11 @@ traffic during a sandbox failure. The VM process does not need to restart.</p>
 kernel fixture exercises real throwaway namespaces and held files. The manager
 fixture exercises QMP ordering against a stand-in; neither proves a particular
 guest OS's hot-unplug behavior or a live Cilium/BGP path.</p>
+<p>A10 also separates lease changes from namespace changes. A healthy responder
+reads the latest complete applied lease without rebinding its socket. Setup
+must successfully bind before readiness is published; worker exit invalidates
+that readiness. These changes affect subsequent DHCP answers, not a forced
+guest renewal or static network configuration.</p>
 <h2 id="recovery--case-2-the-local-attachment-service-becomes-unavailable">Case 2: the local attachment service becomes unavailable</h2>
 <p>An established queue can outlive the process that originally granted it.
 netd's restart does not itself revoke QEMU's existing descriptors. New grants,
@@ -3099,7 +3110,7 @@ them together does not automatically establish a live workload outcome.
 | real qmp smoke | local pinned 11.1.3, machine none/tcg, private monitor sockets; compact/pretty and legacy/object monitor frontends | generated schema/types and protocol behavior work against that real peer | no firmware, kvm, guest, disk, network or migration workload |
 | real qga smoke | local qemu-ga 11.1.3, private listener/temp files and explicit rpc allowlist | sync, info/ping, a 2 mib typed file read and allowed exec/status work against that peer | no in-guest agent rollout or application consistency proof |
 | original socket-peer fixture | private child process and unix connection on a supporting local kernel | peer authority does not become a replacement numeric process after exit | no live vm grant or node rollout |
-| kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplink replaces cilium; vpn cases skipped without wireguard tools |
+| kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp lease updates/bind failures and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplink replaces cilium; vpn cases skipped without wireguard tools |
 | manager nic fixture | stand-in netd and qmp peers, actual manager reconciliation | namespace token change causes ordered nic-only detach/attach with the same mac/root port | guest hot-unplug and traffic continuity require their own acceptance |
 | private netd socket faults | fragmented json, descriptor timing/count/truncation, malformed input, dribble and full listen queue | frame bounds and descriptor cleanup are regression-tested without a node daemon | no production endpoint handoff or remote packet test |
 | limited native observation | netd host cgroup view, node kernel metadata and no-op status server dry-runs | the recorded prerequisites and api conditional-write semantics matched at that time | not a fresh health audit or proof of every feature/image |
@@ -3209,7 +3220,7 @@ them together does not automatically establish a live workload outcome.</p>
 </tr>
 <tr>
 <td>Kernel networking fixtures</td>
-<td>Throwaway user/network namespaces, real TAP/FD transfer, routes, DHCP and namespace replacement</td>
+<td>Throwaway user/network namespaces, real TAP/FD transfer, routes, DHCP lease updates/bind failures and namespace replacement</td>
 <td>The exercised local kernel mechanisms work in isolated fixtures</td>
 <td>Dummy uplink replaces Cilium; VPN cases skipped without WireGuard tools</td>
 </tr>
@@ -5773,6 +5784,38 @@ fencing or live guest health. kubernetes documents
 **merged source:** `a5373c384c5679d2cc0218930bf8ff8f730da21b`.
 **tracking:** qrab `work/netd-status-pod-incarnation`.
 
+## a10 — dhcp could serve stale configuration or report startup before binding
+
+**affected source:** netd applied-plan/dhcp worker lifecycle.
+**repair baseline:** `dc5d8c2`.
+
+a healthy namespace-bound responder retained its original copied lease even
+when later plumbing applied a different vpn address/dns/mtu. separately,
+`serve_dhcp` reported thread creation as success before namespace entry or udp
+binding ran. a setup failure could therefore coexist with reported readiness.
+
+the responder now binds its socket in the verified namespace before returning
+success. that socket carries the namespace for subsequent i/o. each request
+reads one complete shared lease snapshot; reapplying a plan updates a healthy
+same-namespace responder without rebinding port 67. a process-reference refresh
+invalidates grants while preserving a potentially reusable namespace socket.
+a changed namespace or removed pod retires it. failed responders invalidate
+fresh readiness and retry; the socket closes before exit is published.
+
+the invalid-namespace startup regression failed before the change and passes
+after. an isolated real-link fixture received both the original and updated
+address, dns, mtu and lease duration from the same worker. a second bind failed
+synchronously with addrinuse while the first server continued to answer.
+default worker/readiness tests, client-only compilation and the full runtime
+gate passed; the explicit isolated kernel suite exercised four paths while
+two optional vpn fixtures skipped for missing tools.
+
+this updates later dhcp answers; it does not force a guest to renew or rewrite
+static nocloud configuration. no live profile, pod or route was changed.
+
+**merged source:** `033746a467bebccd87627e1530ec00a306a1a6ec`.
+**tracking:** qrab `work/netd-dhcp-lease-generation`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -6061,6 +6104,31 @@ fencing or live guest health. Kubernetes documents
 <a href="https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources">conditional PATCH and conflict retry</a>.</p>
 <p><strong>Merged source:</strong> <code>a5373c384c5679d2cc0218930bf8ff8f730da21b</code>.
 <strong>Tracking:</strong> qrab <code>work/netd-status-pod-incarnation</code>.</p>
+<h2 id="audit--a10--dhcp-could-serve-stale-configuration-or-report-startup-before-binding">A10 — DHCP could serve stale configuration or report startup before binding</h2>
+<p><strong>Affected source:</strong> netd applied-plan/DHCP worker lifecycle.
+<strong>Repair baseline:</strong> <code>dc5d8c2</code>.</p>
+<p>A healthy namespace-bound responder retained its original copied lease even
+when later plumbing applied a different VPN address/DNS/MTU. Separately,
+<code>serve_dhcp</code> reported thread creation as success before namespace entry or UDP
+binding ran. A setup failure could therefore coexist with reported readiness.</p>
+<p>The responder now binds its socket in the verified namespace before returning
+success. That socket carries the namespace for subsequent I/O. Each request
+reads one complete shared lease snapshot; reapplying a plan updates a healthy
+same-namespace responder without rebinding port 67. A process-reference refresh
+invalidates grants while preserving a potentially reusable namespace socket.
+A changed namespace or removed Pod retires it. Failed responders invalidate
+fresh readiness and retry; the socket closes before exit is published.</p>
+<p>The invalid-namespace startup regression failed before the change and passes
+after. An isolated real-link fixture received both the original and updated
+address, DNS, MTU and lease duration from the same worker. A second bind failed
+synchronously with AddrInUse while the first server continued to answer.
+Default worker/readiness tests, client-only compilation and the full runtime
+gate passed; the explicit isolated kernel suite exercised four paths while
+two optional VPN fixtures skipped for missing tools.</p>
+<p>This updates later DHCP answers; it does not force a guest to renew or rewrite
+static NoCloud configuration. No live profile, Pod or route was changed.</p>
+<p><strong>Merged source:</strong> <code>033746a467bebccd87627e1530ec00a306a1a6ec</code>.
+<strong>Tracking:</strong> qrab <code>work/netd-dhcp-lease-generation</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
