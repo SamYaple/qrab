@@ -45,6 +45,69 @@ impl Drop for Netns {
     }
 }
 
+#[test]
+fn a_same_uid_sandbox_replacement_uses_a_new_namespace_token() {
+    // SAFETY: geteuid has no preconditions. Can run inside an isolated user
+    // namespace; this fixture changes no host link, route or Kubernetes Pod.
+    if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: needs namespace creation privileges");
+        return;
+    }
+    let first = Netns::new();
+    let next = Netns::new();
+    let root = tempfile::tempdir().unwrap();
+    let process = root.path().join("7");
+    std::fs::create_dir_all(process.join("ns")).unwrap();
+    let uid = "6b9f0c44-0000-4000-8000-0000000000dd";
+    std::fs::write(
+        process.join("cgroup"),
+        format!("0::/kubepods/pod{uid}/container\n"),
+    )
+    .unwrap();
+    let link = process.join("ns/net");
+    std::os::unix::fs::symlink(&first.path, &link).unwrap();
+    let old = qrab_netd::anchor::Anchor::find(root.path(), uid).unwrap();
+    let token = old.token();
+    sys::in_namespace(old.namespace().unwrap(), || {
+        ip("link add oldonly0 type dummy").map(drop)
+    })
+    .unwrap();
+    assert_eq!(
+        qrab_netd::anchor::Anchor::find(root.path(), uid)
+            .unwrap()
+            .token(),
+        token
+    );
+
+    // Same API UID, but the sandbox now names a different real namespace.
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink(&next.path, &link).unwrap();
+    assert!(old.ensure_current().is_err());
+    let replacement = qrab_netd::anchor::Anchor::find(root.path(), uid).unwrap();
+    assert_ne!(replacement.token(), token);
+    let original_task = first.path.clone();
+    drop(first);
+    for _ in 0..100 {
+        if !original_task.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(!original_task.exists(), "the old namespace's task exited");
+    // The descriptor still pins exactly the old resource after task exit;
+    // the replacement has no old interface. PID/name reuse cannot join them.
+    assert!(
+        sys::in_namespace(old.namespace().unwrap(), || ip("-o link show"))
+            .unwrap()
+            .contains("oldonly0")
+    );
+    assert!(
+        !sys::in_namespace(replacement.namespace().unwrap(), || ip("-o link show"))
+            .unwrap()
+            .contains("oldonly0")
+    );
+}
+
 fn ip(words: &str) -> io::Result<String> {
     sys::ip(&words.split(' ').map(str::to_owned).collect::<Vec<_>>())
 }

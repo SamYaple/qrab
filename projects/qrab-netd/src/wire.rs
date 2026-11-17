@@ -67,9 +67,9 @@ pub enum Op {
     Forward,
     /// Remove that route.
     Unforward,
-    /// Name the anchor Pod (UID) now serving the NIC on this node, once it
-    /// is plumbed. A manager compares it with the anchor its QEMU's queues
-    /// came from and re-attaches the NIC when the anchor was replaced.
+    /// Name the plumbed anchor/namespace incarnation serving this NIC.
+    /// The token is opaque: a manager compares it with the queues QEMU
+    /// holds and re-attaches when the Pod or its sandbox was replaced.
     Probe,
     /// Pull the NIC's conntrack entries ([`crate::ct`]) from the other
     /// node holding its address and import them here; the reply counts them.
@@ -107,7 +107,7 @@ struct Reply {
     tap: Option<String>,
     #[serde(default)]
     queues: u8,
-    /// UID of the anchor Pod whose tap a grant or probe refers to.
+    /// Opaque anchor/namespace token whose tap a grant or probe refers to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     anchor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -451,8 +451,8 @@ pub fn conntrack_pull(socket: &Path, nic: &str) -> io::Result<usize> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "the reply names no count"))
 }
 
-/// Ask which anchor Pod (UID) serves `nic` on this node now (the manager's
-/// side). Refused while that anchor is not plumbed.
+/// Ask which opaque anchor/namespace token serves `nic` on this node now
+/// (the manager's side). Refused while that namespace is not plumbed.
 pub fn probe(socket: &Path, nic: &str) -> io::Result<String> {
     let request = Request {
         nic: nic.to_owned(),

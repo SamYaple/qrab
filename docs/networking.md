@@ -161,9 +161,17 @@ VM owns: these relay policies belong to the removed stream datapath (see the
 - **Replacing an anchor.** Anchors hold no VM state, so a missing or Failed
   anchor is recreated on the VM Pod's node with the same address. A VM Pod on
   another node gets new anchors there. The running manager notices the new
-  anchor (qrab-netd's `probe` names another anchor UID) and re-plugs the NIC
-  with the new tap's queues ([Hot-attach](#hot-attach-and-detach)); the guest
-  sees the NIC leave and return.
+  anchor (qrab-netd's `probe` returns a different opaque attachment token)
+  and re-plugs the NIC with the new tap's queues
+  ([Hot-attach](#hot-attach-and-detach)); the guest sees the NIC leave and
+  return. The token includes the held network namespace's device/inode as
+  well as the Pod UID: recreating a sandbox within the same Pod also causes
+  recovery. Netd checks that its held process still occupies that namespace,
+  invalidates stale readiness, replumbs the replacement and restarts its
+  namespace-bound DHCP responder. QEMU releases the old backend before
+  asking for new queues; its VM identity, configured MAC and root port stay
+  the same. A netd restart observing the same namespace returns the same
+  token and does not by itself require a NIC replug.
 - **While the VM is off.** Existing anchors are left in place while
   `running: false`, and the NICs keep their addresses.
 - **Removal.** Removing a NIC deletes its anchor, then releases its address.

@@ -4,7 +4,7 @@
 //! qrab-netd's descriptors go to QEMU with `getfd`, then `netdev_add` and
 //! `device_add`; removal is `device_del`, the guest's unplug, then
 //! `netdev_del`. A NIC whose anchor Pod was replaced (qrab-netd's `probe`
-//! names another anchor) is re-plugged with fresh queues.
+//! names another Pod or network namespace) is re-plugged with fresh queues.
 use super::{config::Nic, hotplug::retry_delay_ms, Config};
 use crate::{Error, Result};
 use qapi_protocol::Qmp;
@@ -25,7 +25,7 @@ pub const UNPLUG_PATIENCE: Duration = Duration::from_secs(30);
 struct Attached {
     mac: String,
     slot: u8,
-    /// UID of the anchor whose queues QEMU holds, when qrab-netd named it.
+    /// Opaque Pod/namespace token for the queues QEMU holds.
     anchor: Option<String>,
 }
 
@@ -231,7 +231,7 @@ async fn step(config: &Config, qmp: &Qmp, nics: &mut Nics, now: Instant) -> Resu
 }
 
 /// Hand `nic`'s queues to QEMU and plug it into `nicport<slot>`. Returns the
-/// anchor UID the queues came from.
+/// opaque anchor/namespace token the queues came from.
 async fn attach(config: &Config, qmp: &Qmp, nic: &Nic, slot: u8) -> Result<Option<String>> {
     let socket = config.netd_socket.clone();
     let id = nic.id.clone();
@@ -561,7 +561,7 @@ mod tests {
         );
 
         // lan's anchor is replaced: re-plugged with fresh queues from the new one.
-        *serving.lock().unwrap() = "anchor-2".to_owned();
+        *serving.lock().unwrap() = "anchor-2@1:7".to_owned();
         nics.probed_at = None;
         reconcile(&config, &qmp, &mut nics).await;
         assert!(nics.changing());
@@ -582,7 +582,35 @@ mod tests {
                 "closefd nic-lan-v0",
             ]
         );
-        assert_eq!(nics.attached["lan"].anchor.as_deref(), Some("anchor-2"));
+        assert_eq!(nics.attached["lan"].anchor.as_deref(), Some("anchor-2@1:7"));
+        assert!(!nics.changing());
+
+        // The API Pod UID stays anchor-2, but its sandbox was recreated.
+        // Only the namespace part changes: the old backend is released
+        // before a new grant, with the same MAC and root port throughout.
+        *serving.lock().unwrap() = "anchor-2@1:9".to_owned();
+        nics.probed_at = None;
+        reconcile(&config, &qmp, &mut nics).await;
+        assert!(nics.changing());
+        assert!(names(&log).is_empty());
+        for _ in 0..3 {
+            reconcile(&config, &qmp, &mut nics).await;
+        }
+        assert_eq!(
+            names(&log),
+            [
+                "device_del nic-lan",
+                "qom-list",
+                "netdev_del nic-lan",
+                "getfd nic-lan-t0",
+                "getfd nic-lan-v0",
+                "netdev_add nic-lan fds=nic-lan-t0 vhostfds=nic-lan-v0",
+                "device_add nic-lan bus=nicport0 mac=02:00:00:00:00:01",
+                "closefd nic-lan-t0",
+                "closefd nic-lan-v0",
+            ]
+        );
+        assert_eq!(nics.attached["lan"].anchor.as_deref(), Some("anchor-2@1:9"));
         assert!(!nics.changing());
         qmp.shutdown().await;
     }

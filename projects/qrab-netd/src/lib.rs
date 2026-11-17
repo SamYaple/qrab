@@ -8,6 +8,8 @@
 //! tap and vhost-net descriptors, so restarting the agent never disturbs a
 //! running guest.
 #[cfg(feature = "agent")]
+pub mod anchor;
+#[cfg(feature = "agent")]
 pub mod authz;
 pub mod cgroup;
 pub mod ct;

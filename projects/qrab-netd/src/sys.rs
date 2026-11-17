@@ -722,6 +722,8 @@ pub fn serve_dhcp(
         if let Err(error) = run() {
             eprintln!("{}", serde_json::json!({"event":"dhcp_failed","detail":{"tap":tap,"error":error.to_string()}}));
         }
+        // A failed worker must not remain cached as a live responder.
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
     })?;
     Ok(())
 }

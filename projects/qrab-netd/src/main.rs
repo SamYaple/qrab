@@ -7,14 +7,14 @@ use kube::{
     Client, ResourceExt,
 };
 use qrab_netd::{
+    anchor::{Anchor, DhcpWorker},
     authz, natpmp, peer, peer_tls,
     plan::NicPlan,
-    process::{Process, SocketPeer},
+    process::SocketPeer,
     sys, wire, PLUMBED_CONDITION, PORT_FORWARD_CONDITION, SOCKET_DIR, SOCKET_NAME,
 };
 use std::{
     collections::HashMap,
-    fs::File,
     os::unix::{fs::PermissionsExt, net::UnixStream},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -34,8 +34,8 @@ type PortRound = (Instant, Result<u16, String>);
 struct Agent {
     proc_root: PathBuf,
     store: reflector::Store<Pod>,
-    /// Anchor UID → when its plan last applied cleanly.
-    plumbed: Mutex<HashMap<String, Instant>>,
+    /// Anchor UID → the namespace last plumbed and when it was verified.
+    plumbed: Mutex<HashMap<String, (Arc<Anchor>, Instant)>>,
     /// Anchor UID → the condition last written (status, message).
     reported: Mutex<HashMap<String, (bool, String)>>,
     /// One grant at a time, so the busy check and the attach cannot race.
@@ -43,8 +43,8 @@ struct Agent {
     /// The node's Cilium agent API socket (handoff states).
     cilium: PathBuf,
     namespace: String,
-    /// Anchor UID → its DHCP responder's stop flag.
-    dhcp: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
+    /// Anchor UID → its namespace-bound DHCP responder.
+    dhcp: Mutex<HashMap<String, DhcpWorker>>,
     /// Forward routes whose address no local anchor holds any more → since when.
     orphaned: Mutex<HashMap<std::net::Ipv4Addr, Instant>>,
     /// Pods of the VM namespace on every node (conntrack peers).
@@ -99,9 +99,9 @@ impl Agent {
             .retain(|uid, _| live.contains(uid));
         for pod in anchors {
             let uid = pod.uid().unwrap_or_default();
-            if !self.plumbed.lock().unwrap().contains_key(&uid) {
+            let Ok(anchor) = self.ready_anchor(&pod) else {
                 continue;
-            }
+            };
             let previous = self.forwarded.lock().unwrap().get(&uid).cloned();
             let due = previous.as_ref().is_none_or(|(at, result)| {
                 at.elapsed()
@@ -127,10 +127,10 @@ impl Agent {
                     continue;
                 }
             };
-            let result = match self.netns(&pod) {
-                Ok((_, ns)) => sys::in_namespace(ns, move || Ok(sys::map_forwarded_port(gateway)))
+            let result = match anchor.namespace() {
+                Ok(ns) => sys::in_namespace(ns, move || Ok(sys::map_forwarded_port(gateway)))
                     .unwrap_or_else(|e| Err(e.to_string())),
-                Err(error) => Err(error),
+                Err(error) => Err(error.to_string()),
             };
             let changed = previous.as_ref().map(|(_, r)| r) != Some(&result);
             self.forwarded
@@ -178,26 +178,36 @@ impl Agent {
         }
     }
 
-    fn netns(&self, pod: &Pod) -> Result<(Process, File), String> {
+    fn ready_anchor(&self, pod: &Pod) -> Result<Arc<Anchor>, String> {
         let uid = pod.uid().ok_or("Pod has no UID")?;
-        for process in sys::processes_of_pod(&self.proc_root, &uid) {
-            if let Ok(namespace) = process.network_namespace() {
-                return Ok((process, namespace));
-            }
-        }
-        Err("no running process of the anchor yet".into())
+        let anchor = self
+            .plumbed
+            .lock()
+            .unwrap()
+            .get(&uid)
+            .map(|(anchor, _)| anchor.clone())
+            .ok_or("NIC is not plumbed yet")?;
+        anchor.ensure_current().map_err(|e| e.to_string())?;
+        Ok(anchor)
     }
 
-    fn plumb(&self, pod: &Pod) -> Result<String, String> {
+    fn forget_namespace(&self, uid: &str) {
+        self.plumbed.lock().unwrap().remove(uid);
+        self.dhcp.lock().unwrap().remove(uid);
+        self.forwarded.lock().unwrap().remove(uid);
+    }
+
+    fn plumb(&self, pod: &Pod) -> Result<(String, Arc<Anchor>), String> {
+        let uid = pod.uid().ok_or("Pod has no UID")?;
+        let anchor = Arc::new(Anchor::find(&self.proc_root, &uid).map_err(|e| e.to_string())?);
         let mut plan = NicPlan::for_anchor(pod)?;
-        let (process, ns) = self.netns(pod)?;
         if NicPlan::is_vpn(pod) {
             plan = plan.with_tunnel(sys::read_tunnel(
                 &self.proc_root,
                 &pod.uid().unwrap_or_default(),
             )?);
         }
-        let resolver = sys::pod_resolver(&process);
+        let resolver = sys::pod_resolver(anchor.process());
         let summary = match &plan.vpn {
             Some(tunnel) => format!(
                 "tap {} routes {} only through wg0 to {}",
@@ -211,15 +221,20 @@ impl Agent {
             None => Some(qrab_netd::GUEST_GATEWAY),
         };
         let vpn = plan.vpn.is_some();
-        let mtu = sys::in_namespace(ns.try_clone().map_err(|e| e.to_string())?, move || {
+        let mtu = sys::in_namespace(anchor.namespace().map_err(|e| e.to_string())?, move || {
             sys::apply(&plan, resolver)
         })
         .map_err(|e| e.to_string())?;
-        // One DHCP responder per anchor, for guests that configure by DHCP.
-        let uid = pod.uid().unwrap_or_default();
-        if let std::collections::hash_map::Entry::Vacant(slot) =
-            self.dhcp.lock().unwrap().entry(uid)
+        // A responder's UDP socket pins its namespace. Replace it when the
+        // sandbox changes, even if Kubernetes kept the same Pod UID.
+        let mut workers = self.dhcp.lock().unwrap();
+        if workers
+            .get(&uid)
+            .is_some_and(|worker| !worker.serves(&anchor))
         {
+            workers.remove(&uid);
+        }
+        if let std::collections::hash_map::Entry::Vacant(slot) = workers.entry(uid) {
             let mac = qrab_netd::dhcp::mac(&guest_mac).ok_or("bad guest MAC")?;
             let lease = qrab_netd::dhcp::Lease {
                 mac,
@@ -228,11 +243,18 @@ impl Agent {
                 dns,
                 mtu: vpn.then(|| u16::try_from(mtu).unwrap_or(1420)),
             };
-            let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            sys::serve_dhcp(ns, tap, lease, stop.clone()).map_err(|e| e.to_string())?;
-            slot.insert(stop);
+            let worker = DhcpWorker::new(&anchor);
+            sys::serve_dhcp(
+                anchor.namespace().map_err(|e| e.to_string())?,
+                tap,
+                lease,
+                worker.stop_flag(),
+            )
+            .map_err(|e| e.to_string())?;
+            slot.insert(worker);
         }
-        Ok(summary)
+        anchor.ensure_current().map_err(|e| e.to_string())?;
+        Ok((summary, anchor))
     }
 
     fn grant(&self, stream: &UnixStream) -> Result<String, String> {
@@ -256,10 +278,8 @@ impl Agent {
         .map_err(|r| r.to_string())?;
         let anchor_uid = anchor.uid().unwrap_or_default();
         if request.op == wire::Op::Probe {
-            if !self.plumbed.lock().unwrap().contains_key(&anchor_uid) {
-                return Err(format!("NIC {:?} is not plumbed yet", request.nic));
-            }
-            wire::send_probe(stream, &anchor_uid).map_err(|e| e.to_string())?;
+            let ready = self.ready_anchor(anchor)?;
+            wire::send_probe(stream, &ready.token()).map_err(|e| e.to_string())?;
             return Ok(format!(
                 "pid {pid}: NIC {:?} is served by anchor {anchor_uid}",
                 request.nic
@@ -275,11 +295,9 @@ impl Agent {
             wire::send_ok(stream).map_err(|e| e.to_string())?;
             return Ok(format!("pid {pid}: {summary}"));
         }
-        if !self.plumbed.lock().unwrap().contains_key(&anchor_uid) {
-            return Err(format!("NIC {:?} is not plumbed yet", request.nic));
-        }
         let plan = NicPlan::for_anchor(anchor)?;
         let _one = self.granting.lock().unwrap();
+        let ready = self.ready_anchor(anchor)?;
         let holders = sys::tap_holders(&self.proc_root, &plan.tap);
         if !holders.is_empty() {
             return Err(format!(
@@ -287,12 +305,14 @@ impl Agent {
                 plan.tap
             ));
         }
-        let (_, ns) = self.netns(anchor)?;
         let (tap, queues) = (plan.tap.clone(), request.queues);
-        let taps = sys::in_namespace(ns, move || sys::open_tap_queues(&tap, queues))
-            .map_err(|e| e.to_string())?;
+        let taps = sys::in_namespace(ready.namespace().map_err(|e| e.to_string())?, move || {
+            sys::open_tap_queues(&tap, queues)
+        })
+        .map_err(|e| e.to_string())?;
         let vhosts = sys::open_vhost(queues).map_err(|e| e.to_string())?;
-        wire::send_grant(stream, &plan.tap, &anchor_uid, &taps, &vhosts)
+        ready.ensure_current().map_err(|e| e.to_string())?;
+        wire::send_grant(stream, &plan.tap, &ready.token(), &taps, &vhosts)
             .map_err(|e| e.to_string())?;
         Ok(format!(
             "pid {pid} received {queues} queue(s) of {} for NIC {:?}",
@@ -629,12 +649,26 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         .collect();
     for pod in &anchors {
         let uid = pod.uid().unwrap_or_default();
-        let fresh = agent
-            .plumbed
-            .lock()
-            .unwrap()
-            .get(&uid)
-            .is_some_and(|at| at.elapsed() < REVERIFY);
+        let cached = agent.plumbed.lock().unwrap().get(&uid).cloned();
+        let current = cached
+            .as_ref()
+            .is_some_and(|(anchor, _)| anchor.ensure_current().is_ok());
+        let fresh = current
+            && cached
+                .as_ref()
+                .is_some_and(|(_, at)| at.elapsed() < REVERIFY);
+        if !current {
+            agent.forget_namespace(&uid);
+            if cached.is_some() {
+                report(
+                    pods,
+                    agent,
+                    pod,
+                    &Err("anchor namespace changed; plumbing is pending".into()),
+                )
+                .await;
+            }
+        }
         // A rewritten VPN Secret (a server switch) is applied on the next
         // tick, not at the next re-verify.
         let digest = NicPlan::is_vpn(pod)
@@ -649,6 +683,14 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
         let outcome = tokio::task::spawn_blocking(move || worker.plumb(&target))
             .await
             .unwrap_or_else(|e| Err(e.to_string()));
+        let outcome = outcome.map(|(summary, anchor)| {
+            agent
+                .plumbed
+                .lock()
+                .unwrap()
+                .insert(uid.clone(), (anchor, Instant::now()));
+            summary
+        });
         match &outcome {
             Ok(_) => {
                 if let Some(digest) = digest {
@@ -658,10 +700,9 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
                         agent.forwarded.lock().unwrap().remove(&uid);
                     }
                 }
-                agent.plumbed.lock().unwrap().insert(uid, Instant::now());
             }
             Err(error) => {
-                agent.plumbed.lock().unwrap().remove(&uid);
+                agent.forget_namespace(&uid);
                 log(
                     "plumb_failed",
                     serde_json::json!({"pod": pod.name_any(), "error": error}),
@@ -672,13 +713,11 @@ async fn reconcile(agent: &Arc<Agent>, pods: &Api<Pod>) {
     }
     let live: Vec<String> = anchors.iter().filter_map(|p| p.uid()).collect();
     // A responder's socket pins its anchor's namespace: stop those of gone anchors.
-    agent.dhcp.lock().unwrap().retain(|uid, stop| {
-        let keep = live.contains(uid);
-        if !keep {
-            stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        keep
-    });
+    agent
+        .dhcp
+        .lock()
+        .unwrap()
+        .retain(|uid, _| live.contains(uid));
     agent
         .plumbed
         .lock()
