@@ -106,7 +106,9 @@ tree. The date of the evidence check does not make every diagram a new design.
 ## Rules for a defensible comparison
 
 Attribute the host-cgroup/libvirt deployment model and the two clusters to the
-operator's supplied context. Attribute general service duties to upstream.
+operator's supplied context. The host-cgroup description does not establish
+the OpenStack VMs' PID/mount namespace settings; those were not inspected.
+Attribute general service duties to upstream.
 Attribute qrab behavior to source and tests. Label desired contracts as desired.
 Do not turn a dated deployment record into a fresh measurement.
 

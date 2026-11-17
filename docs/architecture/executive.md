@@ -31,7 +31,7 @@ kernel, physical networking and backing storage remain necessary.
 | Keystone | Kubernetes API auth/RBAC for declarative operations; OIDC user grants for browser/Redfish; SPIFFE/SPIRE for workloads |
 | Glance | `BaseImage` catalog/import controller, verified import Jobs and sealed image generations; broader catalog/distribution work remains |
 | Cinder | Provisioned disk reconciliation and separately authorized storage verbs; broader volume lifecycle and recovery work remains |
-| Horizon | qrab dashboard, per-VM BMC console and Redfish management |
+| Horizon, if used | qrab dashboard, per-VM BMC console and Redfish management |
 
 These are responsibility mappings, not interchangeable APIs. Nova is more than
 a libvirt caller, Neutron is more than a switch, and identity is more than a

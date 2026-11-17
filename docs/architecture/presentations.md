@@ -91,7 +91,8 @@ provides another discussion or handout view.
 Use a failure-first sequence: the guest is off but management is up; a NIC
 cannot reach the world; the storage API is down but guest I/O continues; a
 node disappears; a migration has two visible Pods; a deletion waits on one
-finalizer; a user can log in but cannot power a VM. In each case, identify the
+finalizer; a user can log in but cannot power a VM; a reused Pod name appears
+to have history older than its current UID. In each case, identify the
 authoritative owner, the evidence to collect and the unsafe inference to
 avoid. The [operations matrix](operations.md) supplies the answers.
 
@@ -102,7 +103,7 @@ operations. Use the current-state maps to assign on-call ownership and the
 capability ledger to decide which drills must pass for a workload.
 
 Suggested visuals: power state, failure domains, storage control/data,
-migration streams, deletion ownership and release boundaries.
+migration streams, deletion ownership, historical identity and release boundaries.
 
 ## One-page handout
 

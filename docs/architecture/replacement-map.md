@@ -26,7 +26,7 @@ backend, floating-IP configuration or identity federation configuration.
 | Glance | Replace; finish required subset | BaseImage controller, import Jobs, storage service | Verify source, import, catalog, seal, retire and distribute images | Existing implementation covers a constrained raw/qcow2 generation workflow |
 | Cinder | Replace; finish required subset | Disk reconciler, storage service, `qrab-iscsi-target` | Provision, attach/export, grow, fence, retain and recover volumes | Guest disks currently use QEMU libiscsi, not a generic CSI block attach path |
 | Backing storage / CSI | Keep where needed | Storage platform | Durable bytes and small filesystem state volumes | CSI handles retained firmware/TPM state separately from native guest LUNs |
-| Horizon | Replace for required subset | Dashboard + BMC + Redfish | Discovery, launch and management UI | Access is VM-scoped and OIDC-authorized |
+| Horizon, if used | Replace for required subset | Dashboard + BMC + Redfish | Discovery, launch and management UI | Access is VM-scoped and OIDC-authorized |
 | OpenStack-specific SQL / messaging | Remove when no consumers remain | Kubernetes object/watch model for qrab control | Durable intent and retryable coordination | Other services may still need databases; existing systems must be inventoried first |
 | Monitoring / logs | Keep and adapt | Prometheus, qrab adapter, Redfish, platform logging | Health, metrics, events and investigation | Bounded event history is not a durable audit log |
 | Guest operating systems / applications | Keep or reconfigure explicitly | Workload owners | Application behavior and data | No automatic conversion or cross-platform live migration is promised |

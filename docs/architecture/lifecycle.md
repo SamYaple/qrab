@@ -82,6 +82,10 @@ status keeps the known execution binding. [A22](audit.md) records the private
 API regressions and repair; these checks do not establish a runtime/network
 or storage transaction.
 
+The verified target UID is first persisted in a separate status step, even
+when an ungated target finishes before its first controller observation.
+[A25](audit.md) verifies this fast-handover ordering and completion retry.
+
 ![Published migration adoption receipt](diagrams/rendered/light/57-migration-adoption-receipt.svg)
 
 Shared disks are not copied. Unsupported firmware/management state and

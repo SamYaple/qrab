@@ -12,7 +12,7 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 225b4aa0892c · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 3dcbb7385277 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
 <div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-runtime" data-doc="runtime">Runtime engineer&#x27;s view: what replaces libvirt</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-observability" data-doc="observability">SRE view: current state, retained history and authority</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>33 document views · 62 unique diagrams · 8 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a> <a href="exports/runtime.html">Direct QEMU management slides</a> · <a href="exports/runtime.pptx">PPTX</a> · <a href="exports/runtime.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
@@ -329,7 +329,7 @@ kernel, physical networking and backing storage remain necessary.
 | keystone | kubernetes api auth/rbac for declarative operations; oidc user grants for browser/redfish; spiffe/spire for workloads |
 | glance | `baseimage` catalog/import controller, verified import jobs and sealed image generations; broader catalog/distribution work remains |
 | cinder | provisioned disk reconciliation and separately authorized storage verbs; broader volume lifecycle and recovery work remains |
-| horizon | qrab dashboard, per-vm bmc console and redfish management |
+| horizon, if used | qrab dashboard, per-vm bmc console and redfish management |
 
 these are responsibility mappings, not interchangeable apis. nova is more than
 a libvirt caller, neutron is more than a switch, and identity is more than a
@@ -418,7 +418,7 @@ kernel, physical networking and backing storage remain necessary.</p>
 <td>Provisioned disk reconciliation and separately authorized storage verbs; broader volume lifecycle and recovery work remains</td>
 </tr>
 <tr>
-<td>Horizon</td>
+<td>Horizon, if used</td>
 <td>qrab dashboard, per-VM BMC console and Redfish management</td>
 </tr>
 </tbody>
@@ -480,7 +480,7 @@ backend, floating-ip configuration or identity federation configuration.
 | glance | replace; finish required subset | baseimage controller, import jobs, storage service | verify source, import, catalog, seal, retire and distribute images | existing implementation covers a constrained raw/qcow2 generation workflow |
 | cinder | replace; finish required subset | disk reconciler, storage service, `qrab-iscsi-target` | provision, attach/export, grow, fence, retain and recover volumes | guest disks currently use qemu libiscsi, not a generic csi block attach path |
 | backing storage / csi | keep where needed | storage platform | durable bytes and small filesystem state volumes | csi handles retained firmware/tpm state separately from native guest luns |
-| horizon | replace for required subset | dashboard + bmc + redfish | discovery, launch and management ui | access is vm-scoped and oidc-authorized |
+| horizon, if used | replace for required subset | dashboard + bmc + redfish | discovery, launch and management ui | access is vm-scoped and oidc-authorized |
 | openstack-specific sql / messaging | remove when no consumers remain | kubernetes object/watch model for qrab control | durable intent and retryable coordination | other services may still need databases; existing systems must be inventoried first |
 | monitoring / logs | keep and adapt | prometheus, qrab adapter, redfish, platform logging | health, metrics, events and investigation | bounded event history is not a durable audit log |
 | guest operating systems / applications | keep or reconfigure explicitly | workload owners | application behavior and data | no automatic conversion or cross-platform live migration is promised |
@@ -649,7 +649,7 @@ backend, floating-IP configuration or identity federation configuration.</p>
 <td>CSI handles retained firmware/TPM state separately from native guest LUNs</td>
 </tr>
 <tr>
-<td>Horizon</td>
+<td>Horizon, if used</td>
 <td>Replace for required subset</td>
 <td>Dashboard + BMC + Redfish</td>
 <td>Discovery, launch and management UI</td>
@@ -4807,6 +4807,10 @@ status keeps the known execution binding. [a22](audit.md) records the private
 api regressions and repair; these checks do not establish a runtime/network
 or storage transaction.
 
+the verified target uid is first persisted in a separate status step, even
+when an ungated target finishes before its first controller observation.
+[a25](audit.md) verifies this fast-handover ordering and completion retry.
+
 ![published migration adoption receipt](diagrams/rendered/light/57-migration-adoption-receipt.svg)
 
 shared disks are not copied. unsupported firmware/management state and
@@ -4930,6 +4934,9 @@ owner/intent, and mutations/deletes retain UID/version conditions. Refusal
 status keeps the known execution binding. <a href="#doc-audit">A22</a> records the private
 API regressions and repair; these checks do not establish a runtime/network
 or storage transaction.</p>
+<p>The verified target UID is first persisted in a separate status step, even
+when an ungated target finishes before its first controller observation.
+<a href="#doc-audit">A25</a> verifies this fast-handover ordering and completion retry.</p>
 <p><img src="diagrams/rendered/light/57-migration-adoption-receipt.svg" alt="Published migration adoption receipt" /></p>
 <p>Shared disks are not copied. Unsupported firmware/management state and
 auxiliary PVC sharing requirements remain admission limits. A powered-off
@@ -6645,10 +6652,11 @@ different facts. a test that silently skips is not live evidence. use the
 
 ## what did this review actually fix?
 
-it found and repaired label-only state-pvc adoption, access-list-driven group
-cleanup, image metadata selecting unverified backing/data dependencies, and
-host cgroup names impersonating pod identity, and process/path lifetime gaps
-in privileged resource selection.
+the repairs span cleanup provenance, held process/namespace authority,
+network-generation lifetime, conditional api effects, actual device budgets
+and input-path integrity. later cases cover migration adoption/completion
+retries and historical metrics crossing a reused pod name. each category has
+reproduced refusal/retention cases and appropriate local checks.
 the [audit](audit.md) records regression evidence and merged shas.
 source merges do not mean the fixes are already in deployed images.
 
@@ -6733,10 +6741,11 @@ tests, privileged kernel tests and live workload/cluster acceptance establish
 different facts. A test that silently skips is not live evidence. Use the
 <a href="#doc-capabilities">capability ledger</a> and <a href="#doc-transition">transition plan</a>.</p>
 <h2 id="questions--what-did-this-review-actually-fix">What did this review actually fix?</h2>
-<p>It found and repaired label-only state-PVC adoption, access-list-driven group
-cleanup, image metadata selecting unverified backing/data dependencies, and
-host cgroup names impersonating Pod identity, and process/path lifetime gaps
-in privileged resource selection.
+<p>The repairs span cleanup provenance, held process/namespace authority,
+network-generation lifetime, conditional API effects, actual device budgets
+and input-path integrity. Later cases cover migration adoption/completion
+retries and historical metrics crossing a reused Pod name. Each category has
+reproduced refusal/retention cases and appropriate local checks.
 The <a href="#doc-audit">audit</a> records regression evidence and merged SHAs.
 Source merges do not mean the fixes are already in deployed images.</p>
 <h2 id="questions--is-it-cheaper-faster-or-more-reliable">Is it cheaper, faster or more reliable?</h2>
@@ -7190,7 +7199,8 @@ provides another discussion or handout view.
 use a failure-first sequence: the guest is off but management is up; a nic
 cannot reach the world; the storage api is down but guest i/o continues; a
 node disappears; a migration has two visible pods; a deletion waits on one
-finalizer; a user can log in but cannot power a vm. in each case, identify the
+finalizer; a user can log in but cannot power a vm; a reused pod name appears
+to have history older than its current uid. in each case, identify the
 authoritative owner, the evidence to collect and the unsafe inference to
 avoid. the [operations matrix](operations.md) supplies the answers.
 
@@ -7201,7 +7211,7 @@ operations. use the current-state maps to assign on-call ownership and the
 capability ledger to decide which drills must pass for a workload.
 
 suggested visuals: power state, failure domains, storage control/data,
-migration streams, deletion ownership and release boundaries.
+migration streams, deletion ownership, historical identity and release boundaries.
 
 ## one-page handout
 
@@ -7439,7 +7449,8 @@ provides another discussion or handout view.</p>
 <p>Use a failure-first sequence: the guest is off but management is up; a NIC
 cannot reach the world; the storage API is down but guest I/O continues; a
 node disappears; a migration has two visible Pods; a deletion waits on one
-finalizer; a user can log in but cannot power a VM. In each case, identify the
+finalizer; a user can log in but cannot power a VM; a reused Pod name appears
+to have history older than its current UID. In each case, identify the
 authoritative owner, the evidence to collect and the unsafe inference to
 avoid. The <a href="#doc-operations">operations matrix</a> supplies the answers.</p>
 <p>Then compare the old and target responsibilities: fewer duplicated control
@@ -7448,7 +7459,7 @@ target still requires disciplined storage, networking, identity and release
 operations. Use the current-state maps to assign on-call ownership and the
 capability ledger to decide which drills must pass for a workload.</p>
 <p>Suggested visuals: power state, failure domains, storage control/data,
-migration streams, deletion ownership and release boundaries.</p>
+migration streams, deletion ownership, historical identity and release boundaries.</p>
 <h2 id="presentations--one-page-handout">One-page handout</h2>
 <p>Use <a href="#doc-executive">the executive brief</a> and the matched overview pair. Keep
 the replacement table and three statements: QEMU/KVM remain; one Cilium fabric
@@ -7591,7 +7602,7 @@ these repairs.
 | local process and provider authority | a05, a06, a11, a14 | a name or numeric pid cannot replace the authorized current resource |
 | attachment and applied-state lifetime | a07, a10, a12, a13, a19 | namespace, lease, config, endpoint and route changes retain their own incarnation |
 | stream/descriptor ownership | a08 | bound the whole frame and own every delivered descriptor through refusal/cleanup |
-| delayed api observations | a09, a20, a21, a22, a24 | status belongs to the observed object uid/version |
+| delayed api observations | a09, a20, a21, a22, a24, a25 | status belongs to the observed object uid/version |
 | image/media inputs | a04, a17 | validate the actual self-contained input selected for use |
 | resource budget and reporting scope | a16, a18 | actual device blocks and reported counters stay within the checked boundary |
 
@@ -8433,6 +8444,29 @@ would need its own proven provenance and authorization contract.
 **merged source:** `225b4aa0892cee0c375898804723df3266e1c00f`.
 **tracking:** qrab `work/metric-history-pod-incarnation`.
 
+## a25 — a fast handover could precede durable target identity
+
+**location:** operator migration target observation/adoption ordering.
+**repair baseline:** `225b4aa`.
+
+a target without a storage scheduling gate can finish before the controller&#x27;s
+first observation. the early handover branch then adopted it before the later
+uid-recording step. a valid private api event ordering reproduced completion
+with `targetpoduid` still absent, leaving a lost final completion write without
+the uid needed to recognize its adoption receipt.
+
+the existing conditional uid/status observation step now runs immediately
+after target-owner/identity validation, before adoption or release of a
+storage scheduling gate. a separate reconcile then adopts the already bound
+target. the regression requires uid persistence first, injects a completion-write conflict,
+and requires recovered succeeded/cleaned state, retained target resources and
+old-source retirement. this is controller/api evidence, not a new real guest
+or cluster run. all 27 migration cases, the full runtime gate, comparisons
+of generated resources and strict clippy pass.
+
+**merged source:** `3dcbb7385277ca7975afd3076b9c352429ce7f39`.
+**tracking:** qrab `work/migration-fast-handover-target-uid`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -8539,7 +8573,7 @@ these repairs.</p>
 </tr>
 <tr>
 <td>Delayed API observations</td>
-<td>A09, A20, A21, A22, A24</td>
+<td>A09, A20, A21, A22, A24, A25</td>
 <td>Status belongs to the observed object UID/version</td>
 </tr>
 <tr>
@@ -9220,6 +9254,24 @@ current-Pod history; a VM-wide history product across former incarnations
 would need its own proven provenance and authorization contract.</p>
 <p><strong>Merged source:</strong> <code>225b4aa0892cee0c375898804723df3266e1c00f</code>.
 <strong>Tracking:</strong> qrab <code>work/metric-history-pod-incarnation</code>.</p>
+<h2 id="audit--a25--a-fast-handover-could-precede-durable-target-identity">A25 — a fast handover could precede durable target identity</h2>
+<p><strong>Location:</strong> operator migration target observation/adoption ordering.
+<strong>Repair baseline:</strong> <code>225b4aa</code>.</p>
+<p>A target without a storage scheduling gate can finish before the controller's
+first observation. The early handover branch then adopted it before the later
+UID-recording step. A valid private API event ordering reproduced completion
+with <code>targetPodUid</code> still absent, leaving a lost final completion write without
+the UID needed to recognize its adoption receipt.</p>
+<p>The existing conditional UID/status observation step now runs immediately
+after target-owner/identity validation, before adoption or release of a
+storage scheduling gate. A separate reconcile then adopts the already bound
+target. The regression requires UID persistence first, injects a completion-write conflict,
+and requires recovered Succeeded/cleaned state, retained target resources and
+old-source retirement. This is controller/API evidence, not a new real guest
+or cluster run. All 27 migration cases, the full runtime gate, comparisons
+of generated resources and strict Clippy pass.</p>
+<p><strong>Merged source:</strong> <code>3dcbb7385277ca7975afd3076b9c352429ce7f39</code>.
+<strong>Tracking:</strong> qrab <code>work/migration-fast-handover-target-uid</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -9381,7 +9433,9 @@ tree. the date of the evidence check does not make every diagram a new design.
 ## rules for a defensible comparison
 
 attribute the host-cgroup/libvirt deployment model and the two clusters to the
-operator&#x27;s supplied context. attribute general service duties to upstream.
+operator&#x27;s supplied context. the host-cgroup description does not establish
+the openstack vms&#x27; pid/mount namespace settings; those were not inspected.
+attribute general service duties to upstream.
 attribute qrab behavior to source and tests. label desired contracts as desired.
 do not turn a dated deployment record into a fresh measurement.
 
@@ -9717,7 +9771,9 @@ tree. The date of the evidence check does not make every diagram a new design.</
 </table>
 <h2 id="evidence--rules-for-a-defensible-comparison">Rules for a defensible comparison</h2>
 <p>Attribute the host-cgroup/libvirt deployment model and the two clusters to the
-operator's supplied context. Attribute general service duties to upstream.
+operator's supplied context. The host-cgroup description does not establish
+the OpenStack VMs' PID/mount namespace settings; those were not inspected.
+Attribute general service duties to upstream.
 Attribute qrab behavior to source and tests. Label desired contracts as desired.
 Do not turn a dated deployment record into a fresh measurement.</p>
 <p>The native MACsec and Cilium WireGuard records describe different segments.

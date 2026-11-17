@@ -103,10 +103,11 @@ different facts. A test that silently skips is not live evidence. Use the
 
 ## What did this review actually fix?
 
-It found and repaired label-only state-PVC adoption, access-list-driven group
-cleanup, image metadata selecting unverified backing/data dependencies, and
-host cgroup names impersonating Pod identity, and process/path lifetime gaps
-in privileged resource selection.
+The repairs span cleanup provenance, held process/namespace authority,
+network-generation lifetime, conditional API effects, actual device budgets
+and input-path integrity. Later cases cover migration adoption/completion
+retries and historical metrics crossing a reused Pod name. Each category has
+reproduced refusal/retention cases and appropriate local checks.
 The [audit](audit.md) records regression evidence and merged SHAs.
 Source merges do not mean the fixes are already in deployed images.
 

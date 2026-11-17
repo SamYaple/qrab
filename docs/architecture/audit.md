@@ -14,7 +14,7 @@ these repairs.
 | Local process and provider authority | A05, A06, A11, A14 | A name or numeric PID cannot replace the authorized current resource |
 | Attachment and applied-state lifetime | A07, A10, A12, A13, A19 | Namespace, lease, config, endpoint and route changes retain their own incarnation |
 | Stream/descriptor ownership | A08 | Bound the whole frame and own every delivered descriptor through refusal/cleanup |
-| Delayed API observations | A09, A20, A21, A22, A24 | Status belongs to the observed object UID/version |
+| Delayed API observations | A09, A20, A21, A22, A24, A25 | Status belongs to the observed object UID/version |
 | Image/media inputs | A04, A17 | Validate the actual self-contained input selected for use |
 | Resource budget and reporting scope | A16, A18 | Actual device blocks and reported counters stay within the checked boundary |
 
@@ -855,6 +855,29 @@ would need its own proven provenance and authorization contract.
 
 **Merged source:** `225b4aa0892cee0c375898804723df3266e1c00f`.
 **Tracking:** qrab `work/metric-history-pod-incarnation`.
+
+## A25 — a fast handover could precede durable target identity
+
+**Location:** operator migration target observation/adoption ordering.
+**Repair baseline:** `225b4aa`.
+
+A target without a storage scheduling gate can finish before the controller's
+first observation. The early handover branch then adopted it before the later
+UID-recording step. A valid private API event ordering reproduced completion
+with `targetPodUid` still absent, leaving a lost final completion write without
+the UID needed to recognize its adoption receipt.
+
+The existing conditional UID/status observation step now runs immediately
+after target-owner/identity validation, before adoption or release of a
+storage scheduling gate. A separate reconcile then adopts the already bound
+target. The regression requires UID persistence first, injects a completion-write conflict,
+and requires recovered Succeeded/cleaned state, retained target resources and
+old-source retirement. This is controller/API evidence, not a new real guest
+or cluster run. All 27 migration cases, the full runtime gate, comparisons
+of generated resources and strict Clippy pass.
+
+**Merged source:** `3dcbb7385277ca7975afd3076b9c352429ce7f39`.
+**Tracking:** qrab `work/migration-fast-handover-target-uid`.
 
 ## Validation repair: the HTTP power fixture depended on test order
 

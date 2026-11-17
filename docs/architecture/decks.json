@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "225b4aa0892cee0c375898804723df3266e1c00f",
+  "reviewed_through": "3dcbb7385277ca7975afd3076b9c352429ce7f39",
   "decks": [
     {
       "id": "leadership",
@@ -106,7 +106,7 @@
         {
           "kind": "diagram",
           "diagram": "05-cgroup-comparison",
-          "notes": "The cgroup comparison applies to the supplied libvirt deployment. qrab supervises QEMU directly in the manager container. Privileged attachment helpers stay outside that local VM boundary.",
+          "notes": "The cgroup comparison applies to the supplied libvirt deployment. qrab supervises QEMU directly in the manager container. Privileged attachment helpers stay outside that local VM boundary. The OpenStack side establishes the supplied cgroup arrangement; its PID/mount namespace configuration was not inspected.",
           "evidence": [
             "S02",
             "S04"
@@ -320,7 +320,7 @@
         {
           "kind": "diagram",
           "diagram": "05-cgroup-comparison",
-          "notes": "Direct supervision aligns QEMU with its VM-specific container lifecycle and resource accounting. Process cleanup retains state authority through child reaping.",
+          "notes": "Direct supervision aligns QEMU with its VM-specific container lifecycle and resource accounting. Process cleanup retains state authority through child reaping. The OpenStack side establishes the supplied cgroup arrangement; its PID/mount namespace configuration was not inspected.",
           "evidence": [
             "S02",
             "S04",
