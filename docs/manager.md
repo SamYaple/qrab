@@ -240,6 +240,16 @@ qrab-manager anchor
 `boot`, `firmware`, `secure-boot`, `settings`, `resources`, `media` or the
 redacted `config`) and `control` sends one typed socket operation read from
 stdin (at most 384 KiB); both need an absolute `--socket` path.
+
+Service resource queries report the service process's own counters.
+Container totals additionally require `QRAB_RESOURCE_SCOPE=container`, unified
+cgroup membership and an identifiable non-root cgroup. A private cgroup
+namespace can show that group as `/`; the non-root-only `cgroup.type` interface
+distinguishes it from the actual hierarchy root, including with disabled
+controllers or unlimited resource limits. Ambiguous root views omit container
+totals, preserving process metrics without relabeling global CPU counters as
+a container's usage.
+
 `anchor` is a NIC anchor Pod's only process: it holds the Pod, and so its
 network namespace where qrab-netd builds the tap, until SIGTERM
 ([networking.md](networking.md)).

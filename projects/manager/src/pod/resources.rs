@@ -45,7 +45,7 @@ pub struct ContainerResources {
 impl ResourceUsage {
     /// Process counters always refer to this service process. Container totals
     /// require an operator-provided `QRAB_RESOURCE_SCOPE=container` and a v2
-    /// cgroup whose process-membership list contains this process's PID.
+    /// identifiable non-root cgroup whose membership contains this process.
     pub fn sample() -> Self {
         sample_at(
             Path::new("/proc"),
@@ -133,7 +133,15 @@ fn container_path(proc_root: &Path, cgroup_root: &Path, pid: u32) -> Option<Path
     {
         return None;
     }
+    let root_view = path == Path::new("/");
     let path = cgroup_root.join(path.strip_prefix("/").ok()?);
+    // '/' may be a private namespace's view of a non-root cgroup or the
+    // actual hierarchy root. The core cgroup.type interface exists only on
+    // non-root cgroups, independently of enabled resource controllers.
+    // Membership alone also admits the hierarchy root's aggregate counters.
+    if root_view && !path.join("cgroup.type").is_file() {
+        return None;
+    }
     let processes = text(path.join("cgroup.procs"))?;
     processes
         .lines()
@@ -240,6 +248,40 @@ mod tests {
         std::fs::write(proc.join("self/cgroup"), "0::/../host\n").unwrap();
         assert!(sample_at(&proc, &cg, true, 42).container.is_none());
     }
+    #[test]
+    fn hierarchy_root_is_not_a_container_but_private_namespace_root_can_be() {
+        let temp = tempfile::tempdir().unwrap();
+        let proc = temp.path().join("proc");
+        let cg = temp.path().join("cgroup");
+        std::fs::create_dir_all(proc.join("self")).unwrap();
+        std::fs::create_dir(&cg).unwrap();
+        std::fs::write(proc.join("self/cgroup"), "0::/\n").unwrap();
+        std::fs::write(proc.join("self/status"), "VmRSS:\t42 kB\n").unwrap();
+        std::fs::write(cg.join("cgroup.procs"), "42\n").unwrap();
+        std::fs::write(cg.join("cpu.stat"), "usage_usec 1250000\n").unwrap();
+        // The real hierarchy root has aggregate accounting but no cgroup.type
+        // interface. Membership alone cannot call its totals a container.
+        let root = sample_at(&proc, &cg, true, 42);
+        assert!(
+            root.container.is_none(),
+            "global root totals exposed as a container"
+        );
+        assert_eq!(root.process.resident_memory_bytes, Some(42 * 1024));
+
+        // A non-root cgroup can appear as '/' in a private cgroup namespace,
+        // even with resource controllers disabled or unlimited.
+        std::fs::write(cg.join("cgroup.type"), "domain\n").unwrap();
+        assert!(sample_at(&proc, &cg, true, 42).container.is_some());
+        std::fs::write(cg.join("cpu.max"), "max 100000\n").unwrap();
+        let private = sample_at(&proc, &cg, true, 42).container.unwrap();
+        assert_eq!(private.cpu_usage_seconds, Some(1.25));
+        assert_eq!(private.cpu_limit_cores, None);
+        assert!(sample_at(&proc, &cg, true, 43).container.is_none());
+        std::fs::remove_file(cg.join("cpu.max")).unwrap();
+        std::fs::write(cg.join("memory.max"), "max\n").unwrap();
+        assert!(sample_at(&proc, &cg, true, 42).container.is_some());
+    }
+
     #[test]
     fn missing_measurements_are_absent_not_zero_usage() {
         let temp = tempfile::tempdir().unwrap();
