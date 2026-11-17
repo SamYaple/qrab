@@ -1,0 +1,12 @@
+flowchart TB
+    chunks["Unix stream chunks / SCM_RIGHTS"] --> own["Own every installed descriptor immediately"]
+    own --> trunc{"Ancillary truncation / unexpected control?"}
+    trunc -->|yes| close["Refuse and close owned descriptors"]
+    trunc -->|no| frame["Accumulate bounded JSON frame"]
+    frame --> deadline{"Within total deadline / byte / FD bounds?"}
+    deadline -->|no| close
+    deadline -->|yes, incomplete| chunks
+    deadline -->|newline or legacy EOF| parse["Decode success and validate queue / FD count"]
+    parse -->|invalid or refused| close
+    parse -->|valid grant| grant["Transfer owned TAP / vhost queues to manager"]
+    grant --> qemu["QEMU kernel queues carry guest packets"]

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "95901a9d7d0745650fa1b47c6562a32c0d46ce1f9d80e65a24718beafae20ac1",
+  "catalog_sha256": "a25e61f5914f05914130e0f9fce2db190346e376270dacb72b69636ca503deea",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -136,13 +136,13 @@
     "08-identity-questions": {
       "height": 394,
       "outputs": {
-        "dark/08-identity-questions.svg": "c4af3dd885acb46f463221c6e8695a6bce41836718e1507fa21bba503b2b498b",
-        "light/08-identity-questions.svg": "77e469ad576d99f78412b38034a652b8278c5e0051d368426f59c0219cff8513",
-        "png/08-identity-questions.png": "65c2f0095d9a96e7a5f83202822757576e4cd361a7cd203c36f00a2a096e73d8",
-        "print/08-identity-questions.svg": "226b7e3c8ce2cab57dfa51ec95f9b48eb297d72ed1057ebc2d45b07981cd1f59"
+        "dark/08-identity-questions.svg": "4951fb44b2ae3e3f0fa50d5abad00885befb2e5f44f7f2fd16b778c9478cf6ef",
+        "light/08-identity-questions.svg": "4bb5a4c78b7a3cb8413ad7a082fd4a199e969ce057acbef4156c6e2bddb0e6dc",
+        "png/08-identity-questions.png": "e2123a806b2573734cc10a703f15927913c50e3efb79e99374be48f26e9f89c1",
+        "print/08-identity-questions.svg": "f3fc7f975d0e36ed116b72b99a69c2216ca89226cdc064a6d8e3ac7256490a7e"
       },
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
-      "source_sha256": "b546f82cd5e7da35526ea39c4b958ddd89f35635f4af4eda5b65fa22a3ac2697",
+      "source_sha256": "cd4ff3732679d27ccea2f5c1c843d7c5b74b9a193fad417e6935e1290f674c9a",
       "width": 936
     },
     "09-launch-sequence": {
@@ -408,6 +408,54 @@
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "137b57c0bf48bbea9368010a2506c59a977504c63d491f42a60da6905b0461ec",
       "width": 409
+    },
+    "31-namespace-incarnation": {
+      "height": 1055,
+      "outputs": {
+        "dark/31-namespace-incarnation.svg": "bf2152c98351751970c59f3c3cc3c9faa980487b4f656f0f1c2d80b9121b2ac3",
+        "light/31-namespace-incarnation.svg": "17284a9feb005bf35e6aa85f26c8d6ffb80b669278e8fc3d7182cc8c75b80af9",
+        "png/31-namespace-incarnation.png": "fc964b8e03f07a649aa8c8cf0af0dc2109adbbd0974ff6bae1cef4c4830f325e",
+        "print/31-namespace-incarnation.svg": "3d5d6f02873c2d40fc331496991fc85dc69fb8915ec2cb34db3254910141a14d"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "bdf52b0e5bb2593dca20f9bfda21f62f01fd6337d51b59283f7538bd57099bf1",
+      "width": 853
+    },
+    "32-descriptor-frame": {
+      "height": 1488,
+      "outputs": {
+        "dark/32-descriptor-frame.svg": "472d2c11d3997797f96109ffe58d6982c2e4dee827b05727e803ed88c8c10490",
+        "light/32-descriptor-frame.svg": "30b9a91415b988921baa6729d4651abc1d5eca75d29b89a65124ab6f9f4d9b5d",
+        "png/32-descriptor-frame.png": "9c778f01d53bad8f210aafe3e3f8796518ddae9446be621e484d3386a05020fa",
+        "print/32-descriptor-frame.svg": "440342a94d15c45a530884c739ec7c955f0ad2bf2ee104665f36e3adef2f3ffd"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "19accbacb2fdba3be01c38f6249d429b5a9dc9e4d47889af9f67eb30f49bd670",
+      "width": 491
+    },
+    "33-library-runtime-views": {
+      "height": 1121,
+      "outputs": {
+        "dark/33-library-runtime-views.svg": "e2f07b18b8ecf94b3988f89548e5dde3e45cf27e18008618a760709f286b4bd4",
+        "light/33-library-runtime-views.svg": "8b8526d6fd303354c34829ea5a3c91e06a803251668f0b2aab608d9534bf0c26",
+        "png/33-library-runtime-views.png": "19778baa01ecaf1c33423ec7a8a5f0f53916eb6da2cf9f03c14d08e557801d8f",
+        "print/33-library-runtime-views.svg": "900710b0e1166e2e7dc5e344162159fd3c78708ea86586ca3ea7d391c39a045c"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "927dd39596788a854592462603a801fa0e131145bc6b30d4293237cace998381",
+      "width": 418
+    },
+    "34-evidence-classes": {
+      "height": 900,
+      "outputs": {
+        "dark/34-evidence-classes.svg": "846ddb5e795ec602ba0bbcf8ea8a22f67bc8ddd31e7a1b53db287b30ebe80503",
+        "light/34-evidence-classes.svg": "d8fac2a55fe76e804beea6e10de773829e600e0644fc74f5b74a4720c89d9862",
+        "png/34-evidence-classes.png": "e6fa11b7277547e4c8cdc2be33168d986be76be266d0878f912a0ce2cf98198d",
+        "print/34-evidence-classes.svg": "789d0d7082072d2e97285a98f40aac4b2623cbeca701da9ac928f0c617a82e2b"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "57be69ece37eaf35f5922068c5d07bbc2a3ac8f06c01e77f5eefff80e61c63c4",
+      "width": 1600
     }
   },
   "mermaid_version": "12.3.0"

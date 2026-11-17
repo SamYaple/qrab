@@ -34,10 +34,12 @@ node.
   listeners bind literal loopback. A guest on the same network
   namespace could reach those listeners, and policies selecting the VM Pod would
   have to treat guest traffic and BMC traffic as one identity.
-- **Upstream Cilium gives one endpoint per Pod.** A second interface inside the
-  VM Pod would share its identity and IP. A separate Pod gets its own
-  endpoint, identity and address, which the cluster's BGP advertises (native
-  routing). Nothing like OVN, Multus or a second CNI is involved.
+- **Each anchor gets an independent Cilium endpoint.** qrab uses a separate
+  primary CNI attachment and network namespace for each guest NIC. Adding a
+  TAP to the management Pod's namespace would leave it inside that Pod's
+  management and loopback boundary. The anchor instead gets its own endpoint,
+  identity and address, which the cluster's BGP advertises (native routing).
+  The qrab path uses no OVN, Multus or second CNI.
 - **The `qrab` namespace enforces Pod Security restricted.** Neither the VM
   Pod nor the anchor gets a hostPath, an added capability or a tun device. The
   privileged per-node agent qrab-netd builds the tap in the anchor's network

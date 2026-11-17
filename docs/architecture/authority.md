@@ -16,6 +16,8 @@ This is a useful architecture-review perspective alongside the service map.
 | Dashboard launch label | Recorded launch/VM/claim/group provenance under protected API writers | Cleanup of created resources is separate from current access grants |
 | Local socket PID | Original connector pidfd, validated cgroup/Pod and held proc directory | Dead/reused numeric processes cannot substitute another actor |
 | Namespace path | Already-open namespace descriptor from the validated anchor process | Entry/FD grants use that resource through completion |
+| Ready anchor Pod UID | Current namespace token backed by a held resource | A same-UID sandbox replacement invalidates stale readiness and queue binding |
+| Descriptor-bearing reply | Complete bounded frame plus owned SCM_RIGHTS resources | Fragmentation, parse errors and truncation cannot lose track of installed FDs |
 | Mounted VPN file | Read relative to the validated held process directory, with a bound | A later PID path cannot select another process's mount/root |
 | Guest address | Owned pool/endpoint and controlled route/handoff state | Standby/active authority and route retirement are explicit |
 | CHAP login | Exact export generation plus required hard fencing | Authentication does not establish that an old writer is gone |
@@ -46,6 +48,9 @@ and use). Exact cgroup parsing addresses the former; held process/namespace
 descriptors and the original peer pidfd address the latter. These are local
 kernel/Pod authority checks, separate from the node-to-node SPIFFE conntrack
 connection and the human's OIDC management role.
+
+The [recovery perspective](recovery.md) follows same-UID namespace changes and
+local descriptor-bearing frame failures. A07/A08 record those repairs.
 
 ## Apply the same review to cleanup and images
 

@@ -1,0 +1,13 @@
+{
+  "title": "Four different kinds of evidence",
+  "subtitle": "A claim needs its scope, revision and the observation that supports it.",
+  "note": "Desired targets remain proposals. Local checks and source merges do not establish a deployed workload outcome.",
+  "boundaries": [],
+  "boxes": [
+    {"x":80,"y":205,"w":690,"h":235,"kind":"qrab","kicker":"SOURCE","lines":["Who owns the operation?","Code contracts / regression tests","Baseline and repair revision identified"]},
+    {"x":830,"y":205,"w":690,"h":235,"kind":"build","kicker":"MANIFEST","lines":["What configuration is requested?","Checked-in resources / policy / image pins","Applied cluster state still needs evidence"]},
+    {"x":80,"y":495,"w":690,"h":235,"kind":"foundation","kicker":"LOCAL REAL-PEER FIXTURE","lines":["What mechanism actually ran here?","Pinned QEMU / private sockets / netns","Tooling, kernel and skip reasons recorded"]},
+    {"x":830,"y":495,"w":690,"h":235,"kind":"foundation","kicker":"NAMED LIVE OBSERVATION","lines":["What happened on that release and path?","Cluster / image / time / workload stated","No automatic claim about the other cluster"]}
+  ],
+  "arrows": []
+}

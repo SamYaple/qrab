@@ -10,6 +10,9 @@ captions and light/dark/print variants are in [the catalog](diagrams.md).
 | Leadership / short | [HTML](exports/leadership.html) | [PPTX](exports/leadership.pptx) | [PDF](exports/leadership.pdf) |
 | Engineering / detailed | [HTML](exports/engineering.html) | [PPTX](exports/engineering.pptx) | [PDF](exports/engineering.pdf) |
 | Operations / workshop | [HTML](exports/operations.html) | [PPTX](exports/operations.pptx) | [PDF](exports/operations.pdf) |
+| Network review | [HTML](exports/networking.html) | [PPTX](exports/networking.pptx) | [PDF](exports/networking.pdf) |
+| Storage review | [HTML](exports/storage.html) | [PPTX](exports/storage.pptx) | [PDF](exports/storage.pdf) |
+| Identity review | [HTML](exports/identity.html) | [PPTX](exports/identity.pptx) | [PDF](exports/identity.pdf) |
 
 The decks have speaker notes. HTML supports arrow keys, notes (`N`) and
 fullscreen. Native boundary figures in PPTX are editable shapes; Mermaid
@@ -63,7 +66,7 @@ Suggested visuals: `00-openstack-overview`, `00-qrab-overview`,
 | 5. Migration | Fenced target and explicit ownership transfer; local Cilium fork is a dependency | Migration streams/state/sequence |
 | 6. Identity | Human grants, service admission and guest identity remain separate | Identity questions, management request |
 | 7. Image/disk subset | Existing implementation is useful; fencing/recovery determine safe replacement | Storage control/data, image import, disk lifecycle |
-| 8. Evidence and bugs | Concrete boundary defects were reproduced and repaired | Audit A01/A02 and merged source references |
+| 8. Evidence and bugs | Concrete boundary defects were reproduced and repaired | Audit, rejected hypotheses and scoped verification evidence |
 | 9. Remaining decisions | Workload-specific feature and operational acceptance | Capability ledger, transition plan |
 
 For discussion, ask which invariant must remain true if a controller crashes
@@ -116,3 +119,17 @@ assets, and PNGs provide presentation-tool compatibility. The document build
 tools under `contrib/docs` record and validate their input/output provenance.
 Generated reading/presentation exports are documentation artifacts; no website
 hosting, service deployment or external message is part of this task.
+
+## Focused subsystem variants
+
+The networking, storage and identity decks are additional audience-specific
+narratives. Networking starts from the two fabrics in the supplied OpenStack
+cluster, then follows guest endpoint identity, descriptor control and handoff.
+Storage starts from surviving Glance/Cinder responsibilities, separates
+provisioning from I/O, and finishes with import integrity, fences and recovery.
+Identity separates human login, application roles, workload admission and
+guest/storage authority. Each has its own notes and evidence references.
+
+Use [the operating model](operating-model.md) to explain why a crate graph, a
+Pod diagram and a responsibility map differ. Use [verification](verification.md)
+for a skeptical review of what the collected tests actually establish.

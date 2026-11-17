@@ -1,6 +1,6 @@
 {
   "checked_date": "2026-11-17",
-  "reviewed_through": "095edadb84e4a383ab1ef55a09839d873e403227",
+  "reviewed_through": "a5373c384c5679d2cc0218930bf8ff8f730da21b",
   "decks": [
     {
       "id": "leadership",
@@ -171,17 +171,19 @@
           "kind": "points",
           "title": "The review found real boundary bugs",
           "points": [
-            "Cleanup used labels/access lists as lifecycle ownership.",
-            "A verified qcow2 file could select unverified backing/data inputs.",
-            "Local Pod authority needed exact cgroup and held process/resource references."
+            "Cleanup and image integrity needed exact ownership/input boundaries.",
+            "Local Pod, process and namespace authority must survive name and lifetime changes.",
+            "Descriptor-bearing stream replies need complete frames, bounds and cleanup."
           ],
-          "notes": "Five source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies, node cgroup identity and process/resource lifetime. Full runtime checks passed for each; explicit pinned QEMU and Linux-peer fixtures cover their stated local scopes. No runtime image publication or rollout followed these source merges.",
+          "notes": "Merged source repairs have failing-before/passing-after evidence in audit.md. The local peer, kernel namespace and protocol fixtures each establish their stated scope. A rejected Cilium policy concern was preserved as a non-finding after testing the real policy engine. Source repairs and deployed release evidence remain separate.",
           "evidence": [
             "A01",
             "A02",
             "A04",
             "A05",
-            "A06"
+            "A06",
+            "A07",
+            "A08"
           ]
         },
         {
@@ -481,17 +483,19 @@
           "kind": "points",
           "title": "The review found real boundary bugs",
           "points": [
-            "Cleanup used labels/access lists as lifecycle ownership.",
-            "A verified qcow2 file could select unverified backing/data inputs.",
-            "Local Pod authority needed exact cgroup and held process/resource references."
+            "Cleanup and image integrity needed exact ownership/input boundaries.",
+            "Local Pod, process and namespace authority must survive name and lifetime changes.",
+            "Descriptor-bearing stream replies need complete frames, bounds and cleanup."
           ],
-          "notes": "Five source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies, node cgroup identity and process/resource lifetime. Full runtime checks passed for each; explicit pinned QEMU and Linux-peer fixtures cover their stated local scopes. No runtime image publication or rollout followed these source merges.",
+          "notes": "Merged source repairs have failing-before/passing-after evidence in audit.md. The local peer, kernel namespace and protocol fixtures each establish their stated scope. A rejected Cilium policy concern was preserved as a non-finding after testing the real policy engine. Source repairs and deployed release evidence remain separate.",
           "evidence": [
             "A01",
             "A02",
             "A04",
             "A05",
-            "A06"
+            "A06",
+            "A07",
+            "A08"
           ]
         },
         {
@@ -728,17 +732,19 @@
           "kind": "points",
           "title": "The review found real boundary bugs",
           "points": [
-            "Cleanup used labels/access lists as lifecycle ownership.",
-            "A verified qcow2 file could select unverified backing/data inputs.",
-            "Local Pod authority needed exact cgroup and held process/resource references."
+            "Cleanup and image integrity needed exact ownership/input boundaries.",
+            "Local Pod, process and namespace authority must survive name and lifetime changes.",
+            "Descriptor-bearing stream replies need complete frames, bounds and cleanup."
           ],
-          "notes": "Five source defects have merged repairs with regression evidence in audit.md: state-PVC adoption, group cleanup, qcow2 dependencies, node cgroup identity and process/resource lifetime. Full runtime checks passed for each; explicit pinned QEMU and Linux-peer fixtures cover their stated local scopes. No runtime image publication or rollout followed these source merges.",
+          "notes": "Merged source repairs have failing-before/passing-after evidence in audit.md. The local peer, kernel namespace and protocol fixtures each establish their stated scope. A rejected Cilium policy concern was preserved as a non-finding after testing the real policy engine. Source repairs and deployed release evidence remain separate.",
           "evidence": [
             "A01",
             "A02",
             "A04",
             "A05",
-            "A06"
+            "A06",
+            "A07",
+            "A08"
           ]
         },
         {
@@ -770,6 +776,577 @@
             "S08",
             "S13",
             "S15"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "networking",
+      "title": "One Cilium fabric: network review",
+      "style": "print",
+      "minutes": 15,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "One fabric, separate guest identities",
+          "subtitle": "Network review / OpenStack and qrab",
+          "notes": "The other OpenStack cluster is the supplied baseline. This is a responsibility and source comparison, not a direct inventory or performance measurement.",
+          "evidence": [
+            "U02",
+            "S08",
+            "S09"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "06-two-networks-to-one",
+          "notes": "OpenStack uses Cilium for Kubernetes and OVN for guests in the supplied topology. qrab reuses Cilium for per-NIC endpoints while preserving separate management identity.",
+          "evidence": [
+            "U02",
+            "S08",
+            "S09"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "11-guest-packet-path",
+          "notes": "TAP/vhost kernel queues carry payload through the anchor namespace. The Unix socket grants descriptors and does not relay these packets.",
+          "evidence": [
+            "S08",
+            "S09",
+            "S10"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "One fabric does not mean one identity",
+          "cards": [
+            {
+              "title": "Management Pod",
+              "body": "BMC / Redfish and private management listeners have the VM Pod endpoint."
+            },
+            {
+              "title": "Guest NIC",
+              "body": "Each anchor has its own address, Cilium endpoint and security-group labels."
+            },
+            {
+              "title": "Optional VPN NIC",
+              "body": "An anchor can route through its own tunnel and preserve its own policy scope."
+            }
+          ],
+          "notes": "Do not merge management loopback and guest traffic into one namespace. VPN-specific policy governs the anchor tunnel; it is optional.",
+          "evidence": [
+            "S08",
+            "S09",
+            "S25"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Network control still has explicit owners",
+          "points": [
+            "Operator: stable address claims, anchor lifecycle, policy labels and scoped route intent.",
+            "netd: local TAP/vhost grants, routing, DHCP compatibility and handoff control.",
+            "Cilium + FRR: endpoint policy/datapath and BGP reachability, respectively."
+          ],
+          "notes": "A label alone is not a security group firewall. Unselected anchors follow the platform policy mode. Replacing Neutron removes its control plane after the required functions have owners.",
+          "evidence": [
+            "S08",
+            "S09",
+            "U07"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "29-local-pod-authority",
+          "notes": "Original peer liveness and held resource references supplement this simple identity view; see authority.md and A05/A06. Host scope names cannot establish Pod authority.",
+          "evidence": [
+            "S09",
+            "S10",
+            "A05",
+            "A06"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Recover the namespace, not just the API name",
+          "points": [
+            "A Pod UID can survive a CRI sandbox replacement.",
+            "A new held namespace changes the opaque attachment token and restarts bound DHCP.",
+            "Manager releases old queues before fresh attachment, preserving MAC and root port."
+          ],
+          "notes": "A07 includes real isolated namespace/FD lifetime tests and manager QMP ordering. Guest hot-unplug cooperation is required. Same-namespace netd restart retains the token.",
+          "evidence": [
+            "A07",
+            "S09",
+            "S10"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-migration-overview",
+          "notes": "VM state, switch control, node conntrack and guest packet forwarding are different streams. A local Cilium fork supports the duplicate-IP handoff contract.",
+          "evidence": [
+            "S11",
+            "S12",
+            "S14"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "Three different migration concerns",
+          "cards": [
+            {
+              "title": "Endpoint authority",
+              "body": "Prepared target stays fenced until the controlled ownership switch."
+            },
+            {
+              "title": "Connection state",
+              "body": "Node-bound authenticated peers copy only the scoped conntrack entries."
+            },
+            {
+              "title": "Reachability",
+              "body": "FRR convergence and temporary forwarding have their own observations."
+            }
+          ],
+          "notes": "These are independent mechanisms; a BGP session or completed RAM transfer does not prove every flow survived.",
+          "evidence": [
+            "S08",
+            "S09",
+            "S11",
+            "S12"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Distinguish a control outage from a payload fault",
+          "headers": [
+            "Symptom",
+            "First boundary to inspect"
+          ],
+          "rows": [
+            [
+              "New queues unavailable",
+              "netd socket, current anchor token, authorization and holder checks"
+            ],
+            [
+              "Guest packets fail",
+              "Anchor routes, Cilium policy/endpoint, traffic origin and FRR paths"
+            ],
+            [
+              "Management fails alone",
+              "VM Pod endpoint and user/service admission"
+            ]
+          ],
+          "notes": "Existing queue descriptors may outlive netd. The source-derived expectation is not an availability guarantee.",
+          "evidence": [
+            "S09",
+            "S10",
+            "S18",
+            "S19"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "34-evidence-classes",
+          "notes": "Local kernel fixtures use stand-in uplinks, not Cilium. The two VPN fixtures were skipped without tools in the recorded run; never count early returns as datapath acceptance.",
+          "evidence": [
+            "T01",
+            "T03",
+            "L01"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Prove the selected workload network contract",
+          "points": [
+            "Test allowed and denied guest paths separately from management access.",
+            "Observe address ownership, DNS, route convergence and recovery on the chosen release.",
+            "Exercise guest hot-unplug, migration and node-loss behavior with application evidence."
+          ],
+          "notes": "Desired acceptance criteria; source, manifest and local fixture evidence do not perform them.",
+          "evidence": [
+            "S08",
+            "S09",
+            "S10",
+            "S11"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "title": "Images and disks: storage review",
+      "style": "light",
+      "minutes": 15,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "Images and disks: keep every surviving contract",
+          "subtitle": "Storage review / Glance and Cinder replacement",
+          "notes": "The other cluster storage backend was not supplied. Compare service responsibilities and qrab implementation, not invented backend topology.",
+          "evidence": [
+            "U03",
+            "U04",
+            "S13",
+            "S14",
+            "S15"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-storage-overview",
+          "notes": "Provisioning authority and guest disk I/O are separate. The small firmware/vTPM state filesystem is also separate from the guest LUN.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Replace APIs; preserve required work",
+          "headers": [
+            "OpenStack responsibility",
+            "qrab owner / remaining scope"
+          ],
+          "rows": [
+            [
+              "Glance image lifecycle",
+              "BaseImage controller, verified import Jobs and sealed storage generations"
+            ],
+            [
+              "Cinder volume lifecycle",
+              "Disk reconciler, scoped storage verbs, LIO/ZFS and export generations"
+            ],
+            [
+              "Workload acceptance",
+              "Required catalog, backup/restore, recovery and operational subset"
+            ]
+          ],
+          "notes": "Existing foundations are substantial. No Glance/Cinder API compatibility, every backend or full feature parity is claimed.",
+          "evidence": [
+            "U03",
+            "U04",
+            "S13",
+            "S14",
+            "S15"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "13-image-import",
+          "notes": "Inspect and write Jobs receive constrained inputs. The controller owns the stage/seal lifecycle and records the verified generation.",
+          "evidence": [
+            "S15",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "25-image-single-file",
+          "notes": "The top-level digest cannot authenticate an extra backing file or external data file selected by metadata. Both Job modes reject dependencies before qemu-img.",
+          "evidence": [
+            "A04",
+            "S15"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Image integrity has a precise boundary",
+          "points": [
+            "Verify one downloaded source; reject undeclared backing and external-data inputs.",
+            "Let pinned QEMU perform full format validation and conversion.",
+            "Seal the verified raw generation; prepare backing chains in a trusted source environment."
+          ],
+          "notes": "The explicit fixture uses harmless local marker files and QEMU 11.1.3. It is not a live storage/import rollout test.",
+          "evidence": [
+            "A04",
+            "S15",
+            "T02"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Three resources with different ownership",
+          "headers": [
+            "Resource",
+            "Relevant owner and proof"
+          ],
+          "rows": [
+            [
+              "Guest LUN",
+              "Export generation, CHAP and hard backend fencing"
+            ],
+            [
+              "Firmware/vTPM filesystem",
+              "VM-bound identity lease and storage attachment contract"
+            ],
+            [
+              "Base image generation",
+              "Verified source, sealed origin and clone/retirement contract"
+            ]
+          ],
+          "notes": "A state PVC is not the guest root disk. A local state lease is not hard storage fencing.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14",
+            "S15"
+          ]
+        },
+        {
+          "kind": "cards",
+          "title": "One writer requires backend evidence",
+          "cards": [
+            {
+              "title": "Authenticate",
+              "body": "CHAP authorizes the exact export generation."
+            },
+            {
+              "title": "Exclude old writers",
+              "body": "Clean ownership evidence or a completed hard backend fence gates replacement."
+            },
+            {
+              "title": "Recover deliberately",
+              "body": "Unknown ownership stays unknown until the responsible storage barrier completes."
+            }
+          ],
+          "notes": "Pod deletion, NotReady and a lease timeout alone do not establish that an old writer cannot act.",
+          "evidence": [
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "00-migration-overview",
+          "notes": "Manager moves VM execution/identity state; shared guest disk blocks remain in the storage data path. This does not implement OpenStack-to-qrab live migration.",
+          "evidence": [
+            "S11",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Deletion is a staged storage lifecycle",
+          "points": [
+            "Fence guest exports before releasing or retiring their ownership.",
+            "Native guest-disk destruction follows the separate grace reaper contract.",
+            "Retained identity PVC/PV cleanup and external access-group cleanup have other owners."
+          ],
+          "notes": "Independent source 0301347 adds the seven-day root guest-disk reaper. Its presence in source does not prove installed timer state or cover Released identity PVs.",
+          "evidence": [
+            "A01",
+            "A02",
+            "S05",
+            "S13",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "34-evidence-classes",
+          "notes": "Hermetic storage host tests do not exercise real ZFS/LIO drains. Real backend, recovery and backup acceptance remain separate.",
+          "evidence": [
+            "T01",
+            "L01",
+            "S14"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Finish the workload subset before retiring services",
+          "points": [
+            "Prove import, clone, grow, attach and failure recovery on the chosen backend.",
+            "Prove application consistency and backup/restore, including retained identity state.",
+            "Record explicit destruction policy and a data-aware rollback procedure."
+          ],
+          "notes": "Desired acceptance; scope it from real workload requirements and the other cluster inventory.",
+          "evidence": [
+            "S05",
+            "S13",
+            "S14",
+            "S15",
+            "U04"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "identity",
+      "title": "Identity and authority review",
+      "style": "dark",
+      "minutes": 12,
+      "slides": [
+        {
+          "kind": "title",
+          "title": "One login is not universal authority",
+          "subtitle": "Identity review / Keystone replacement",
+          "notes": "Kubernetes API auth, application user roles, workload identity, guest identity and storage credentials have separate enforcement owners.",
+          "evidence": [
+            "S18",
+            "S19",
+            "S20",
+            "S23",
+            "S14"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "08-identity-questions",
+          "notes": "Use the question first: human subject, action grant, calling service, guest workload or disk export. Do not treat OIDC and SPIFFE as interchangeable.",
+          "evidence": [
+            "S18",
+            "S19",
+            "S20",
+            "S23",
+            "S14"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Keystone leaves; these owners remain",
+          "headers": [
+            "Question",
+            "Target owner"
+          ],
+          "rows": [
+            [
+              "May this API request change a VM?",
+              "Kubernetes authentication, RBAC and admission"
+            ],
+            [
+              "May this human manage this VM?",
+              "Verified OIDC identity and the application VM role"
+            ],
+            [
+              "Is this the allowed calling service?",
+              "Exact workload SPIFFE identity and rotating mTLS"
+            ]
+          ],
+          "notes": "The dashboard backend uses its ServiceAccount; it is not per-user Kubernetes impersonation. Application authorization remains explicit.",
+          "evidence": [
+            "U05",
+            "S16",
+            "S18",
+            "S19",
+            "S20"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "28-auth-is-not-a-role",
+          "notes": "Workload admission does not grant the human action. Both gates apply on the workload management route; development/native credential entrypoints have their own documented scope.",
+          "evidence": [
+            "S18",
+            "S19",
+            "S20"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "A management action crosses explicit gates",
+          "points": [
+            "Dashboard checks the selected VM and keeps the human bearer server-side.",
+            "The VM service admits the exact workload peer and verifies the human action role.",
+            "Manager receives a bounded local operation and retains its private QMP authority."
+          ],
+          "notes": "Service discovery must resolve only the selected immutable VM destination. A successful TLS handshake is not a power/console authorization result.",
+          "evidence": [
+            "S06",
+            "S16",
+            "S17",
+            "S18",
+            "S19"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Console access has its own path and role",
+          "points": [
+            "Graphical console admission is admin-scoped.",
+            "Private VNC is reached through authenticated, selected-VM proxy hops.",
+            "Guest packet identities remain in separate NIC anchors."
+          ],
+          "notes": "A guest does not share the VM management loopback listeners. The diagram portfolio has the full console chain.",
+          "evidence": [
+            "S06",
+            "S08",
+            "S17",
+            "S18"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Guest identity is optional and VM-bound",
+          "points": [
+            "Software-TPM credentials bind the intended VM identity lifecycle.",
+            "The relay carries opaque agent/server TLS bytes rather than issuing identities.",
+            "Software vTPM does not provide confidential-computing isolation from the node."
+          ],
+          "notes": "Retired SVSM/confidential-computing work is archived. Guest SPIRE enrollment and a host service SVID are distinct credentials.",
+          "evidence": [
+            "S20",
+            "S23",
+            "S24"
+          ]
+        },
+        {
+          "kind": "table",
+          "title": "Cleanup follows lifecycle provenance",
+          "headers": [
+            "Object",
+            "Correct reference"
+          ],
+          "rows": [
+            [
+              "State claim",
+              "Exact launch/VM/claim provenance or established owner"
+            ],
+            [
+              "Access groups",
+              "Recorded created UUIDs and exact generated names"
+            ],
+            [
+              "Current user grants",
+              "Authorize actions; do not redefine old cleanup ownership"
+            ]
+          ],
+          "notes": "A01/A02 cover failing-before regressions. Public annotations are provenance under trusted API writers, not cryptographic attestations.",
+          "evidence": [
+            "A01",
+            "A02",
+            "S16"
+          ]
+        },
+        {
+          "kind": "diagram",
+          "diagram": "34-evidence-classes",
+          "notes": "Identity configuration, successful service admission and a real user-role operation are different observations. Record expiry/rotation/recovery behavior explicitly.",
+          "evidence": [
+            "T01",
+            "M01",
+            "L01"
+          ]
+        },
+        {
+          "kind": "points",
+          "title": "Review the remaining trust contract",
+          "points": [
+            "Assign trusted namespace/API writers and required tenant isolation.",
+            "Prove issuer/audience/role scope, exact service peers and credential rotation.",
+            "Keep human login, guest workload identity and disk fencing as distinct decisions."
+          ],
+          "notes": "Desired acceptance criteria. Removing Keystone does not automatically implement all of them.",
+          "evidence": [
+            "S14",
+            "S16",
+            "S18",
+            "S19",
+            "S20",
+            "S23"
           ]
         }
       ]

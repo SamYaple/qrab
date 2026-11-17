@@ -37,8 +37,8 @@ Clippy. These checks are hermetic; no live cluster deletion was exercised.
 
 **Merged source:** `719335966b72ba33332f53ad8d9a36812771c965`.
 **Tracking:** qrab `work/state-pvc-adoption-launch-boundary`.
-The primary main checkout was synchronized. No image publication or deployment
-followed the source repair.
+The primary main checkout was synchronized. This audit performed source work
+and tests; image publication and deployment have separate evidence.
 
 The provenance annotations are public trusted Kubernetes metadata, not secrets
 or cryptographic credentials. An actor with broad authority to forge or
@@ -90,7 +90,8 @@ by these hermetic checks.
 
 **Merged source:** `8a30586610cc80073076859454ce2554215fb2bd`.
 **Tracking:** qrab `work/access-group-cleanup-launch-boundary`.
-Primary main was synchronized; no image build or deployment followed.
+Primary main was synchronized. The audit performed no runtime release or
+cluster rollout.
 
 As with A01, the annotations are public trusted metadata. Broad namespace/API
 administrators remain trusted. The repair does not claim an immutable or
@@ -133,8 +134,8 @@ check also passed. This did not test live storage, libiscsi or a guest boot.
 
 **Merged source:** `69ef4274d6ba973bb696371c97fb0716a1e4206c`.
 **Tracking:** qrab `work/image-import-self-contained-qcow2`.
-Primary main was synchronized. No production image build/publication or
-cluster rollout followed.
+Primary main was synchronized. The audit performed no production image
+build/publication or cluster rollout.
 
 The legacy staging script accepts only a reviewed hardcoded CirrOS URL/digest,
 not arbitrary BaseImage sources. The general inspect/write Job interface is
@@ -173,8 +174,8 @@ live datapath proof.
 
 **Merged source:** `4625eefabb3743b3ec775b4f547a6b873cd162bf`.
 **Tracking:** qrab `work/netd-cgroup-hierarchy-authentication`.
-Primary main was synchronized. The source repair was not published in a
-runtime image or rolled out.
+Primary main was synchronized. This audit did not publish a runtime image or
+roll out the repair; later release workflows require their own evidence.
 
 ## A06 — process identity checks could be separated from resource use
 
@@ -210,8 +211,134 @@ on 6.18.50. This does not claim feature/rollout acceptance on the nodes.
 
 **Merged source:** `095edadb84e4a383ab1ef55a09839d873e403227`.
 **Tracking:** qrab `work/netd-stable-process-authority`.
-Primary main was synchronized; no runtime images were built/published or
-rolled out. The [authority perspective](authority.md) generalizes the review.
+Primary main was synchronized; this audit did not build/publish runtime
+images or roll out a cluster. The [authority perspective](authority.md) generalizes the review.
+
+## A07 — a Pod UID did not identify a replacement NIC sandbox
+
+**Affected source:** netd's plumbed/DHCP caches, grant/probe token and manager
+NIC binding. **Repair baseline:** `c10ca28`.
+
+A Kubernetes Pod can keep its UID while CRI recreates its network namespace.
+The old cache and attachment token named only the UID. QEMU queues and the
+DHCP socket could retain the old namespace even after the helper prepared a
+new one; manager's token comparison would see no change.
+
+A plumbed context now holds the validated process and opened namespace. Its
+opaque token combines the Pod UID with that namespace's device/inode identity.
+Healthy checks verify the held process still occupies the same namespace;
+stale contexts invalidate readiness and stop their DHCP workers. Grants and
+probes use the same current context. An agent restart observing the same
+namespace produces the same token. Failed DHCP workers can be retried rather
+than remaining cached as live.
+
+Default file/context tests cover same-UID replacement, token stability,
+process reassignment/exit and worker lifetime. The actual manager reconciliation
+fixture demonstrates namespace-only token changes causing device removal,
+guest-release confirmation, backend removal and fresh queue attachment, with
+the same configured MAC and root port. Full runtime, node suite and client-only
+checks passed.
+
+An explicit isolated user/network-namespace run exercised four kernel fixtures:
+namespace replacement/descriptor lifetime, TAP queue transfer, forwarding
+routes and DHCP. The old namespace remained accessible through its file after
+the namespace-holding task exited; the replacement did not contain its link.
+Two VPN fixtures explicitly skipped without WireGuard tools. Dummy uplinks
+are not a Cilium/BGP or real-guest hot-unplug proof.
+
+**Merged source:** `69d96eea790363d333d116c0da0a4d17ce489ecb`.
+**Tracking:** qrab `work/nic-anchor-namespace-incarnation`.
+The audit changed source and performed isolated local tests; cluster sandbox
+replacement and release operations require their own evidence.
+
+## A08 — stream framing could reject valid replies and leak installed FDs
+
+**Affected source:** netd `wire` reply send/receive and connection setup.
+**Repair baseline:** `69d96ee` plus an independent image-pin-only update.
+
+Grant decoding assumed one `recvmsg` contained all JSON, and probe/handoff
+control assumed one read contained the reply. Unix streams permit fragmentation.
+The older conntrack-count helper read to EOF, but its per-read timeout did not
+bound a peer that kept dribbling bytes. A second reproduced failure was more
+subtle: on `MSG_CTRUNC`, nix 0.29 refused to expose the installed subset of
+SCM_RIGHTS descriptors, so the error path leaked them.
+
+New senders terminate a bounded JSON line and finish short writes without
+sending rights twice. The shared reader accumulates fragments within total
+time/byte/descriptor bounds. It owns every delivered descriptor before refusing
+ancillary truncation or parsing JSON, checks queue/count consistency, and closes
+rights on every failure. Complete legacy JSON replies remain accepted at EOF.
+A full Unix listen queue is a prompt retryable error rather than an indefinite
+connect before read timeouts apply.
+
+Both principal regressions failed before the change and pass after it. An EOF
+sentinel verifies descriptor closure without racing process-wide FD counts.
+Fifteen wire tests cover early/late rights, fragmented probe/control/counts,
+malformed/oversized/refused replies, legacy EOF, deadline dribble, unexpected
+rights and full listen queues. They pass in both node and client-only builds.
+The full runtime and netd suites pass. An explicit isolated TAP fixture passed
+real descriptor transfer and packet injection with the new decoder.
+
+**Merged source:** `9e1dd3f0c8c605923efc575940082f839cad8297`.
+**Tracking:** qrab `work/netd-reply-stream-framing`.
+These checks exercise the local protocol and kernel mechanism; they do not
+establish a deployed endpoint handoff or cross-node traffic outcome.
+
+## A09 — delayed status could be published onto a same-name replacement
+
+**Affected source:** netd readiness and VPN-port condition writers.
+**Repair baseline:** `9e1dd3f`.
+
+Local work held a Pod snapshot while plumbing or renewing a mapping, then
+patched status by name without UID/version conditions. A replacement Pod could
+receive the old result. Two fake-API regressions reproduced this through the
+actual readiness and port-report entrypoints.
+
+Both writers now use a shared conditional strategic patch with the observed
+Pod UID and resourceVersion. Missing references fail closed; a rejected patch
+is not cached as success. Successful kernel context retains its summary so
+fresh reconciliation retries a conflicted status write from current watch data
+without repeating plumbing or waiting for the sixty-second reverify interval.
+
+Four focused tests cover replacement identity, version conflict/retry, missing
+provenance and preservation of unrelated condition types. A no-op native API
+server status **dry-run** accepted the matching snapshot, rejected a wrong UID
+alone as immutable and rejected a stale version as Conflict. The dry-run
+persisted no resource change and did not restart a Pod or VM.
+
+The full runtime check passed with `RUST_TEST_THREADS=4`; strict node checks
+also passed. These API conditions establish observation ownership, not backend
+fencing or live guest health. Kubernetes documents
+[conditional PATCH and conflict retry](https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources).
+
+**Merged source:** `a5373c384c5679d2cc0218930bf8ff8f730da21b`.
+**Tracking:** qrab `work/netd-status-pod-incarnation`.
+
+## Validation repair: the HTTP power fixture depended on test order
+
+A full gate exposed a deterministic isolated-test failure: the operator's
+plain-HTTP power fixture built a default reqwest backend under
+`rustls-no-provider` without initializing a provider. Another test's global
+initialization could hide it. The fixture now initializes Ring explicitly and
+reuses its client; production continues to supply its SPIFFE TLS configuration.
+The isolated test and strict Clippy pass, followed by the combined full gate.
+
+**Merged test repair:** `265afecf4327985086ae8c676f7ca0b2c7eb757c`.
+**Tracking:** qrab `work/operator-power-http-provider-initialization`.
+This is test isolation, not another production authorization defect.
+
+The final combined gate used four test threads on the busy host. Timing
+variance, isolated reruns and complete check logs are recorded in towl.
+
+## Investigated concern rejected by the real policy contract
+
+The audit initially suspected two `ingress: [{}]` CiliumNetworkPolicy examples
+allowed unrelated ingress. Tests of the exact importer manifest and NIC
+baseline through the local Cilium production policy repository denied that
+traffic. The examples were preserved. The auxiliary simulator disagreed for
+those inputs and was not used as the sole oracle. This is a rejected
+hypothesis, not another repaired boundary bug; see [verification](verification.md)
+and qrab `work/cilium-default-deny-ingress-policy` for the distinction.
 
 ## Checks and limits
 

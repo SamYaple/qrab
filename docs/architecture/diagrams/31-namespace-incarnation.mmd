@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant K as Kubelet / CRI
+    participant N as netd
+    participant M as manager
+    participant Q as QEMU / guest
+    K->>K: Replace sandbox, keep API Pod UID
+    Note over K,N: Namespace A and namespace B are different resources
+    N->>N: Invalidate old context and stop old DHCP
+    N->>N: Hold / verify B, apply network plan
+    M->>N: Probe own NIC
+    N-->>M: New opaque Pod + namespace token
+    M->>Q: device_del
+    Q-->>M: Guest releases device, removal confirmed
+    M->>Q: netdev_del releases old queues
+    M->>N: Request new queues
+    N-->>M: SCM_RIGHTS from held namespace B
+    M->>Q: getfd, netdev_add, device_add
+    Note over M,Q: Same VM identity, configured MAC and root port

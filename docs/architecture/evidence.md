@@ -17,7 +17,7 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 | S06 | [Control socket](../../projects/manager/src/pod/socket.rs), [Remote adapter](../../projects/manager/src/pod/remote.rs) | Bounded local API, peer checks and sidecar transport | End-user authorization inside manager |
 | S07 | [Protocol clients](../../projects/qapi-protocol/src/) and [generated types](../../projects/qapi/src/lib.rs) | QMP/QGA transport and typed command contracts | A network-facing QAPI service |
 | S08 | [NIC renderer](../../projects/operator/src/nic.rs), [address reconciler](../../projects/operator/src/address.rs) | Separate anchors, labels, /32 pools and FRR intent | Upstream Cilium duplicate-IP handoff support |
-| S09 | [Node netd](../../projects/qrab-netd/src/main.rs), [authorization](../../projects/qrab-netd/src/authz.rs), [kernel work](../../projects/qrab-netd/src/sys.rs) | Node-local plumbing, peer-to-Pod resolution and FD grants | Arbitrary Pod creators being safe in the trusted namespace |
+| S09 | [Node netd](../../projects/qrab-netd/src/main.rs), [authorization](../../projects/qrab-netd/src/authz.rs), [kernel work](../../projects/qrab-netd/src/sys.rs), [held process resources](../../projects/qrab-netd/src/process.rs), [namespace incarnation](../../projects/qrab-netd/src/anchor.rs) | Node-local plumbing, peer-to-Pod resolution and FD grants | Arbitrary Pod creators being safe in the trusted namespace |
 | S10 | [Manager TAP launch](../../projects/manager/src/pod/tap.rs) and [NIC hotplug](../../projects/manager/src/pod/nics.rs) | Descriptor-based QEMU attachment | A userspace packet relay through manager or netd |
 | S11 | [Operator migration](../../projects/operator/src/migration.rs), [manager migration](../../projects/manager/src/pod/migration.rs) | Target preparation, state tunnel, handoff and cleanup | OpenStack-to-qrab live migration or arbitrary QEMU-version compatibility |
 | S12 | [netd conntrack](../../projects/qrab-netd/src/ct.rs), [peer policy](../../projects/qrab-netd/src/peer.rs), [peer TLS](../../projects/qrab-netd/src/peer_tls.rs) | Node-to-node scoped conntrack exchange | Bulk VM RAM or guest-disk transport |
@@ -41,6 +41,11 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 | L02 | [Guest identity evidence](../spire-vm.md) | The documented guest-identity implementation and dated verification | Every guest image having SPIRE enrolled |
 | T01 | [Runtime check](../../contrib/check-runtime.sh), [testing guide](../testing.md) | Appropriate local verification scope | Real KVM, ZFS/LIO, Cilium or cluster acceptance |
 
+| T02 | [Real QMP fixture](../../projects/qapi-protocol/tests/live_qemu.rs), [real QGA fixture](../../projects/qapi-protocol/tests/live_qga.rs) and [source preparation](../../contrib/images/prepare-source.py) | Explicit local 11.1.3 peer checks described in [verification](verification.md) | Guest boot, KVM, storage or a deployed release |
+| T03 | [Kernel namespace fixtures](../../projects/qrab-netd/tests/netns.rs), [node wire faults](../../projects/qrab-netd/src/wire.rs), [manager NIC reconciliation](../../projects/manager/src/pod/nics.rs) | The explicitly exercised isolated mechanisms and stand-in ordering | Cilium/BGP, guest hot-unplug or application continuity acceptance |
+
+| T04 | [Node status writers](../../projects/qrab-netd/src/main.rs) and [private API regressions](../../projects/qrab-netd/src/status_tests.rs) | Exact Pod UID/version conditional writes; explicit no-op native server dry-run verifies immutable UID and stale-version refusal | Persisted node rollout, guest readiness or disk fencing |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
@@ -57,6 +62,7 @@ tree. The date of the evidence check does not make every diagram a new design.
 | U05 | [Kubernetes access control](https://kubernetes.io/docs/concepts/security/controlling-access/) | Authentication, authorization and admission as separate API gates |
 | U06 | [Cilium BGP scope](https://docs.cilium.io/en/stable/network/bgp-control-plane/bgp-control-plane/) | Route advertisement is distinct from datapath programming; not qrab's FRR implementation |
 | U07 | [Cilium policy enforcement](https://docs.cilium.io/en/stable/security/policy/intro/) | Directional default policy and selection behavior |
+| U09 | [Kubernetes conditional API updates](https://kubernetes.io/docs/reference/using-api/api-concepts/#updates-to-existing-resources) | Object version conditions, conflict detection and retry requirements |
 | U08 | [OpenStack architectural design](https://docs.openstack.org/arch-design/design.html) | Historical conceptual/logical overview; not the user's deployment topology |
 
 ## Rules for a defensible comparison

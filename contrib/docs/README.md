@@ -42,7 +42,7 @@ license metadata, runs no npm lifecycle scripts and makes no QEMU fetch.
 Rendering/export use local inputs. Build without `--pdf` for HTML/PPTX only;
 complete PDF/bundle publication requires `--pdf`.
 
-The build creates the reader, three HTML/PPTX slide narratives with speaker
+The build creates the reader, audience-specific HTML/PPTX slide narratives with speaker
 notes, a handbook PDF and a one-diagram-per-page portfolio. The portfolio
 uses figure-sized technical sheets rather than shrinking long flows onto
 small slides. Simple vector-layout figures become editable PPTX shapes;

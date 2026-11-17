@@ -1,0 +1,11 @@
+flowchart TB
+    subgraph linked["Linked code contracts — not network services"]
+        macros["QAPI macros"] --> types["Generated QAPI types"] --> protocol["QMP / QGA protocol"] --> runtime["Manager library"]
+        runtime --> api["Bounded control types reused by management services"]
+    end
+    subgraph deployed["Runtime ownership — a different map"]
+        operator["Operator"] -->|"rendered config / Kubernetes resources"| manager["Manager process in VM container"]
+        service["VM management service"] -->|"bounded local control socket"| manager
+        manager -->|"private QMP session"| qemu["QEMU child process"]
+    end
+    linked -.->|"implementations support these roles"| deployed

@@ -19,7 +19,7 @@ ATLAS = ROOT / "docs/architecture"
 EXPORTS = ATLAS / "exports"
 DIAGRAMS = ATLAS / "diagrams"
 ORDER = ["README", "executive", "replacement-map", "current-state", "desired-state", "code-map", "boundaries",
-         "network", "storage", "identity", "authority", "lifecycle", "security", "operations", "capabilities", "transition",
+         "network", "storage", "identity", "authority", "operating-model", "recovery", "verification", "lifecycle", "security", "operations", "capabilities", "transition",
          "decisions", "questions", "field-guide", "glossary", "presentations", "upstream-diagrams", "audit", "evidence"]
 ESC = html.escape
 
@@ -107,7 +107,7 @@ document.getElementById('diagram-style').onchange=e=>{document.querySelectorAll(
     output = ATLAS / "atlas.html"
     output.write_text(f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>qrab / OpenStack architecture atlas</title><style>{CSS}</style></head><body>
 <header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through {ESC(catalog.get('reviewed_through', catalog['source_baseline']))[:12]} · {ESC(catalog['checked_date'])}</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text">{''.join(navigation)}</nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>{len(ORDER)} document views · {len(catalog['diagrams'])} unique diagrams · three presentation narratives.</p><div class="download-list">{links}</div></div>{''.join(sections)}{gallery}</main></div><script>{script}</script></body></html>''')
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text">{''.join(navigation)}</nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>{len(ORDER)} document views · {len(catalog['diagrams'])} unique diagrams · {len(decks['decks'])} presentation narratives.</p><div class="download-list">{links}</div></div>{''.join(sections)}{gallery}</main></div><script>{script}</script></body></html>''')
     return output
 
 
@@ -316,7 +316,7 @@ def bundle(catalog: dict, manifest: dict) -> Path:
     files['READ-ME-FIRST.txt']=(
         'qrab / OpenStack architecture presentation bundle\n\n'
         'Open atlas.html for the document library and diagram gallery.\n'
-        'Open exports/leadership.html, engineering.html or operations.html for slides.\n'
+        'Open the audience-specific HTML decks in exports/ for slides.\n'
         'PDF and PPTX are self-contained; HTML uses the relative assets in this bundle.\n'
         'Source-code and deeper subsystem-guide links need the repository checkout.\n'
         'This bundle does not contain source code or QEMU.\n'

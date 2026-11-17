@@ -350,3 +350,43 @@ Socket-caller identity and anchor-resource selection are separate checks. The or
 ![Bind process authority through resource use](diagrams/rendered/light/30-process-resource-handles.svg)
 
 [Editable source](diagrams/30-process-resource-handles.mmd) · [Light SVG](diagrams/rendered/light/30-process-resource-handles.svg) · [Dark SVG](diagrams/rendered/dark/30-process-resource-handles.svg) · [Print SVG](diagrams/rendered/print/30-process-resource-handles.svg) · [PNG](diagrams/rendered/png/30-process-resource-handles.png)
+
+## 31-namespace-incarnation: Same Pod UID, new network namespace
+
+**Scope:** audited attachment recovery. **Evidence:** S09, S10.
+
+The node helper prepares a new namespace generation and manager releases the old backend before requesting fresh queues. Recovery requires guest hot-unplug cooperation; a netd restart observing the same namespace retains its token.
+
+![Same Pod UID, new network namespace](diagrams/rendered/light/31-namespace-incarnation.svg)
+
+[Editable source](diagrams/31-namespace-incarnation.mmd) · [Light SVG](diagrams/rendered/light/31-namespace-incarnation.svg) · [Dark SVG](diagrams/rendered/dark/31-namespace-incarnation.svg) · [Print SVG](diagrams/rendered/print/31-namespace-incarnation.svg) · [PNG](diagrams/rendered/png/31-namespace-incarnation.png)
+
+## 32-descriptor-frame: A bounded control frame carries kernel resources
+
+**Scope:** audited local protocol contract. **Evidence:** S09, S10.
+
+Unix stream fragmentation and SCM_RIGHTS ownership are independent. Every installed descriptor is owned before parse or truncation refusal. The stream grants queues; it does not relay guest packets.
+
+![A bounded control frame carries kernel resources](diagrams/rendered/light/32-descriptor-frame.svg)
+
+[Editable source](diagrams/32-descriptor-frame.mmd) · [Light SVG](diagrams/rendered/light/32-descriptor-frame.svg) · [Dark SVG](diagrams/rendered/dark/32-descriptor-frame.svg) · [Print SVG](diagrams/rendered/print/32-descriptor-frame.svg) · [PNG](diagrams/rendered/png/32-descriptor-frame.png)
+
+## 33-library-runtime-views: Linked code and runtime ownership are different maps
+
+**Scope:** implemented / selected projections. **Evidence:** S01, S04, S06, S07, S18, S19.
+
+Selected dependency and runtime relationships. A shared Rust control type is not another service and does not grant a management service ownership of private QMP. This is not a complete dependency/deployment graph.
+
+![Linked code and runtime ownership are different maps](diagrams/rendered/light/33-library-runtime-views.svg)
+
+[Editable source](diagrams/33-library-runtime-views.mmd) · [Light SVG](diagrams/rendered/light/33-library-runtime-views.svg) · [Dark SVG](diagrams/rendered/dark/33-library-runtime-views.svg) · [Print SVG](diagrams/rendered/print/33-library-runtime-views.svg) · [PNG](diagrams/rendered/png/33-library-runtime-views.png)
+
+## 34-evidence-classes: Four different kinds of evidence
+
+**Scope:** review method / selected evidence classes. **Evidence:** T01, M01, L01.
+
+Source, manifest, local real-peer fixture and named live observation answer different questions. Desired state and the user-supplied OpenStack baseline remain separately labeled. No progression to deployed acceptance is implied.
+
+![Four different kinds of evidence](diagrams/rendered/light/34-evidence-classes.svg)
+
+[Editable source](diagrams/34-evidence-classes.json) · [Light SVG](diagrams/rendered/light/34-evidence-classes.svg) · [Dark SVG](diagrams/rendered/dark/34-evidence-classes.svg) · [Print SVG](diagrams/rendered/print/34-evidence-classes.svg) · [PNG](diagrams/rendered/png/34-evidence-classes.png)

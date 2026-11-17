@@ -396,7 +396,53 @@
         "S09",
         "S10"
       ]
+    },
+    {
+      "id": "31-namespace-incarnation",
+      "title": "Same Pod UID, new network namespace",
+      "status": "audited attachment recovery",
+      "caption": "The node helper prepares a new namespace generation and manager releases the old backend before requesting fresh queues. Recovery requires guest hot-unplug cooperation; a netd restart observing the same namespace retains its token.",
+      "evidence": [
+        "S09",
+        "S10"
+      ]
+    },
+    {
+      "id": "32-descriptor-frame",
+      "title": "A bounded control frame carries kernel resources",
+      "status": "audited local protocol contract",
+      "caption": "Unix stream fragmentation and SCM_RIGHTS ownership are independent. Every installed descriptor is owned before parse or truncation refusal. The stream grants queues; it does not relay guest packets.",
+      "evidence": [
+        "S09",
+        "S10"
+      ]
+    },
+    {
+      "id": "33-library-runtime-views",
+      "title": "Linked code and runtime ownership are different maps",
+      "status": "implemented / selected projections",
+      "caption": "Selected dependency and runtime relationships. A shared Rust control type is not another service and does not grant a management service ownership of private QMP. This is not a complete dependency/deployment graph.",
+      "evidence": [
+        "S01",
+        "S04",
+        "S06",
+        "S07",
+        "S18",
+        "S19"
+      ]
+    },
+    {
+      "id": "34-evidence-classes",
+      "title": "Four different kinds of evidence",
+      "status": "review method / selected evidence classes",
+      "caption": "Source, manifest, local real-peer fixture and named live observation answer different questions. Desired state and the user-supplied OpenStack baseline remain separately labeled. No progression to deployed acceptance is implied.",
+      "evidence": [
+        "T01",
+        "M01",
+        "L01"
+      ],
+      "source": "34-evidence-classes.json"
     }
   ],
-  "reviewed_through": "095edadb84e4a383ab1ef55a09839d873e403227"
+  "reviewed_through": "a5373c384c5679d2cc0218930bf8ff8f730da21b"
 }

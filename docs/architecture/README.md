@@ -29,6 +29,9 @@ different evidence classes throughout the atlas.
 | Storage engineer | [Images and volumes](storage.md) | Existing image/disk work, fencing, and remaining scope |
 | Identity / security reviewer | [Identity and trust](identity.md), [threat model](security.md) | Human, workload, guest and storage authority |
 | Cross-cutting architecture reviewer | [Authority and lifetimes](authority.md) | Bind a checked identity to the resource actually used |
+| Team / system owner | [Operating model](operating-model.md) | Separate roles, processes, dependencies and operational ownership |
+| Recovery reviewer | [Resource lifetimes and recovery](recovery.md) | Namespace replacement, held queues, power and safe restart |
+| Test / evidence reviewer | [Verification perspective](verification.md) | Exactly what local and real-peer checks establish |
 | On-call engineer | [Failure and recovery](operations.md), [lifecycle flows](lifecycle.md) | Which failures stop which operations |
 | Migration planner | [Transition plan](transition.md), [capability ledger](capabilities.md) | What must be proved before moving a workload |
 | Skeptical reviewer | [Questions and answers](questions.md), [evidence register](evidence.md) | Limits, assumptions, and supporting source |

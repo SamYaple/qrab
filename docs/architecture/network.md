@@ -96,3 +96,14 @@ L2 networks, arbitrary Neutron routers/floating IPs or general Neutron API
 compatibility. Treat any such requirement as an explicit capability decision.
 Implementation detail and capture mappings remain in
 [networking.md](../networking.md) and [the connection atlas](../connections.md).
+
+## Recovery beneath a stable API identity
+
+A Pod UID can outlive its sandbox. The node helper therefore binds readiness,
+grants and probes to a held namespace incarnation as well as the Pod. A new
+namespace token triggers manager's NIC-only detach/attach sequence. The same
+namespace observed after a netd restart retains its token.
+
+See [the recovery view](recovery.md) for ordering, guest-cooperation limits
+and the distinction between held kernel queues and the local control stream.
+The audit's A07/A08 provide source and regression evidence.
