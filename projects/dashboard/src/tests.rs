@@ -1887,6 +1887,30 @@ impl std::io::Write for Logs {
 
 #[tokio::test]
 async fn launching_with_a_nic_and_cloud_init_never_shows_or_logs_user_data() {
+    const CHILD: &str = "QRAB_DASHBOARD_TRACE_PRIVACY_CHILD";
+    const TEST: &str = "tests::launching_with_a_nic_and_cloud_init_never_shows_or_logs_user_data";
+    if std::env::var(CHILD).ok().as_deref() != Some("1") {
+        // Tracing's callsite registry is process-global. Other parallel tests
+        // can cache Never for this callsite despite our scoped subscriber.
+        // Run the original assertions with a fresh registry, without making
+        // unrelated tests serial or accepting a vacuous capture.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--test-threads=1", "--format=pretty"])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("test result: ok. 1 passed; 0 failed;"),
+            "the exact privacy case must execute: {stdout}"
+        );
+        return;
+    }
     let logs = Logs::default();
     let writer = logs.clone();
     let _guard = tracing::subscriber::set_default(
@@ -1959,9 +1983,6 @@ async fn launching_with_a_nic_and_cloud_init_never_shows_or_logs_user_data() {
     assert!(body.contains("Hostname must be a DNS label"));
     assert!(body.contains("name=\"nic0_enabled\" value=\"on\""));
     assert!(!body.contains("name=\"nic0_enabled\" value=\"on\" checked"));
-    // Parallel tests without a subscriber may have cached "never" for the
-    // launch log line's callsite.
-    tracing::callsite::rebuild_interest_cache();
     let (status, _, _) = send(
         &h,
         post(
