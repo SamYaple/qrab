@@ -69,6 +69,101 @@ fn owner_uid_prevents_adopting_an_unrelated_resource_with_the_same_name() {
 }
 
 #[test]
+fn state_claim_gc_ownership_requires_the_same_dashboard_launch() {
+    use k8s_openapi::api::core::v1::PersistentVolumeClaim;
+    let launch = "0123456789abcdef0123456789abcdef";
+    let mut owner = vm();
+    owner.metadata.labels = Some(std::collections::BTreeMap::from([(
+        "app.kubernetes.io/managed-by".into(),
+        "qrab-dashboard".into(),
+    )]));
+    owner
+        .annotations_mut()
+        .insert("qrab.yapplesauce.com/launch-id".into(), launch.into());
+    let claim: PersistentVolumeClaim = serde_json::from_value(json!({
+        "metadata": {
+            "name": "test-state", "namespace": "qrab", "uid": "claim-one",
+            "resourceVersion": "9",
+            "labels": {"app.kubernetes.io/managed-by": "qrab-dashboard"},
+            "annotations": {
+                "qrab.yapplesauce.com/vm": "test-vm",
+                "qrab.yapplesauce.com/launch-id": launch
+            },
+            "ownerReferences": [{"apiVersion":"v1", "kind":"Other", "name":"observer",
+                "uid":"observer-one", "controller":false}]
+        }
+    }))
+    .unwrap();
+    let patch = resources::state_claim_adoption(&claim, &owner).unwrap();
+    assert_eq!(patch["metadata"]["uid"], "claim-one");
+    assert_eq!(patch["metadata"]["resourceVersion"], "9");
+    let owners = patch["metadata"]["ownerReferences"].as_array().unwrap();
+    assert_eq!(owners.len(), 2);
+    assert_eq!(owners[0]["uid"], "observer-one");
+    assert_eq!(owners[1]["uid"], "owner-one");
+    assert_eq!(owners[1]["controller"], true);
+    assert_eq!(owners[1]["blockOwnerDeletion"], false);
+
+    let mut foreign = claim.clone();
+    foreign
+        .annotations_mut()
+        .insert("qrab.yapplesauce.com/vm".into(), "another-vm".into());
+    assert!(
+        resources::state_claim_adoption(&foreign, &owner).is_none(),
+        "a dashboard label cannot grant GC authority over another VM's identity"
+    );
+
+    let mut previous_launch = claim.clone();
+    previous_launch
+        .annotations_mut()
+        .insert("qrab.yapplesauce.com/launch-id".into(), "f".repeat(32));
+    assert!(
+        resources::state_claim_adoption(&previous_launch, &owner).is_none(),
+        "reusing a VM name must not adopt the previous launch's identity"
+    );
+
+    let mut legacy = claim.clone();
+    legacy
+        .annotations_mut()
+        .remove("qrab.yapplesauce.com/launch-id");
+    assert!(
+        resources::state_claim_adoption(&legacy, &owner).is_none(),
+        "unproven legacy identity claims stay retained"
+    );
+
+    for field in ["name", "namespace"] {
+        let mut foreign = serde_json::to_value(&claim).unwrap();
+        foreign["metadata"][field] = json!("elsewhere");
+        assert!(
+            resources::state_claim_adoption(&serde_json::from_value(foreign).unwrap(), &owner)
+                .is_none()
+        );
+    }
+    let mut controlled = claim.clone();
+    controlled.metadata.owner_references.as_mut().unwrap()[0].controller = Some(true);
+    assert!(resources::state_claim_adoption(&controlled, &owner).is_none());
+    let mut deleting = claim.clone();
+    deleting.metadata.deletion_timestamp =
+        Some(k8s_openapi::apimachinery::pkg::apis::meta::v1::Time(
+            "2026-11-17T00:00:00Z".parse().unwrap(),
+        ));
+    assert!(resources::state_claim_adoption(&deleting, &owner).is_none());
+    for invalid in ["", "short", "0123456789ABCDEF0123456789ABCDEF"] {
+        let mut claim = claim.clone();
+        let mut owner = owner.clone();
+        claim
+            .annotations_mut()
+            .insert("qrab.yapplesauce.com/launch-id".into(), invalid.into());
+        owner
+            .annotations_mut()
+            .insert("qrab.yapplesauce.com/launch-id".into(), invalid.into());
+        assert!(resources::state_claim_adoption(&claim, &owner).is_none());
+    }
+    owner.metadata.labels = None;
+    assert!(resources::state_claim_adoption(&claim, &owner).is_none());
+}
+
+#[test]
 fn api_server_defaults_and_canonical_quantities_do_not_restart_a_vm() {
     let desired = resources::render(&vm(), &settings()).unwrap();
     let mut stored = serde_json::to_value(&desired.pod).unwrap();

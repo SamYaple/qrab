@@ -391,7 +391,7 @@ nothing. On submit:
    "qrab VM <ns>/<name> admins|viewers, launched by …"), nest both in
    `qrab_vm_users`, and add the launcher's subject to `_admins`.
 3. Create the PVC `<name>-state` (`zfs-block`, `ReadWriteOncePod`,
-   `Filesystem`, 1Gi).
+   `Filesystem`, 1Gi), with the launch ID and intended VM name as provenance.
 4. Create the VirtualMachine with `bootDisk: /opt/qrab/demo/boot.img`,
    `running: true`, `console: {adminGroups, viewerGroups}` (no `publicUrl`),
    `nics` and `cloudInit` as described below,
@@ -456,10 +456,14 @@ sign in again they are the VM's viewer as its creator; after that, its admin.
 Deleting a VM (console admin of a dashboard-launched VM, type its name to
 confirm) deletes the VirtualMachine
 with a UID precondition. Its Pod, ConfigMap and disk Secrets follow, and so
-does the state PVC `<name>-state`: once the VM has bound it, the operator
-makes the VM its controller owner (only a PVC labelled
-`app.kubernetes.io/managed-by: qrab-dashboard` without another controller), so
-garbage collection deletes it with the VM. The `zfs-block` volume behind it is
+does a newly created state PVC `<name>-state` from the same launch: once the
+VM has bound it, the operator makes the VM its controller owner. Both resources
+must carry the dashboard label and matching valid launch IDs; the claim must
+also name the intended VM, namespace and referenced claim, with no other
+controller. A legacy claim or a never-bound claim reused from a previous launch
+without this exact provenance remains retained. Existing controller ownership
+is unchanged. Garbage collection deletes only the VM-owned claim. The
+`zfs-block` volume behind it is
 Retain-only: the PV turns Released and its zvol stays until it is destroyed on
 the storage host ([retained storage](iscsi.md#destroying-retained-data)). Provisioned guest disks retain their data
 after their connections are closed (see [retained storage](iscsi.md#destroying-retained-data)).

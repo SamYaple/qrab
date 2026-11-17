@@ -1984,23 +1984,35 @@ pub fn resize_status(
 
 /// The label the dashboard puts on the state PVC it creates for a VM.
 pub const DASHBOARD_MANAGED: (&str, &str) = ("app.kubernetes.io/managed-by", "qrab-dashboard");
+/// Public provenance shared by a dashboard launch's VM and new state PVC.
+pub const DASHBOARD_LAUNCH_ID: &str = "qrab.yapplesauce.com/launch-id";
+/// The VM name a dashboard-created state PVC was created for.
+pub const DASHBOARD_VM_ANNOTATION: &str = "qrab.yapplesauce.com/vm";
 
 /// The merge patch that makes `vm` the controller owner of its state claim,
 /// so garbage collection deletes the claim with the VM. Only a claim the
-/// dashboard created (labelled [`DASHBOARD_MANAGED`]) that has no controller
-/// yet is adopted; a hand-made claim is never touched. The patch is pinned to
-/// the claim's UID and resourceVersion and keeps any other owner.
+/// dashboard created for this exact launch is adopted: both resources must
+/// have [`DASHBOARD_MANAGED`] and a matching valid [`DASHBOARD_LAUNCH_ID`],
+/// and the claim must name this VM, namespace and referenced state claim.
+/// A hand-made, foreign, legacy/unproven or already controlled claim stays
+/// retained. Provenance is trusted Kubernetes metadata, not a secret or an
+/// authentication credential. The patch is pinned to the claim's UID and
+/// resourceVersion and keeps any other non-controller owner.
 ///
 /// ```
 /// use k8s_openapi::api::core::v1::PersistentVolumeClaim;
 /// use qrab_operator::{api::VirtualMachine, resources::state_claim_adoption};
 /// let vm: VirtualMachine = serde_json::from_value(serde_json::json!({
 ///     "apiVersion": "qrab.yapplesauce.com/v1alpha1", "kind": "VirtualMachine",
-///     "metadata": {"name": "web", "namespace": "qrab", "uid": "vm-uid"},
+///     "metadata": {"name": "web", "namespace": "qrab", "uid": "vm-uid",
+///         "labels": {"app.kubernetes.io/managed-by": "qrab-dashboard"},
+///         "annotations": {"qrab.yapplesauce.com/launch-id": "0123456789abcdef0123456789abcdef"}},
 ///     "spec": {"stateVolumeClaim": "web-state"}})).unwrap();
 /// let claim = |labels: serde_json::Value, owners: serde_json::Value| -> PersistentVolumeClaim {
-///     serde_json::from_value(serde_json::json!({"metadata": {"name": "web-state",
-///         "uid": "pvc-uid", "resourceVersion": "5", "labels": labels, "ownerReferences": owners}}))
+///     serde_json::from_value(serde_json::json!({"metadata": {"name": "web-state", "namespace": "qrab",
+///         "uid": "pvc-uid", "resourceVersion": "5", "labels": labels, "ownerReferences": owners,
+///         "annotations": {"qrab.yapplesauce.com/vm": "web",
+///             "qrab.yapplesauce.com/launch-id": "0123456789abcdef0123456789abcdef"}}}))
 ///     .unwrap()
 /// };
 /// let dashboard = serde_json::json!({"app.kubernetes.io/managed-by": "qrab-dashboard"});
@@ -2021,14 +2033,29 @@ pub fn state_claim_adoption(
     vm: &VirtualMachine,
 ) -> Option<Value> {
     let (key, value) = DASHBOARD_MANAGED;
-    let dashboard = claim
-        .metadata
-        .labels
-        .as_ref()
-        .and_then(|l| l.get(key))
-        .is_some_and(|v| v == value);
+    let namespace = vm.namespace()?;
+    let name = vm.metadata.name.as_deref()?;
+    let launch = vm.annotations().get(DASHBOARD_LAUNCH_ID)?;
+    let dashboard = claim.labels().get(key).is_some_and(|v| v == value)
+        && vm.labels().get(key).is_some_and(|v| v == value);
     let owners = claim.metadata.owner_references.clone().unwrap_or_default();
-    if !dashboard || owners.iter().any(|o| o.controller == Some(true)) {
+    if !dashboard
+        || launch.len() != 32
+        || !launch
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || claim.annotations().get(DASHBOARD_LAUNCH_ID) != Some(launch)
+        || claim
+            .annotations()
+            .get(DASHBOARD_VM_ANNOTATION)
+            .map(String::as_str)
+            != Some(name)
+        || claim.metadata.namespace.as_deref() != Some(namespace.as_str())
+        || claim.metadata.name.as_deref() != Some(vm.spec.state_volume_claim.as_str())
+        || claim.metadata.deletion_timestamp.is_some()
+        || vm.metadata.deletion_timestamp.is_some()
+        || owners.iter().any(|o| o.controller == Some(true))
+    {
         return None;
     }
     let mut owner = vm.controller_owner_ref(&())?;

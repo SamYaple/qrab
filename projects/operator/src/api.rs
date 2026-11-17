@@ -35,7 +35,9 @@ fn enabled() -> bool {
 #[kube(printcolumn = r#"{"name":"Resize","type":"string","jsonPath":".status.resize.phase"}"#)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VirtualMachineSpec {
-    /// Existing filesystem PVC. Its UEFI/vTPM identity is never garbage collected.
+    /// Existing filesystem PVC for UEFI/vTPM identity. Manual and unproven
+    /// claims stay retained; a dashboard claim with exact matching launch
+    /// provenance is owned by its VM and garbage collected with it.
     #[schemars(length(min = 1, max = 253))]
     pub state_volume_claim: String,
     /// Explicit read-only catalog PVC of approved virtual media. Mounted only

@@ -555,7 +555,7 @@
                     "type": "boolean"
                   },
                   "stateVolumeClaim": {
-                    "description": "Existing filesystem PVC. Its UEFI/vTPM identity is never garbage collected.",
+                    "description": "Existing filesystem PVC for UEFI/vTPM identity. Manual and unproven\nclaims stay retained; a dashboard claim with exact matching launch\nprovenance is owned by its VM and garbage collected with it.",
                     "maxLength": 253,
                     "minLength": 1,
                     "type": "string",

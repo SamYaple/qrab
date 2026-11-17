@@ -458,14 +458,25 @@ firmware variables, TPM state and its endorsement key. ConfigMap drift is repair
 replaced so its effective config converges. Required Pod fields, image and
 state mounts are checked without treating Kubernetes defaults as drift.
 
-Deleting a CR garbage collects its owned Pod/ConfigMap; **the PVC remains**.
+Deleting a CR garbage collects its owned Pod/ConfigMap. **Manual and unproven
+state PVCs remain.** A new dashboard launch records the same random launch ID
+on its VM and state claim; the operator makes that exact claim VM-owned so
+garbage collection deletes it with the VM. Adoption requires both dashboard
+labels, matching valid launch IDs, the claim's VM annotation, namespace and
+referenced claim name, and no existing controller. A dashboard label alone
+never grants deletion authority over identity storage. Legacy claims and
+never-bound claims reused from another launch are left retained when this
+provenance is absent. Already established controller ownership is unchanged.
+Deleting a PVC does not establish that its backing PV or storage data was
+destroyed; that follows the storage driver's reclaim contract.
 `stateVolumeClaim` is immutable and status pins the PVC UID. A replacement PVC
 with the same name is rejected. The runtime binds state to the immutable CR UID
 as well as its name: creating a new CR over an old identity volume fails closed.
 Restoring/migrating an identity to a new CR is a deliberate recovery operation,
 not an automatic adoption path. Never copy a TPM volume to create another VM:
-that duplicates its cryptographic identity. The operator deletes no PVC but a
-migration's own target or, after success, the previous state PVC it created,
+that duplicates its cryptographic identity. Apart from the exact dashboard
+claim's GC ownership above, the operator deletes no PVC but a migration's own
+target or, after success, the previous state PVC it created,
 and does not reset missing/corrupt initialized TPM state.
 
 Use `ReadWriteOncePod` for state where the driver supports it; single-node

@@ -138,7 +138,7 @@ pub struct Request {
 }
 
 /// The launch ID, recorded on the VM; its Kanidm groups are named from it.
-pub const LAUNCH_ID: &str = "qrab.yapplesauce.com/launch-id";
+pub use qrab_operator::resources::DASHBOARD_LAUNCH_ID as LAUNCH_ID;
 /// The UUIDs of the admins and viewers groups this dashboard created for the VM.
 pub const ADMINS_GROUP: &str = "qrab.yapplesauce.com/admins-group";
 pub const VIEWERS_GROUP: &str = "qrab.yapplesauce.com/viewers-group";
@@ -583,7 +583,10 @@ pub fn render_pvc(names: &Names, namespace: &str) -> PersistentVolumeClaim {
             "name": names.pvc,
             "namespace": namespace,
             "labels": {MANAGED_BY: MANAGER},
-            "annotations": {"qrab.yapplesauce.com/vm": names.vm},
+            "annotations": {
+                qrab_operator::resources::DASHBOARD_VM_ANNOTATION: names.vm,
+                LAUNCH_ID: names.launch_id,
+            },
         },
         "spec": {
             "storageClassName": STORAGE_CLASS,
@@ -1583,5 +1586,38 @@ mod tests {
         assert!(reusable_pvc(&pvc(true, "Pending")));
         assert!(!reusable_pvc(&pvc(true, "Bound")));
         assert!(!reusable_pvc(&pvc(false, "Pending")));
+    }
+
+    #[test]
+    fn new_state_pvc_and_vm_share_gc_provenance_but_an_old_launch_does_not() {
+        let launch = names("web", ID).unwrap();
+        let mut claim = render_pvc(&launch, "qrab");
+        claim.metadata.uid = Some("claim-one".into());
+        claim.metadata.resource_version = Some("2".into());
+        let request = parse(&os_form(&[]), None, &[], &[]).unwrap();
+        let mut vm: qrab_operator::api::VirtualMachine = serde_json::from_value(render_vm(
+            &request,
+            &launch,
+            "qrab",
+            "sub-1",
+            &Groups {
+                admins: "ga",
+                viewers: "gv",
+            },
+            None,
+        ))
+        .unwrap();
+        vm.metadata.uid = Some("vm-one".into());
+        assert_eq!(claim.metadata.annotations.as_ref().unwrap()[LAUNCH_ID], ID);
+        assert!(qrab_operator::resources::state_claim_adoption(&claim, &vm).is_some());
+
+        // A retry can use a never-bound PVC without acquiring GC authority
+        // over an earlier launch's identity. No provenance is rewritten.
+        vm.metadata
+            .annotations
+            .as_mut()
+            .unwrap()
+            .insert(LAUNCH_ID.into(), "f".repeat(32));
+        assert!(qrab_operator::resources::state_claim_adoption(&claim, &vm).is_none());
     }
 }
