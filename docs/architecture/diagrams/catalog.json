@@ -658,7 +658,18 @@
         "M01",
         "U14"
       ]
+    },
+    {
+      "id": "52-forwarding-grace",
+      "title": "Forwarding grace follows the latest handoff",
+      "status": "implemented repair / isolated kernel proof",
+      "caption": "A fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. The explicit kernel fixture preserves a replacement, then expires it under its own age. No live Cilium/BGP route outcome is implied.",
+      "evidence": [
+        "S09",
+        "S11",
+        "T16"
+      ]
     }
   ],
-  "reviewed_through": "f7d449f89a793aea95a061b6ae74fa64c0f34ef3"
+  "reviewed_through": "6de02035751d4068a7edbc9281e70b720d59f895"
 }

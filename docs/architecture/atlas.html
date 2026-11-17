@@ -12,8 +12,8 @@ h1{font-size:32px;line-height:1.2;margin:0 0 24px}h2{font-size:24px;line-height:
 @media(max-width:850px){.layout{display:block}nav.reader-nav{position:static;height:auto;max-height:280px;border-bottom:1px solid var(--line)}main{padding:14px}.doc{padding:24px 18px}table{font-size:12px;display:block;overflow:auto}h1{font-size:27px}header.reader-head{position:static}}
 @media print{@page{size:A4;margin:17mm}body{background:white;color:#111;font-size:10pt;line-height:1.4}header.reader-head,nav.reader-nav,.no-print{display:none!important}.layout{display:block}main{padding:0}.doc,.js-ready .doc{display:block!important;max-width:none;border:0;border-radius:0;padding:0;margin:0;break-before:page}.doc:first-child{break-before:auto}.doc img{max-height:175mm;max-width:100%;break-inside:avoid}h1{font-size:23pt}h2{font-size:16pt;break-after:avoid}h3{font-size:12pt;break-after:avoid}table{font-size:8pt;display:table}thead{display:table-header-group}tr{break-inside:avoid}td,th{padding:5px}a{color:#111}pre{white-space:pre-wrap;overflow:visible;font-size:8pt}.cover{background:#f5f5f5;border-color:#111}#doc-gallery{display:none!important}}
 </style></head><body>
-<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through f7d449f89a79 · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
-<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>31 document views · 55 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
+<header class="reader-head"><strong>qrab / OpenStack</strong><span class="provenance">Source review through 6de02035751d · 2026-11-17</span><button id="reader-theme" type="button">Light / dark reader</button><a href="exports/handbook.pdf">Handbook PDF</a><a href="exports/diagrams.pdf">Diagram portfolio</a></header>
+<div class="layout"><nav class="reader-nav" aria-label="Atlas documents"><input id="doc-search" aria-label="Search document text" placeholder="Search document text"><a href="#doc-gallery" data-doc="gallery">Diagram gallery / reusable visuals</a><a href="#doc-README" data-doc="README">qrab and OpenStack: architecture atlas</a><a href="#doc-executive" data-doc="executive">A VM platform with one Kubernetes control plane</a><a href="#doc-replacement-map" data-doc="replacement-map">Replace control planes; assign every surviving responsibility</a><a href="#doc-current-state" data-doc="current-state">Current structure: five planes and three kinds of ownership</a><a href="#doc-desired-state" data-doc="desired-state">Desired state: Kubernetes owns intent; qrab owns the VM-specific seams</a><a href="#doc-code-map" data-doc="code-map">Follow a requirement to its code owner</a><a href="#doc-boundaries" data-doc="boundaries">Boundary contracts</a><a href="#doc-network" data-doc="network">Network engineer&#x27;s view: reuse Cilium, keep the guest boundary</a><a href="#doc-storage" data-doc="storage">Storage engineer&#x27;s view: image, volume, identity and destruction</a><a href="#doc-identity" data-doc="identity">Identity architect&#x27;s view: remove Keystone, retain explicit authorization</a><a href="#doc-tenancy" data-doc="tenancy">Tenancy: separate VM roles, API rights and platform authority</a><a href="#doc-authority" data-doc="authority">Authority across resource lifetimes</a><a href="#doc-operating-model" data-doc="operating-model">One system, several architecture maps</a><a href="#doc-recovery" data-doc="recovery">Recovery: follow the owner, resource and incarnation</a><a href="#doc-continuity" data-doc="continuity">Continuity: what survives a restart, restore or deletion?</a><a href="#doc-verification" data-doc="verification">What the presentation can prove</a><a href="#doc-lifecycle" data-doc="lifecycle">Lifecycle view: follow one VM across its owners</a><a href="#doc-security" data-doc="security">Security review: trust moves; it does not vanish</a><a href="#doc-operations" data-doc="operations">Operator&#x27;s view: failure domains and recovery evidence</a><a href="#doc-operator-translation" data-doc="operator-translation">An OpenStack operator&#x27;s task translator</a><a href="#doc-capabilities" data-doc="capabilities">Capability ledger: what must be true before retiring a service</a><a href="#doc-transition" data-doc="transition">Transition view: move responsibilities and workloads deliberately</a><a href="#doc-cutover-story" data-doc="cutover-story">One workload, two clusters: a cutover storyboard</a><a href="#doc-decisions" data-doc="decisions">Architecture decisions for the target</a><a href="#doc-questions" data-doc="questions">Skeptical questions for the architecture review</a><a href="#doc-field-guide" data-doc="field-guide">A guided walk through one VM</a><a href="#doc-glossary" data-doc="glossary">Boundary glossary</a><a href="#doc-presentations" data-doc="presentations">Presentation variants</a><a href="#doc-upstream-diagrams" data-doc="upstream-diagrams">Upstream OpenStack diagrams as a comparison reference</a><a href="#doc-audit" data-doc="audit">Architecture boundary audit</a><a href="#doc-evidence" data-doc="evidence">Evidence register and claim rules</a></nav><main><div class="cover no-print"><strong>Keep the platform. Make VM ownership explicit.</strong><p>31 document views · 56 unique diagrams · 7 presentation narratives.</p><div class="download-list"><a href="exports/leadership.html">One Kubernetes control plane slides</a> · <a href="exports/leadership.pptx">PPTX</a> · <a href="exports/leadership.pdf">PDF</a> <a href="exports/engineering.html">VM architecture and ownership slides</a> · <a href="exports/engineering.pptx">PPTX</a> · <a href="exports/engineering.pdf">PDF</a> <a href="exports/operations.html">Operate the boundaries slides</a> · <a href="exports/operations.pptx">PPTX</a> · <a href="exports/operations.pdf">PDF</a> <a href="exports/networking.html">One Cilium fabric: network review slides</a> · <a href="exports/networking.pptx">PPTX</a> · <a href="exports/networking.pdf">PDF</a> <a href="exports/storage.html">Images and disks: storage review slides</a> · <a href="exports/storage.pptx">PPTX</a> · <a href="exports/storage.pdf">PDF</a> <a href="exports/identity.html">Identity and authority review slides</a> · <a href="exports/identity.pptx">PPTX</a> · <a href="exports/identity.pdf">PDF</a> <a href="exports/operator.html">OpenStack operator handover slides</a> · <a href="exports/operator.pptx">PPTX</a> · <a href="exports/operator.pdf">PDF</a></div></div><article class="doc" id="doc-README" data-search="# qrab and openstack: architecture atlas
 
 qrab uses kubernetes as the vm control plane, qemu as the hypervisor process,
 and cilium as the guest network datapath. the intended simplification is to
@@ -3724,6 +3724,7 @@ them together does not automatically establish a live workload outcome.
 | real two-manager migration | pinned local image assets, current manager/test binaries, tcg, private fixture workload apis and no guest nics | guest resumes at target; source exits migrated; later target cold boot preserves the source tpm identity | no cilium handoff, native guest luns, production spire or cross-cluster/openstack migration |
 | local kvm/container containment | disposable rootless container, explicit kvm, current manager binary and pinned image assets | manager/qemu/swtpm are direct parent/children in one constrained cgroup; guest boots and all original processes exit cleanly | no kubernetes scheduling, device-plugin, namespace/tenant, cilium/bgp or guest-lun certification |
 | local kvm resource growth | same isolated model, projected-limit stand-ins and actual container cgroup updates | intent waits for admission; odd capacity never rounds allocation up; cpu/memory grow in the same qemu and guest onlines both | no real kubelet/api resize, broad guest compatibility, live shrink or sizing/performance recommendation |
+| forward-route lifetime | actual netd control/sweep and kernel routes under enforced private user/network namespaces | replacement survives an earlier expired orphan age and later retires under its own age; default test verifies effect serialization | no host route mutation, live migration traffic or cilium/bgp acceptance |
 | original socket-peer fixture | private child process and unix connection on a supporting local kernel | peer authority does not become a replacement numeric process after exit | no live vm grant or node rollout |
 | kernel networking fixtures | throwaway user/network namespaces, real tap/fd transfer, routes, dhcp lease updates/bind failures and namespace replacement | the exercised local kernel mechanisms work in isolated fixtures | dummy uplinks replace cilium; the later t05 run also exercises wireguard/nat-pmp |
 | manager nic fixture | stand-in netd and qmp peers, actual manager reconciliation | namespace token change causes ordered nic-only detach/attach with the same mac/root port | guest hot-unplug and traffic continuity require their own acceptance |
@@ -3972,6 +3973,12 @@ them together does not automatically establish a live workload outcome.</p>
 <td>Same isolated model, projected-limit stand-ins and actual container cgroup updates</td>
 <td>Intent waits for admission; odd capacity never rounds allocation up; CPU/memory grow in the same QEMU and guest onlines both</td>
 <td>No real kubelet/API resize, broad guest compatibility, live shrink or sizing/performance recommendation</td>
+</tr>
+<tr>
+<td>Forward-route lifetime</td>
+<td>Actual netd control/sweep and kernel routes under enforced private user/network namespaces</td>
+<td>Replacement survives an earlier expired orphan age and later retires under its own age; default test verifies effect serialization</td>
+<td>No host route mutation, live migration traffic or Cilium/BGP acceptance</td>
 </tr>
 <tr>
 <td>Original socket-peer fixture</td>
@@ -7596,6 +7603,40 @@ used synthetic interfaces; no process was moved into the host hierarchy root.
 **merged source:** `f7d449f89a793aea95a061b6ae74fa64c0f34ef3`.
 **tracking:** qrab `work/container-metrics-hierarchy-root-boundary`.
 
+## a19 — fresh forwarding could inherit an old orphan timer
+
+**location:** netd `agent::control` and `sweep_forwards`.
+**repair baseline:** `f7d449f`.
+
+orphan forwarding-route ages were keyed by address. installing a fresh
+handoff route neither reset its prior age nor shared the sweep&#x27;s effect lock.
+a rapid return/handoff or an old sweep snapshot could therefore remove the
+replacement using a previous route&#x27;s age.
+
+an explicit isolated kernel fixture seeded an expired earlier age, used the
+actual control path to install the route, then ran the actual sweep. before
+the repair it failed after the fresh route was removed. the fixture checks
+its one-user namespace mapping before effects and runs in a private network
+namespace; no host routes or live cluster were involved.
+
+![bind grace to the latest route change](diagrams/rendered/light/52-forwarding-grace.svg)
+
+forward/unforward now clear prior orphan state and retain the sweep&#x27;s mutex
+through the kernel effect. the replacement gets a fresh grace observation;
+an earlier inventory cannot interleave deletion with its installation/reset.
+the kernel case passes after and also verifies later retirement under the
+route&#x27;s own expired age. a default concurrency case verifies that the lock
+remains held through a blocked effect. the bin suite, full runtime gate and
+strict clippy pass.
+
+this narrows the earlier general ip/route-ownership concern to a reproduced
+lifetime defect. it does not establish every other route-reuse hypothesis or
+live cilium/bgp convergence. peer, own-vm/nic and on-link next-hop admission
+retain their existing scope.
+
+**merged source:** `6de02035751d4068a7edbc9281e70b720d59f895`.
+**tracking:** qrab `work/netd-forward-route-grace-generation`.
+
 ## validation repair: the http power fixture depended on test order
 
 a full gate exposed a deterministic isolated-test failure: the operator&#x27;s
@@ -8149,6 +8190,32 @@ and 1 GiB limits from a real disposable rootless container. The negative case
 used synthetic interfaces; no process was moved into the host hierarchy root.</p>
 <p><strong>Merged source:</strong> <code>f7d449f89a793aea95a061b6ae74fa64c0f34ef3</code>.
 <strong>Tracking:</strong> qrab <code>work/container-metrics-hierarchy-root-boundary</code>.</p>
+<h2 id="audit--a19--fresh-forwarding-could-inherit-an-old-orphan-timer">A19 — fresh forwarding could inherit an old orphan timer</h2>
+<p><strong>Location:</strong> netd <code>Agent::control</code> and <code>sweep_forwards</code>.
+<strong>Repair baseline:</strong> <code>f7d449f</code>.</p>
+<p>Orphan forwarding-route ages were keyed by address. Installing a fresh
+handoff route neither reset its prior age nor shared the sweep's effect lock.
+A rapid return/handoff or an old sweep snapshot could therefore remove the
+replacement using a previous route's age.</p>
+<p>An explicit isolated kernel fixture seeded an expired earlier age, used the
+actual control path to install the route, then ran the actual sweep. Before
+the repair it failed after the fresh route was removed. The fixture checks
+its one-user namespace mapping before effects and runs in a private network
+namespace; no host routes or live cluster were involved.</p>
+<p><img src="diagrams/rendered/light/52-forwarding-grace.svg" alt="Bind grace to the latest route change" /></p>
+<p>Forward/unforward now clear prior orphan state and retain the sweep's mutex
+through the kernel effect. The replacement gets a fresh grace observation;
+an earlier inventory cannot interleave deletion with its installation/reset.
+The kernel case passes after and also verifies later retirement under the
+route's own expired age. A default concurrency case verifies that the lock
+remains held through a blocked effect. The bin suite, full runtime gate and
+strict Clippy pass.</p>
+<p>This narrows the earlier general IP/route-ownership concern to a reproduced
+lifetime defect. It does not establish every other route-reuse hypothesis or
+live Cilium/BGP convergence. Peer, own-VM/NIC and on-link next-hop admission
+retain their existing scope.</p>
+<p><strong>Merged source:</strong> <code>6de02035751d4068a7edbc9281e70b720d59f895</code>.
+<strong>Tracking:</strong> qrab <code>work/netd-forward-route-grace-generation</code>.</p>
 <h2 id="audit--validation-repair-the-http-power-fixture-depended-on-test-order">Validation repair: the HTTP power fixture depended on test order</h2>
 <p>A full gate exposed a deterministic isolated-test failure: the operator's
 plain-HTTP power fixture built a default reqwest backend under
@@ -8272,6 +8339,8 @@ the [connection atlas](../connections.md) provides finer-grained stream ids.
 | t14 | [media path policy and regression](../../projects/manager/src/pod/media.rs), isolated cli configuration check described in [the audit](audit.md) | actual boot path must resolve to the canonical image that passed the configured policy; matching-root size behavior retained | a guest boot, a claimed exploit of standard operator rendering or mutable/untrusted media-publisher safety |
 
 | t15 | [resource scope checks and fixtures](../../projects/manager/src/pod/resources.rs), thin local container sampler described in [the audit](audit.md) | hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | guest allocation changes, host-root process relocation or workload performance guarantees |
+
+| t16 | [forwarding change/sweep](../../projects/qrab-netd/src/main.rs), [private kernel and default lock regressions](../../projects/qrab-netd/src/forward_tests.rs) | a fresh route receives its own orphan grace and cannot interleave installation/reset with sweep deletion | live node route operations, cilium/bgp convergence or unrelated address-reuse guarantees |
 
 ## external sources
 
@@ -8533,6 +8602,7 @@ The <a href="../connections.md">connection atlas</a> provides finer-grained stre
 <p>| T13 | <a href="../../projects/manager/src/pod/hotplug.rs">Manager growth</a>, dated local KVM growth record in <a href="#doc-verification">verification</a> | Real cgroup changes gate CPU/memory requests; an odd budget floors device blocks safely; the same guest then onlines both resources | Kubernetes/kubelet placement/admission, arbitrary guest cooperation, live shrink or performance guarantees |</p>
 <p>| T14 | <a href="../../projects/manager/src/pod/media.rs">Media path policy and regression</a>, isolated CLI configuration check described in <a href="#doc-audit">the audit</a> | Actual boot path must resolve to the canonical image that passed the configured policy; matching-root size behavior retained | A guest boot, a claimed exploit of standard operator rendering or mutable/untrusted media-publisher safety |</p>
 <p>| T15 | <a href="../../projects/manager/src/pod/resources.rs">Resource scope checks and fixtures</a>, thin local container sampler described in <a href="#doc-audit">the audit</a> | Hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | Guest allocation changes, host-root process relocation or workload performance guarantees |</p>
+<p>| T16 | <a href="../../projects/qrab-netd/src/main.rs">Forwarding change/sweep</a>, <a href="../../projects/qrab-netd/src/forward_tests.rs">private kernel and default lock regressions</a> | A fresh route receives its own orphan grace and cannot interleave installation/reset with sweep deletion | Live node route operations, Cilium/BGP convergence or unrelated address-reuse guarantees |</p>
 <h2 id="evidence--external-sources">External sources</h2>
 <p>Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to
 describe responsibilities, not to infer the version of the operator's cluster.
@@ -8799,7 +8869,10 @@ boundary, not an authenticated public management service.</p>
 <p>Four actors use different entrypoints and grants. The dashboard backend is an API actor under its ServiceAccount; an end-user VM role, a workload SVID and platform administration do not collapse into one credential.</p><a href="diagrams/50-authority-entrypoints.json">Editable source</a> · <a href="diagrams/rendered/png/50-authority-entrypoints.png">PNG</a></section><section class="diagram-card" data-filter="51-tenancy-models current and possible tenancy models current contract / desired scope comparison the current protected-platform foundation differs from a complete tenant-facing vm api and from arbitrary hostile pod writers. the latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.">
 <h3>Current and possible tenancy models</h3><div class="scope">current contract / desired scope comparison · S02, S09, S16, M01, U14</div>
 <a class="diagram-image-link" href="diagrams/rendered/light/51-tenancy-models.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="51-tenancy-models" src="diagrams/rendered/light/51-tenancy-models.svg" alt="Current and possible tenancy models"></a>
-<p>The current protected-platform foundation differs from a complete tenant-facing VM API and from arbitrary hostile Pod writers. The latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.</p><a href="diagrams/51-tenancy-models.json">Editable source</a> · <a href="diagrams/rendered/png/51-tenancy-models.png">PNG</a></section></div></article></main></div><script>
+<p>The current protected-platform foundation differs from a complete tenant-facing VM API and from arbitrary hostile Pod writers. The latter models require explicit policy and isolation work; this is a scope comparison, not a new implemented product.</p><a href="diagrams/51-tenancy-models.json">Editable source</a> · <a href="diagrams/rendered/png/51-tenancy-models.png">PNG</a></section><section class="diagram-card" data-filter="52-forwarding-grace forwarding grace follows the latest handoff implemented repair / isolated kernel proof a fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. the explicit kernel fixture preserves a replacement, then expires it under its own age. no live cilium/bgp route outcome is implied.">
+<h3>Forwarding grace follows the latest handoff</h3><div class="scope">implemented repair / isolated kernel proof · S09, S11, T16</div>
+<a class="diagram-image-link" href="diagrams/rendered/light/52-forwarding-grace.svg" target="_blank" rel="noopener"><img loading="lazy" data-diagram="52-forwarding-grace" src="diagrams/rendered/light/52-forwarding-grace.svg" alt="Forwarding grace follows the latest handoff"></a>
+<p>A fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. The explicit kernel fixture preserves a replacement, then expires it under its own age. No live Cilium/BGP route outcome is implied.</p><a href="diagrams/52-forwarding-grace.mmd">Editable source</a> · <a href="diagrams/rendered/png/52-forwarding-grace.png">PNG</a></section></div></article></main></div><script>
 const docs=[...document.querySelectorAll('.doc')], links=[...document.querySelectorAll('[data-doc]')];
 function choose(){const id=decodeURIComponent(location.hash.slice(1));let doc=id.startsWith('doc-')?document.getElementById(id):document.getElementById(id)?.closest('.doc');doc ||= document.getElementById('doc-README');docs.forEach(x=>x.classList.toggle('active',x===doc));links.forEach(x=>x.setAttribute('aria-current',String('doc-'+x.dataset.doc===doc.id)));if(id&&!id.startsWith('doc-'))setTimeout(()=>document.getElementById(id)?.scrollIntoView(),0);else window.scrollTo(0,0);}
 document.body.classList.add('js-ready');addEventListener('hashchange',choose);choose();

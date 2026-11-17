@@ -1,0 +1,15 @@
+sequenceDiagram
+    participant M as Admitted VM handoff
+    participant N as netd control
+    participant S as Orphan sweep
+    participant K as Private kernel route table
+    Note over N,S: A previous route for this IP has an old orphan age
+    M->>N: Forward this NIC address to the peer node
+    N->>N: Acquire retirement lock and clear prior age
+    N->>K: Install / replace the forwarding route
+    K-->>N: Kernel outcome
+    N->>N: Release retirement lock
+    S->>S: Acquire same lock for route cleanup
+    S->>S: No inherited age, start the new orphan grace
+    Note over S,K: A stale inventory cannot retire the fresh route immediately
+    S->>K: Retire later after its own unheld grace expires

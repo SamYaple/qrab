@@ -560,3 +560,13 @@ The current protected-platform foundation differs from a complete tenant-facing 
 ![Current and possible tenancy models](diagrams/rendered/light/51-tenancy-models.svg)
 
 [Editable source](diagrams/51-tenancy-models.json) · [Light SVG](diagrams/rendered/light/51-tenancy-models.svg) · [Dark SVG](diagrams/rendered/dark/51-tenancy-models.svg) · [Print SVG](diagrams/rendered/print/51-tenancy-models.svg) · [PNG](diagrams/rendered/png/51-tenancy-models.png)
+
+## 52-forwarding-grace: Forwarding grace follows the latest handoff
+
+**Scope:** implemented repair / isolated kernel proof. **Evidence:** S09, S11, T16.
+
+A fresh forwarding change resets previous orphan age and shares the sweep lock through its kernel effect. The explicit kernel fixture preserves a replacement, then expires it under its own age. No live Cilium/BGP route outcome is implied.
+
+![Forwarding grace follows the latest handoff](diagrams/rendered/light/52-forwarding-grace.svg)
+
+[Editable source](diagrams/52-forwarding-grace.mmd) · [Light SVG](diagrams/rendered/light/52-forwarding-grace.svg) · [Dark SVG](diagrams/rendered/dark/52-forwarding-grace.svg) · [Print SVG](diagrams/rendered/print/52-forwarding-grace.svg) · [PNG](diagrams/rendered/png/52-forwarding-grace.png)

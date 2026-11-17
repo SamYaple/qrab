@@ -607,6 +607,40 @@ used synthetic interfaces; no process was moved into the host hierarchy root.
 **Merged source:** `f7d449f89a793aea95a061b6ae74fa64c0f34ef3`.
 **Tracking:** qrab `work/container-metrics-hierarchy-root-boundary`.
 
+## A19 — fresh forwarding could inherit an old orphan timer
+
+**Location:** netd `Agent::control` and `sweep_forwards`.
+**Repair baseline:** `f7d449f`.
+
+Orphan forwarding-route ages were keyed by address. Installing a fresh
+handoff route neither reset its prior age nor shared the sweep's effect lock.
+A rapid return/handoff or an old sweep snapshot could therefore remove the
+replacement using a previous route's age.
+
+An explicit isolated kernel fixture seeded an expired earlier age, used the
+actual control path to install the route, then ran the actual sweep. Before
+the repair it failed after the fresh route was removed. The fixture checks
+its one-user namespace mapping before effects and runs in a private network
+namespace; no host routes or live cluster were involved.
+
+![Bind grace to the latest route change](diagrams/rendered/light/52-forwarding-grace.svg)
+
+Forward/unforward now clear prior orphan state and retain the sweep's mutex
+through the kernel effect. The replacement gets a fresh grace observation;
+an earlier inventory cannot interleave deletion with its installation/reset.
+The kernel case passes after and also verifies later retirement under the
+route's own expired age. A default concurrency case verifies that the lock
+remains held through a blocked effect. The bin suite, full runtime gate and
+strict Clippy pass.
+
+This narrows the earlier general IP/route-ownership concern to a reproduced
+lifetime defect. It does not establish every other route-reuse hypothesis or
+live Cilium/BGP convergence. Peer, own-VM/NIC and on-link next-hop admission
+retain their existing scope.
+
+**Merged source:** `6de02035751d4068a7edbc9281e70b720d59f895`.
+**Tracking:** qrab `work/netd-forward-route-grace-generation`.
+
 ## Validation repair: the HTTP power fixture depended on test order
 
 A full gate exposed a deterministic isolated-test failure: the operator's

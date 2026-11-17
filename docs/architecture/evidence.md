@@ -69,6 +69,8 @@ The [connection atlas](../connections.md) provides finer-grained stream IDs.
 
 | T15 | [Resource scope checks and fixtures](../../projects/manager/src/pod/resources.rs), thin local container sampler described in [the audit](audit.md) | Hierarchy-root aggregates are omitted; real private cgroup namespace roots still report scoped measurements | Guest allocation changes, host-root process relocation or workload performance guarantees |
 
+| T16 | [Forwarding change/sweep](../../projects/qrab-netd/src/main.rs), [private kernel and default lock regressions](../../projects/qrab-netd/src/forward_tests.rs) | A fresh route receives its own orphan grace and cannot interleave installation/reset with sweep deletion | Live node route operations, Cilium/BGP convergence or unrelated address-reuse guarantees |
+
 ## External sources
 
 Checked on 2026-11-17. Versioned OpenStack 2026.1 documentation is used to

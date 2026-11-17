@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "744621ad836a7f223a431ca19534b20f48e1aa93d31c9e5f36565d0797ecc2fd",
+  "catalog_sha256": "086345cfffeae20f44c884ee43591abf17a5d8bbcced409e9f1b069a0e9a8a8b",
   "diagrams": {
     "00-migration-overview": {
       "height": 900,
@@ -660,6 +660,18 @@
       "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
       "source_sha256": "0a0a147c8be4c9e0e71e5d466e54bb152f231bb15fcd1178d657c876109cc217",
       "width": 1600
+    },
+    "52-forwarding-grace": {
+      "height": 987,
+      "outputs": {
+        "dark/52-forwarding-grace.svg": "d11263652f20fd7b5a29d091833f2b14a1fea359819af15c52ca3a529746fbff",
+        "light/52-forwarding-grace.svg": "d406299b56380e06844b6fe67d15724a1c6d83ed4e5d05af99b12df0631cb56c",
+        "png/52-forwarding-grace.png": "9ad166e91df29d6eb0d9b97c29508c12bd48ea72a080a20ebb56a2f0fde3b0a6",
+        "print/52-forwarding-grace.svg": "b5e85ce5018398e2d80c5c58bab45bf8d735e8c57ce2c4cf36a4ebdef96fe222"
+      },
+      "renderer_sha256": "c443e4cb050f1efa3ed5f4a89b2b83fe99d159fab78c271ebb751149a1730b3f",
+      "source_sha256": "7b0e4260d484dbda89c3ecc33f8d094247e921b0fafc2fa998784e2b3d81e121",
+      "width": 850
     }
   },
   "mermaid_version": "12.3.0"
