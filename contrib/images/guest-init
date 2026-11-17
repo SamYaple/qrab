@@ -16,6 +16,28 @@ if [ -d /sys/firmware/efi ]; then
         echo QRAB_EFIVARFS_UNAVAILABLE >&2
     fi
 fi
+# Explicit freeze-test fixture only. The host test formats its own 64 MiB
+# file before launch. Never format here, or mount an ordinary guest disk.
+# Mount before starting the agent so a connected agent has the test filesystem.
+case " $(cat /proc/cmdline) " in
+    *" qrab.freeze_fixture=9f908867-3cac-45c8-8586-38166fb10f00 "*)
+        attempt=0
+        while [ ! -b /dev/vda ] && [ "$attempt" -lt 50 ]; do
+            sleep 0.1
+            attempt=$((attempt + 1))
+        done
+        if [ "$(/usr/sbin/blockdev --getsize64 /dev/vda 2>/dev/null)" = 67108864 ] &&
+           [ "$(/usr/sbin/blkid -s TYPE -o value /dev/vda 2>/dev/null)" = ext4 ] &&
+           [ "$(/usr/sbin/blkid -s LABEL -o value /dev/vda 2>/dev/null)" = QRAB-FREEZE ] &&
+           [ "$(/usr/sbin/blkid -s UUID -o value /dev/vda 2>/dev/null)" = 9f908867-3cac-45c8-8586-38166fb10f00 ] &&
+           mkdir -p /run/qrab-freeze-fixture &&
+           mount -t ext4 /dev/vda /run/qrab-freeze-fixture; then
+            echo QRAB_GUEST_FREEZE_FS_READY
+        else
+            echo QRAB_GUEST_FREEZE_FS_REFUSED >&2
+        fi
+        ;;
+esac
 # The guest agent finds org.qemu.guest_agent.0 through sysfs (no udev here)
 # and is restarted if it exits. Its log lines go to the serial console.
 if [ -x /usr/sbin/qrab-guest-agent ]; then

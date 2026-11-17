@@ -137,8 +137,15 @@ QRAB_TEST_KERNEL=/path/to/vmlinuz QRAB_TEST_INITRD=/path/to/initramfs.gz \
   cargo test --locked -p manager --test pod_guest_agent -- --ignored --nocapture
 ```
 
-It attaches a 64 MiB scratch disk. A guest that formats and mounts it reports
-one frozen filesystem; the RAM-only demo reports zero.
+The host needs `mke2fs`. The test formats only its private 64 MiB scratch
+file, with a reserved fixture label/UUID, and opts into the demo's test mount
+through an exact kernel argument. The demo verifies the size, ext4 type,
+label and UUID before mounting that disk, and never formats guest disks.
+It mounts before starting the agent. The test freezes that exact mountpoint,
+requires a count of one, checks the frozen-operation gate, thaws it and then
+tests the update hook. The initramfs must include this opt-in fixture support;
+an older RAM-only fixture that freezes zero filesystems fails the test.
+Ordinary demo boots do not mount this filesystem.
 
 A glibc `+crt-static` build linked against a host-optimized static libc can
 fault with `SIGILL` under TCG `-cpu max`. Use the musl target.
