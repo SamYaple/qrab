@@ -477,14 +477,19 @@ The VM's Kanidm access groups are deleted with it, however it is deleted
 creation; every 15 seconds the dashboard adds it to any VM labelled
 `app.kubernetes.io/managed-by: qrab-dashboard` that lacks it (launches from
 before the finalizer existed). For a terminating VM with the finalizer, the
-dashboard deletes each group in `spec.console.adminGroups` and `viewerGroups`
-that it created for exactly this VM, then removes the finalizer. "Created for
-this VM" means a launch-ID name `qrab_vm_<32 hex>_<role>` (or the VM's own
-pre-launch-ID name `qrab_vm_<ns>_<name>_<role>`) whose Kanidm description
-starts with `qrab VM <ns>/<name> <role>, `, as the dashboard wrote it. Only
-Kanidm administrators can change a description, so editing a VM's console
-lists cannot get a platform group or another VM's group deleted. While Kanidm
-is unreachable the finalizer stays and deletion waits. If the dashboard is
+dashboard uses the recorded `launch-id`, `admins-group` and `viewers-group`
+annotations, not the current console grant lists. It deletes only those exact
+group UUIDs whose Kanidm names match `qrab_vm_<this launch id>_<role>` and whose
+descriptions start with `qrab VM <ns>/<name> <role>, `, then removes the
+finalizer. Changing console grants cannot leak the original groups or acquire
+deletion authority over a previous launch of the same VM name. Pre-launch-ID
+VMs look up only the exact legacy names `qrab_vm_<ns>_<name>_<role>` with the
+same description check; they never adopt generated launch-ID groups.
+Incomplete/invalid provenance or a mismatched returned group keeps the
+finalizer for correction. Missing groups are already cleaned up. These
+annotations are trusted Kubernetes metadata, not secret credentials; API
+administrators remain trusted. While Kanidm is unreachable the finalizer stays
+and deletion waits. If the dashboard is
 gone for good, an administrator removes the finalizer by hand
 (`kubectl -n qrab patch virtualmachine NAME --type json -p
 '[{"op":"remove","path":"/metadata/finalizers/N"}]'`, N its index) and

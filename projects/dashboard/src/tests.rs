@@ -3556,6 +3556,8 @@ async fn deleting_a_launched_vm_deletes_only_its_own_access_groups() {
     const OPERATORS: &str = "11111111-1111-4111-8111-111111111111";
     const OTHER: &str = "22222222-2222-4222-8222-222222222222";
     const OTHER_NAME: &str = "qrab_vm_ffffffffffffffffffffffffffffffff_admins";
+    const PREVIOUS: &str = "44444444-4444-4444-8444-444444444444";
+    const PREVIOUS_NAME: &str = "qrab_vm_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee_admins";
     {
         let mut dir = h.dir.lock().unwrap();
         for (name, uuid, description) in [
@@ -3569,6 +3571,11 @@ async fn deleting_a_launched_vm_deletes_only_its_own_access_groups() {
                 OTHER,
                 "qrab VM qrab/db admins, launched by bob through qrab-dashboard",
             ),
+            (
+                PREVIOUS_NAME,
+                PREVIOUS,
+                "qrab VM qrab/web admins, launched by alice through qrab-dashboard",
+            ),
         ] {
             dir.groups.insert(name.into(), uuid.into());
             dir.descriptions.insert(name.into(), description.into());
@@ -3578,9 +3585,15 @@ async fn deleting_a_launched_vm_deletes_only_its_own_access_groups() {
     vm.metadata.uid = Some("uid-web".into());
     vm.metadata.resource_version = Some("7".into());
     let console = vm.spec.console.as_mut().unwrap();
-    console
-        .admin_groups
-        .extend([OPERATORS.into(), OTHER.into(), "not a group".into()]);
+    // Access grants may change after launch. Cleanup still owes the original
+    // recorded UUIDs, and must not gain authority over an older same-name VM.
+    console.admin_groups = vec![
+        OPERATORS.into(),
+        OTHER.into(),
+        PREVIOUS.into(),
+        "not a group".into(),
+    ];
+    console.viewer_groups.clear();
     // A live VM keeps its groups and its finalizer.
     h.cluster.vms.lock().unwrap().push(vm);
     reconcile(h.cluster.as_ref(), &h.state.kanidm, "qrab")
@@ -3599,6 +3612,7 @@ async fn deleting_a_launched_vm_deletes_only_its_own_access_groups() {
         assert!(!dir.groups.values().any(|g| *g == admins || *g == viewers));
         assert!(dir.groups.contains_key("qrab_operators"));
         assert!(dir.groups.contains_key(OTHER_NAME));
+        assert!(dir.groups.contains_key(PREVIOUS_NAME));
     }
     assert!(h.cluster.vms.lock().unwrap().is_empty());
     assert_eq!(
@@ -3680,4 +3694,77 @@ async fn older_dashboard_vms_get_the_finalizer_and_kanidm_failures_keep_it() {
         Some(&[ISCSI.to_string()][..])
     );
     assert_eq!(vms.len(), 2);
+}
+
+#[tokio::test]
+async fn incomplete_or_foreign_launch_group_provenance_keeps_the_finalizer() {
+    use crate::{
+        cleanup::reconcile,
+        launch::{ADMINS_GROUP, LAUNCH_ID, VIEWERS_GROUP},
+    };
+    let h = harness().await;
+    h.cluster.vms.lock().unwrap().clear();
+    let cookie = session(&h.state.sessions, ALICE, &[LAUNCHERS]).await;
+    let (status, _, _) = send(
+        &h,
+        post(
+            "/launch",
+            Some(&cookie),
+            Some(ORIGIN),
+            "csrf=correct&name=web&cpus=1&memory_mib=512",
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let mut original: VirtualMachine =
+        serde_json::from_value(h.cluster.created_vms.lock().unwrap()[0].clone()).unwrap();
+    original.metadata.uid = Some("uid-web".into());
+    original.metadata.resource_version = Some("7".into());
+    original.metadata.deletion_timestamp = terminating();
+    let (admins_name, _) = h.dir.lock().unwrap().launched("admins");
+    let (viewers_name, _) = h.dir.lock().unwrap().launched("viewers");
+    const PREVIOUS: &str = "44444444-4444-4444-8444-444444444444";
+    const PREVIOUS_NAME: &str = "qrab_vm_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee_admins";
+    {
+        let mut dir = h.dir.lock().unwrap();
+        dir.groups.insert(PREVIOUS_NAME.into(), PREVIOUS.into());
+        dir.descriptions.insert(
+            PREVIOUS_NAME.into(),
+            "qrab VM qrab/web admins, launched by alice through qrab-dashboard".into(),
+        );
+    }
+    for (key, value) in [
+        (LAUNCH_ID, None),
+        (LAUNCH_ID, Some("invalid")),
+        (LAUNCH_ID, Some("ffffffffffffffffffffffffffffffff")),
+        (ADMINS_GROUP, None),
+        (VIEWERS_GROUP, Some("not-a-uuid")),
+        (ADMINS_GROUP, Some(PREVIOUS)),
+    ] {
+        let mut machine = original.clone();
+        let annotations = machine.metadata.annotations.as_mut().unwrap();
+        match value {
+            Some(value) => {
+                annotations.insert(key.into(), value.into());
+            }
+            None => {
+                annotations.remove(key);
+            }
+        }
+        *h.cluster.vms.lock().unwrap() = vec![machine];
+        reconcile(h.cluster.as_ref(), &h.state.kanidm, "qrab")
+            .await
+            .unwrap();
+        assert!(
+            h.cluster.finalizer_writes.lock().unwrap().is_empty(),
+            "{key}={value:?}"
+        );
+        let dir = h.dir.lock().unwrap();
+        for name in [&admins_name, &viewers_name, &PREVIOUS_NAME.to_string()] {
+            assert!(
+                dir.groups.contains_key(name),
+                "deleted {name} for {key}={value:?}"
+            );
+        }
+    }
 }

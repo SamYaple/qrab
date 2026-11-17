@@ -3,16 +3,20 @@
 //!
 //! Every [`INTERVAL`] the dashboard adds [`FINALIZER`] to each VM it launched
 //! that lacks it (older launches included). For a VM being deleted that carries
-//! it, the dashboard deletes each group in the VM's console admin and viewer
-//! lists that it [`owned`], then removes the finalizer. The update policy
+//! it, the dashboard deletes its recorded launch-owned groups after checking
+//! exact provenance, then removes the finalizer. Mutable console grants do not
+//! determine cleanup authority. Pre-launch-ID VMs use only their exact legacy
+//! names. The update policy
 //! (`qrab-operator dashboard-update-policy`) lets the dashboard change no other
 //! finalizer.
 use crate::{
     access::{MANAGED_BY, MANAGER},
     cluster::Cluster,
-    kanidm::{Group, Kanidm, group_name},
+    kanidm::{Group, Kanidm},
+    launch::{self, ADMINS_GROUP, LAUNCH_ID, VIEWERS_GROUP},
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
+use kube::ResourceExt;
 use qrab_operator::api::VirtualMachine;
 use std::{sync::Arc, time::Duration};
 
@@ -20,8 +24,8 @@ pub use qrab_operator::api::DASHBOARD_FINALIZER as FINALIZER;
 pub const INTERVAL: Duration = Duration::from_secs(15);
 
 /// Whether `group` is the `role` access group this dashboard created for VM
-/// `namespace/vm`. Its name must be a launch-ID name (`qrab_vm_<32 hex>_<role>`)
-/// or this VM's own pre-launch-ID name (`qrab_vm_<ns>_<vm>_<role>`), and its
+/// `namespace/vm`. Its name must match the exact recorded launch ID, or, when
+/// there is no launch ID, the VM's exact pre-launch-ID name. Its
 /// description, which only Kanidm administrators can change, must name this VM
 /// and role as the dashboard wrote it. Editing a VM's console lists therefore
 /// cannot get a platform group or another VM's group deleted.
@@ -36,31 +40,40 @@ pub const INTERVAL: Duration = Duration::from_secs(15);
 /// let id = "0123456789abcdef0123456789abcdef";
 /// let admins = format!("qrab_vm_{id}_admins");
 /// let web = "qrab VM qrab/web admins, launched by alice through qrab-dashboard";
-/// assert!(owned(&g(&admins, web), "qrab", "web", "admins"));
+/// assert!(owned(&g(&admins, web), "qrab", "web", "admins", Some(id)));
 /// assert!(owned(
 ///     &g("qrab_vm_qrab_web_viewers", "qrab VM qrab/web viewers, launched by alice through qrab-dashboard"),
-///     "qrab", "web", "viewers"
+///     "qrab", "web", "viewers", None
 /// ));
 /// // Another VM's group, a platform group, the wrong role, a lookalike name:
-/// assert!(!owned(&g(&admins, "qrab VM qrab/db admins, launched by alice"), "qrab", "web", "admins"));
-/// assert!(!owned(&g("qrab_operators", web), "qrab", "web", "admins"));
-/// assert!(!owned(&g(&admins, web), "qrab", "web", "viewers"));
-/// assert!(!owned(&g("qrab_vm_qrab_db_admins", web), "qrab", "web", "admins"));
-/// assert!(!owned(&g(&format!("qrab_vm_{}_admins", id.to_uppercase()), web), "qrab", "web", "admins"));
+/// assert!(!owned(&g(&admins, "qrab VM qrab/db admins, launched by alice"), "qrab", "web", "admins", Some(id)));
+/// assert!(!owned(&g("qrab_operators", web), "qrab", "web", "admins", Some(id)));
+/// assert!(!owned(&g(&admins, web), "qrab", "web", "viewers", Some(id)));
+/// assert!(!owned(&g("qrab_vm_qrab_db_admins", web), "qrab", "web", "admins", None));
+/// assert!(!owned(&g(&format!("qrab_vm_{}_admins", id.to_uppercase()), web), "qrab", "web", "admins", Some(id)));
+/// // Same VM name, different launch: neither modern nor legacy cleanup owns it.
+/// assert!(!owned(&g(&admins, web), "qrab", "web", "admins", Some("ffffffffffffffffffffffffffffffff")));
+/// assert!(!owned(&g(&admins, web), "qrab", "web", "admins", None));
 /// ```
-pub fn owned(group: &Group, namespace: &str, vm: &str, role: &str) -> bool {
-    let generated = group
-        .name
-        .strip_prefix("qrab_vm_")
-        .and_then(|rest| rest.strip_suffix(&format!("_{role}")))
-        .is_some_and(|id| {
-            id.len() == 32
-                && id
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        });
-    let legacy = group.name == format!("qrab_vm_{namespace}_{vm}_{role}");
-    (generated || legacy)
+pub fn owned(
+    group: &Group,
+    namespace: &str,
+    vm: &str,
+    role: &str,
+    launch_id: Option<&str>,
+) -> bool {
+    if !matches!(role, "admins" | "viewers") {
+        return false;
+    }
+    let expected = match launch_id {
+        Some(id) => match launch::names(vm, id) {
+            Ok(names) if role == "admins" => names.admins,
+            Ok(names) => names.viewers,
+            Err(_) => return false,
+        },
+        None => format!("qrab_vm_{namespace}_{vm}_{role}"),
+    };
+    group.name == expected
         && group
             .description
             .starts_with(&format!("qrab VM {namespace}/{vm} {role}, "))
@@ -131,24 +144,43 @@ async fn reconcile_vm(
         tracing::info!(vm=%name, "added the access-group finalizer");
         return Ok(());
     }
-    if let Some(console) = &vm.spec.console {
-        for (role, list) in [
-            ("admins", &console.admin_groups),
-            ("viewers", &console.viewer_groups),
-        ] {
-            for entry in list {
-                // Anything else cannot name a group the dashboard created.
-                if crate::config::uuid(entry).is_none() && !group_name(entry) {
-                    continue;
-                }
-                match kanidm.group(entry).await? {
-                    Some(group) if owned(&group, namespace, name, role) => {
-                        kanidm.delete_group(&group.uuid).await?;
-                        tracing::info!(vm=%name, group=%group.name, uuid=%group.uuid, "deleted the deleted VM's access group");
-                    }
-                    _ => {}
-                }
-            }
+    let launch_id = vm.annotations().get(LAUNCH_ID).map(String::as_str);
+    if let Some(id) = launch_id {
+        launch::names(name, id).map_err(anyhow::Error::msg)?;
+    } else {
+        ensure!(
+            !vm.annotations().contains_key(ADMINS_GROUP)
+                && !vm.annotations().contains_key(VIEWERS_GROUP),
+            "incomplete launch provenance; refusing legacy group cleanup"
+        );
+    }
+    // Resolve and validate both references before any deletion. Incomplete
+    // metadata keeps the finalizer; it never falls back to mutable grants.
+    let references = ["admins", "viewers"]
+        .into_iter()
+        .zip([ADMINS_GROUP, VIEWERS_GROUP])
+        .map(|(role, key)| {
+            let reference = match launch_id {
+                Some(_) => crate::config::uuid(
+                    vm.annotations()
+                        .get(key)
+                        .context("missing recorded group UUID")?,
+                )
+                .context("invalid recorded group UUID")?,
+                None => format!("qrab_vm_{namespace}_{name}_{role}"),
+            };
+            Ok((role, reference))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    for (role, reference) in references {
+        if let Some(group) = kanidm.group(&reference).await? {
+            ensure!(
+                owned(&group, namespace, name, role, launch_id)
+                    && (launch_id.is_none() || group.uuid == reference),
+                "recorded access group does not match this VM launch"
+            );
+            kanidm.delete_group(&group.uuid).await?;
+            tracing::info!(vm=%name, group=%group.name, uuid=%group.uuid, "deleted the deleted VM's access group");
         }
     }
     finalizers.retain(|f| f != FINALIZER);
