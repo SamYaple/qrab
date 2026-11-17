@@ -502,7 +502,7 @@ impl Agent {
         let host = sys::host_netns(&self.proc_root);
         let (mut imported, mut failures) = (0, Vec::new());
         for source in sources {
-            let (root, host) = (self.proc_root.clone(), host.clone());
+            let (root, host, cilium) = (self.proc_root.clone(), host.clone(), self.cilium.clone());
             let pulled = (|| {
                 let transport = self.peer_transport()?;
                 let node = self.peer_node(source)?;
@@ -517,7 +517,9 @@ impl Agent {
                     let tcp = tokio::net::TcpStream::from_std(connection)?;
                     transport.fetch(tcp, &node, ip).await
                 })?;
-                sys::in_netns(&host, move || sys::import_conntrack(&root, ip, &export))
+                sys::in_netns(&host, move || {
+                    sys::import_conntrack(&root, &cilium, ip, &export)
+                })
             })();
             match pulled {
                 Ok(count) => imported += count,
@@ -632,8 +634,9 @@ impl Agent {
             .collect();
         peer::may_fetch(&local, &self.holders(address)?, peer)?;
         let root = self.proc_root.clone();
+        let cilium = self.cilium.clone();
         sys::in_netns(&sys::host_netns(&self.proc_root), move || {
-            sys::export_conntrack(&root, address)
+            sys::export_conntrack(&root, &cilium, address)
         })
         .map_err(|e| e.to_string())
     }

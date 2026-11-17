@@ -12,6 +12,8 @@ pub mod anchor;
 #[cfg(feature = "agent")]
 pub mod authz;
 pub mod cgroup;
+#[cfg(feature = "agent")]
+pub mod cilium;
 pub mod ct;
 pub mod dhcp;
 pub mod identity;

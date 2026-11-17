@@ -861,6 +861,14 @@ What is tested, and how:
   ```
 
   These local tests do not grant live VM descriptors or mutate live namespaces.
+
+  Conntrack tooling authenticates a different local actor: the original peer
+  of the administrator-configured, protected Cilium API socket. Process names
+  do not select a privileged tool context. netd captures that peer's mount/PID
+  namespace and root-directory handles, then gives `nsenter` inherited handle
+  paths and a fixed trusted PATH. Later PID reuse or a same-name process cannot
+  redirect tool execution. The socket directory must remain root-controlled;
+  the read-only Cilium hostPath is an existing platform trust boundary.
 - **What a guest can reach** (`contrib/check-nic-security.sh`, live
   2026-11-15): a guest in a group admitting only world egress reached the
   world but not its own VM Pod's BMC (8080), Redfish (8081) or migration

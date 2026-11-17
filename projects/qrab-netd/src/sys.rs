@@ -361,36 +361,20 @@ fn wg_syncconf(config: &str) -> io::Result<()> {
     )))
 }
 
-/// The node's Cilium agent process, whose mount namespace has the pinned
-/// BPF maps and bpftool.
-pub fn cilium_agent_pid(proc_root: &Path) -> Option<i32> {
-    fs::read_dir(proc_root)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
-        .find(|pid| {
-            fs::read_to_string(proc_root.join(pid.to_string()).join("comm"))
-                .is_ok_and(|c| c.trim() == "cilium-agent")
-        })
-}
-
 /// bpftool in the agent's mount and PID namespaces (its /proc must match
 /// for bpftool's fdinfo reads).
-fn bpftool(proc_root: &Path, args: &[&str], stdin: Option<&str>) -> io::Result<String> {
-    let pid = cilium_agent_pid(proc_root)
-        .ok_or_else(|| io::Error::other("no cilium-agent process on this node"))?;
-    let mut child = Command::new("nsenter")
-        .args(["-t", &pid.to_string(), "-m", "-p", "--", "bpftool"])
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
+fn bpftool(
+    provider: &crate::cilium::Provider,
+    args: &[&str],
+    stdin: Option<&str>,
+) -> io::Result<String> {
+    let mut child = provider.spawn_bpftool(args, Stdio::piped())?;
+    let written = child
         .stdin
         .take()
         .expect("piped stdin")
-        .write_all(stdin.unwrap_or_default().as_bytes())?;
+        .write_all(stdin.unwrap_or_default().as_bytes());
+    // Reap the tool even if it closed stdin before the complete batch.
     let output = child.wait_with_output()?;
     if !output.status.success() {
         return Err(io::Error::other(format!(
@@ -399,6 +383,7 @@ fn bpftool(proc_root: &Path, args: &[&str], stdin: Option<&str>) -> io::Result<S
             String::from_utf8_lossy(&output.stderr).trim()
         )));
     }
+    written?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
@@ -410,11 +395,16 @@ pub fn monotonic_secs() -> u64 {
 }
 
 /// This node's conntrack entries for flows of `ip`.
-pub fn export_conntrack(proc_root: &Path, ip: Ipv4Addr) -> io::Result<crate::ct::Export> {
+pub fn export_conntrack(
+    proc_root: &Path,
+    socket: &Path,
+    ip: Ipv4Addr,
+) -> io::Result<crate::ct::Export> {
+    let provider = crate::cilium::Provider::connect(socket, proc_root)?;
     let mut entries = Vec::new();
     for (map, name) in crate::ct::MAPS {
         let path = format!("{}/{name}", crate::ct::PIN_DIR);
-        entries.extend(bpftool_dump(proc_root, &path, |dump| {
+        entries.extend(bpftool_dump(&provider, &path, |dump| {
             crate::ct::select_dump(map, dump, ip)
         })?);
     }
@@ -425,19 +415,12 @@ pub fn export_conntrack(proc_root: &Path, ip: Ipv4Addr) -> io::Result<crate::ct:
 /// streams (a whole dump is tens of MB once parsed; netd's memory limit is
 /// 128 MiB).
 fn bpftool_dump<T>(
-    proc_root: &Path,
+    provider: &crate::cilium::Provider,
     path: &str,
     read: impl FnOnce(std::process::ChildStdout) -> Result<T, String>,
 ) -> io::Result<T> {
-    let pid = cilium_agent_pid(proc_root)
-        .ok_or_else(|| io::Error::other("no cilium-agent process on this node"))?;
-    let mut child = Command::new("nsenter")
-        .args(["-t", &pid.to_string(), "-m", "-p", "--", "bpftool"])
-        .args(["-j", "map", "dump", "pinned", path])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let mut child =
+        provider.spawn_bpftool(&["-j", "map", "dump", "pinned", path], Stdio::null())?;
     let read = read(child.stdout.take().expect("piped stdout"));
     if read.is_err() {
         let _ = child.kill();
@@ -492,6 +475,7 @@ fn is_local_here(ip: Ipv4Addr) -> bool {
 /// host namespace; returns how many entries were written.
 pub fn import_conntrack(
     proc_root: &Path,
+    socket: &Path,
     ip: Ipv4Addr,
     export: &crate::ct::Export,
 ) -> io::Result<usize> {
@@ -504,8 +488,9 @@ pub fn import_conntrack(
         }
     }
     if !accepted.is_empty() {
+        let provider = crate::cilium::Provider::connect(socket, proc_root)?;
         bpftool(
-            proc_root,
+            &provider,
             &["batch", "file", "/dev/stdin"],
             Some(&crate::ct::batch(&accepted)),
         )?;
@@ -764,6 +749,17 @@ fn socket2_udp(tap: &str) -> io::Result<std::net::UdpSocket> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_writable_process_name_cannot_authorize_a_privileged_provider() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("5")).unwrap();
+        std::fs::write(root.path().join("5/comm"), "cilium-agent\n").unwrap();
+        assert!(crate::cilium::Provider::connect(
+            &root.path().join("missing-cilium.sock"),
+            root.path()
+        )
+        .is_err());
+    }
 
     #[test]
     fn a_tunnel_snapshot_keeps_the_digest_of_the_bytes_actually_parsed() {

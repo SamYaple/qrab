@@ -65,6 +65,25 @@ impl Process {
         self.open_relative(Path::new("ns/net"))
     }
 
+    pub fn mount_namespace(&self) -> io::Result<File> {
+        self.open_relative(Path::new("ns/mnt"))
+    }
+
+    pub fn pid_namespace(&self) -> io::Result<File> {
+        self.open_relative(Path::new("ns/pid"))
+    }
+
+    pub fn root_directory(&self) -> io::Result<File> {
+        let root = self.open_relative(Path::new("root"))?;
+        if !root.metadata()?.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "process root is not a directory",
+            ));
+        }
+        Ok(root)
+    }
+
     /// Fixed relative proc paths only. `root/...` and `ns/net` intentionally
     /// follow kernel magic links within this held process directory.
     fn open_relative(&self, path: &Path) -> io::Result<File> {
