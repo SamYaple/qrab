@@ -37,11 +37,13 @@ configuration, standalone Redfish can expose metrics only on literal loopback;
 its default is `127.0.0.1:9181`.
 
 Prometheus's PodMonitor sends scrapes to `127.0.0.1:19993`, supplying namespace,
-VM UID and Pod IP from discovery metadata. The adapter accepts only a current
+VM UID, Pod UID and Pod IP from discovery metadata. The adapter accepts only a current
 VM-owned, nonterminating Pod with a native, restartable Redfish init container
 at that address. It fixes the remote port
 to 9181, path to `/metrics` and expected SVID to that VM's `/redfish` role.
 No URL, proxy destination or certificate identity comes from the caller.
+The descriptor UID must match inventory as well as IP, preventing stale
+discovery from relabelling a replacement's response under its predecessor UID.
 
 For history, Redfish verifies the exact telemetry SVID on
 `https://qrab-prometheus-history.monitoring.svc:9091`. The adapter's TLS policy
@@ -53,6 +55,21 @@ Pod owned by that certificate's VM. Both source and target Pods can be present
 during migration. Other VMs, arbitrary PromQL, admin routes, extra/duplicate
 parameters, excessive ranges and oversized answers are refused. VM egress to
 the raw Prometheus port 9090 is explicitly denied.
+
+History is scoped to the current **Pod UID**, as well as namespace/name.
+Names can be reused while earlier series remain in Prometheus. The PodMonitor
+sets `pod_uid` from `__meta_kubernetes_pod_uid` on native VM samples; cAdvisor
+queries select the whole Pod-UID component of `id`, accepting cgroupfs and
+systemd's underscore UUID form. Retain that cAdvisor label in the scrape
+pipeline. Missing UID labels/identity have no unscoped fallback.
+
+Redfish receives `QRAB_POD_UID` through the downward API, and discovery retains
+the current UID when validating history templates. Old name-only clients are
+refused by the updated bridge. An old Redfish environment without the UID
+keeps management available and disables history. Release the renderer/client,
+bridge and PodMonitor label contract together; source publication does not
+apply the manifest or roll out images. Existing unlabelled native history is
+excluded rather than attributed to a new incarnation.
 
 The adapter refreshes discovery every five seconds. It limits inventory to
 512 VMs/Pods, refuses partial paginated results and expires all discovery
@@ -100,7 +117,7 @@ The read-only [workload probe](../projects/qrab-observability/examples/workload_
 can verify the deployed network paths without a human login or exporting SVID
 keys. Build with `cargo build --locked -p qrab-observability --example workload_probe`.
 Run `workload_probe metrics qrab VM-UID POD-IP` inside an attested telemetry
-container, and `workload_probe history qrab VM-UID POD-NAME` inside that VM's
+container, and `workload_probe history qrab VM-UID POD-NAME POD-UID` inside that VM's
 Redfish container. It prints only identity, HTTP status, body size and series
 count. Using another VM's Pod name tests the gateway's scope rejection.
 Use `bash contrib/probe-observability.sh POD-NAMESPACE POD CONTAINER metrics|history VM-NAMESPACE VM-UID POD-IP|POD-NAME`
@@ -111,3 +128,19 @@ seccomp policy; refusal fails the diagnostic, without a disk or plaintext
 fallback. The VM's bounded 1 MiB control volume is never a staging area.
 This tests workload transport and history scope, without an exported key or
 token; it does not substitute for browser OIDC testing.
+
+### Explicit historical-isolation proof
+
+The maintained PromQL fixture uses synthetic predecessor/current/legacy
+series and the actual query templates. It requires a separately verified
+`promtool`, with no Prometheus server, cluster or live metrics:
+
+```sh
+QRAB_TEST_PROMTOOL=/path/to/verified/promtool \
+  cargo test --locked -p qrab-redfish --test history_promql -- --ignored --nocapture
+```
+
+It requires no predecessor samples before the current Pod existed, the exact
+current values afterward, both cgroup drivers, and rejection of UID-prefix
+lookalikes and unlabelled native series. The audit ran it with official
+Prometheus 3.16.0; tool provenance and before/after results are in qrab towl.

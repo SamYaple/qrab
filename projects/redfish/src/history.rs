@@ -86,19 +86,26 @@ impl Metric {
         }
     }
 
-    /// The fixed query for this VM's Pod. `namespace` and `pod` are validated
-    /// Kubernetes names, so they need no escaping.
+    /// The fixed query for this Pod incarnation. Names/UID come from validated
+    /// Kubernetes metadata; UID also binds retained historical series.
     ///
     /// ```
     /// use qrab_redfish::history::Metric;
     /// assert_eq!(
-    ///     Metric::BlockRead.promql("qrab", "vm-a", 120),
-    ///     r#"sum by (drive) (rate(qrab_vm_block_read_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#
+    ///     Metric::BlockRead.promql("qrab", "vm-a", "pod-uid", 120),
+    ///     r#"sum by (drive) (rate(qrab_vm_block_read_bytes_total{namespace="qrab",pod="vm-a",pod_uid="pod-uid"}[120s]))"#
     /// );
     /// ```
-    pub fn promql(self, namespace: &str, pod: &str, window: u64) -> String {
-        let cadvisor = format!(r#"namespace="{namespace}",pod="{pod}",container=~"{CONTAINERS}""#);
-        let vm = format!(r#"namespace="{namespace}",pod="{pod}""#);
+    pub fn promql(self, namespace: &str, pod: &str, uid: &str, window: u64) -> String {
+        // cAdvisor's id is the kernel cgroup path. Match a whole Pod component
+        // for both cgroupfs UUIDs and systemd's underscore-escaped UUIDs.
+        let systemd = uid.replace('-', "_");
+        let id = serde_json::to_string(&format!(r".*/[^/]*pod({uid}|{systemd})(\.slice)?(/.*)?"))
+            .expect("string serializes");
+        let cadvisor =
+            format!(r#"namespace="{namespace}",pod="{pod}",container=~"{CONTAINERS}",id=~{id}"#);
+        let uid = serde_json::to_string(uid).expect("string serializes");
+        let vm = format!(r#"namespace="{namespace}",pod="{pod}",pod_uid={uid}"#);
         let rate = |family: &str| {
             format!(
                 "sum by ({}) (rate({family}{{{vm}}}[{window}s]))",
@@ -243,31 +250,38 @@ fn kubernetes_name(value: &str, max: usize, dots: bool) -> bool {
         })
 }
 
-/// This VM's Pod, from `QRAB_POD_NAMESPACE` and `QRAB_POD_NAME`.
+/// This Pod incarnation, from namespace/name/UID downward metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PodIdentity {
     pub namespace: String,
     pub pod: String,
+    pub uid: String,
 }
 
 impl PodIdentity {
     /// ```
     /// use qrab_redfish::history::PodIdentity;
-    /// assert!(PodIdentity::new("qrab", "vm-a.1").is_ok());
-    /// assert!(PodIdentity::new("qrab", "vm\"}").is_err());
-    /// assert!(PodIdentity::new("Qrab", "vm").is_err());
-    /// assert!(PodIdentity::new("q.rab", "vm").is_err());
+    /// assert!(PodIdentity::new("qrab", "vm-a.1", "pod-uid").is_ok());
+    /// assert!(PodIdentity::new("qrab", "vm\"}", "pod-uid").is_err());
+    /// assert!(PodIdentity::new("Qrab", "vm", "pod-uid").is_err());
+    /// assert!(PodIdentity::new("q.rab", "vm", "pod-uid").is_err());
+    /// assert!(PodIdentity::new("qrab", "vm", "").is_err());
+    /// assert!(PodIdentity::new("qrab", "vm", "uid|another").is_err());
     /// ```
-    pub fn new(namespace: &str, pod: &str) -> Result<Self, String> {
+    pub fn new(namespace: &str, pod: &str, uid: &str) -> Result<Self, String> {
         if !kubernetes_name(namespace, 63, false) {
             return Err("QRAB_POD_NAMESPACE must be a Kubernetes namespace name".into());
         }
         if !kubernetes_name(pod, 253, true) {
             return Err("QRAB_POD_NAME must be a Kubernetes Pod name".into());
         }
+        if !kubernetes_name(uid, 128, false) {
+            return Err("QRAB_POD_UID must be a nonempty Kubernetes Pod UID".into());
+        }
         Ok(Self {
             namespace: namespace.into(),
             pod: pod.into(),
+            uid: uid.into(),
         })
     }
 }
@@ -422,7 +436,12 @@ impl Upstream {
         url.query_pairs_mut()
             .append_pair(
                 "query",
-                &metric.promql(&self.pod.namespace, &self.pod.pod, range.rate_window()),
+                &metric.promql(
+                    &self.pod.namespace,
+                    &self.pod.pod,
+                    &self.pod.uid,
+                    range.rate_window(),
+                ),
             )
             .append_pair("start", &start.to_string())
             .append_pair("end", &end.to_string())
@@ -506,7 +525,7 @@ pub(super) async fn history(
     let (metric, range) = parse_query(query.as_deref())?;
     let upstream = app.history.0.as_ref().ok_or_else(|| {
         Failure::unavailable(
-            "Metric history is not configured: QRAB_POD_NAMESPACE and QRAB_POD_NAME are unset.",
+            "Metric history requires QRAB_POD_NAMESPACE, QRAB_POD_NAME and QRAB_POD_UID.",
         )
     })?;
     let index = Metric::ALL.iter().position(|m| *m == metric).unwrap() * Range::ALL.len()

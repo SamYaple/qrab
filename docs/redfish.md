@@ -34,7 +34,7 @@ qrab-redfish --socket /run/qrab-control/manager/control.sock
 | `REDFISH_METRICS_LISTEN` | Dedicated Prometheus listener serving only `/metrics`; defaults to `127.0.0.1:9181`; a remote bind requires workload identity and `REDFISH_METRICS_PEERS` and must use another port ([Prometheus export](#prometheus-export)) |
 | `REDFISH_CA_FILE` | Optional PEM root certificate for an isolated test IdP |
 | `REDFISH_PROMETHEUS_URL` | Prometheus for [metric history](#metric-history); defaults to `https://qrab-prometheus-history.monitoring.svc:9091`. Workload mode requires exact `REDFISH_PROMETHEUS_SPIFFE_ID`; no plaintext/WebPKI fallback |
-| `QRAB_POD_NAMESPACE`, `QRAB_POD_NAME` | This VM Pod's namespace and name (downward API); set both or neither. Without them metric history answers 503 |
+| `QRAB_POD_NAMESPACE`, `QRAB_POD_NAME`, `QRAB_POD_UID` | This Pod incarnation's downward identity. Missing UID disables history without stopping management; no name-only fallback |
 | `REDFISH_LOCAL_ACCOUNTS_FILE` | Optional read-only JSON Secret file containing Argon2id password hashes; enables Basic authentication and password-based session creation |
 | `REDFISH_PUBLIC_DISCOVERY` | Optional `true` permits static anonymous version/root/OData discovery; default `false` preserves the deployed OIDC-only discovery policy |
 | `REDFISH_WORKLOAD_LISTEN` | Optional separate SPIFFE mTLS listener, e.g. `0.0.0.0:8443`; requires exact allowed peers |
@@ -448,7 +448,7 @@ every other endpoint and entity ([operator.md](operator.md#components)).
 Label values are configured identifiers only (`[A-Za-z0-9_-]`, at most 64
 bytes). Values that could be a path, IQN, portal, MAC or IP address are
 dropped, never escaped; guest-chosen interface names, MACs and addresses are
-not exported. The PodMonitor adds `namespace`, `pod` and `vm`; the exporter
+not exported. The PodMonitor adds `namespace`, `pod`, `pod_uid` and `vm`; the exporter
 emits none of them. Block counters reset with each QEMU, NIC counters with
 the guest's own interface counters and the drop counter with the manager,
 which `rate()` handles. A family whose source query fails is omitted rather than
@@ -480,15 +480,22 @@ reads history back from the cluster Prometheus for the BMC's Metrics tab and
 the dashboard's VM page, so both share one implementation. Viewers may read
 it; it needs a token like every other route. Each metric id maps to one fixed
 PromQL template in `projects/redfish/src/history.rs`, scoped to this Pod's own
-`QRAB_POD_NAMESPACE`/`QRAB_POD_NAME`; nothing from the request reaches
+`QRAB_POD_NAMESPACE`/`QRAB_POD_NAME`/`QRAB_POD_UID`; nothing from the request reaches
 Prometheus. The response is one `/api/v1/query_range` answer:
 
-| `metric` | Unit | PromQL (`<ns>`, `<pod>` from the downward API; `<w>` the rate window) |
+| `metric` | Unit | PromQL (`<ns>`, `<pod>`, `<uid>` from the downward API; `<w>` the rate window) |
 | --- | --- | --- |
-| `container-cpu` | `cores` | `sum by (container) (rate(container_cpu_usage_seconds_total{namespace="<ns>",pod="<pod>",container=~"manager\|bmc\|redfish"}[<w>]))` |
-| `container-memory` | `bytes` | `sum by (container) (container_memory_working_set_bytes{namespace="<ns>",pod="<pod>",container=~"manager\|bmc\|redfish"})` |
-| `block-read`, `block-write` | `bytes/s` | `sum by (drive) (rate(qrab_vm_block_{read,write}_bytes_total{namespace="<ns>",pod="<pod>"}[<w>]))` |
-| `nic-rx`, `nic-tx` | `bytes/s` | `sum by (nic) (rate(qrab_vm_nic_{rx,tx}_bytes_total{namespace="<ns>",pod="<pod>"}[<w>]))` |
+| `container-cpu` | `cores` | `sum by (container) (rate(container_cpu_usage_seconds_total{namespace="<ns>",pod="<pod>",container=~"manager\|bmc\|redfish",id=~"<pod-cgroup>"}[<w>]))` |
+| `container-memory` | `bytes` | `sum by (container) (container_memory_working_set_bytes{namespace="<ns>",pod="<pod>",container=~"manager\|bmc\|redfish",id=~"<pod-cgroup>"})` |
+| `block-read`, `block-write` | `bytes/s` | `sum by (drive) (rate(qrab_vm_block_{read,write}_bytes_total{namespace="<ns>",pod="<pod>",pod_uid="<uid>"}[<w>]))` |
+| `nic-rx`, `nic-tx` | `bytes/s` | `sum by (nic) (rate(qrab_vm_nic_{rx,tx}_bytes_total{namespace="<ns>",pod="<pod>",pod_uid="<uid>"}[<w>]))` |
+
+`<pod-cgroup>` matches a complete Pod-UID cgroup component, including the
+systemd underscore form, rather than a UID substring or a reusable name.
+The PodMonitor supplies `pod_uid` on native samples; retain cAdvisor's `id`
+label. Predecessor and unlabelled legacy samples are excluded. See
+[the observability release contract](observability.md) before rolling out the
+client/bridge and scrape-label changes.
 
 There is no vCPU utilisation metric: the exported families carry the vCPU
 count but no guest CPU time, and the manager container's CPU also counts

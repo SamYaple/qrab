@@ -13,8 +13,8 @@ use std::{
 async fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     ensure!(
-        args.len() == 4,
-        "usage: workload_probe metrics NAMESPACE VM-UID POD-IP | history NAMESPACE VM-UID POD-NAME"
+        (args.first().is_some_and(|kind|kind == "metrics") && args.len()==4) || (args.first().is_some_and(|kind|kind == "history") && args.len()==5),
+        "usage: workload_probe metrics NAMESPACE VM-UID POD-IP | history NAMESPACE VM-UID POD-NAME POD-UID"
     );
     qrab_spiffe::http::install_tls13_provider()?;
     let identity = qrab_spiffe::Identity::from_env().await?;
@@ -33,14 +33,14 @@ async fn main() -> Result<()> {
                 own == rf,
                 "history probe must run in the specified VM's Redfish container"
             );
-            let pod = PodIdentity::new(&args[1], &args[3]).map_err(anyhow::Error::msg)?;
+            let pod = PodIdentity::new(&args[1], &args[3], &args[4]).map_err(anyhow::Error::msg)?;
             let end = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
             let mut url: url::Url =
                 "https://qrab-prometheus-history.monitoring.svc:9091/api/v1/query_range".parse()?;
             url.query_pairs_mut()
                 .append_pair(
                     "query",
-                    &Metric::ContainerMemory.promql(&pod.namespace, &pod.pod, 120),
+                    &Metric::ContainerMemory.promql(&pod.namespace, &pod.pod, &pod.uid, 120),
                 )
                 .append_pair("start", &end.saturating_sub(900).to_string())
                 .append_pair("end", &end.to_string())

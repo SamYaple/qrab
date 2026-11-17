@@ -1285,6 +1285,7 @@ fn sidecars(
             json!({"name":"REDFISH_PROMETHEUS_URL","value":PROMETHEUS_URL}),
             json!({"name":"QRAB_POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}}),
             json!({"name":"QRAB_POD_NAMESPACE","valueFrom":{"fieldRef":{"fieldPath":"metadata.namespace"}}}),
+            json!({"name":"QRAB_POD_UID","valueFrom":{"fieldRef":{"fieldPath":"metadata.uid"}}}),
         ]);
         if let Some(seconds) = redfish.telemetry_interval_seconds {
             env.push(json!({"name":"REDFISH_TELEMETRY_INTERVAL_SECS","value":seconds.to_string()}));

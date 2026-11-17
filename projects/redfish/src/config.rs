@@ -165,12 +165,18 @@ impl Config {
         let pod = match (
             std::env::var("QRAB_POD_NAMESPACE"),
             std::env::var("QRAB_POD_NAME"),
+            std::env::var("QRAB_POD_UID"),
         ) {
-            (Ok(namespace), Ok(pod)) => Some(
-                crate::history::PodIdentity::new(&namespace, &pod).map_err(anyhow::Error::msg)?,
+            (Ok(namespace), Ok(pod), Ok(uid)) => Some(
+                crate::history::PodIdentity::new(&namespace, &pod, &uid)
+                    .map_err(anyhow::Error::msg)?,
             ),
-            (Err(_), Err(_)) => None,
-            _ => anyhow::bail!("QRAB_POD_NAMESPACE and QRAB_POD_NAME must be set together"),
+            // During an upgrade, old downward metadata must disable history
+            // rather than fall back to reusable names or stop management.
+            (Ok(_), Ok(_), Err(_)) | (Err(_), Err(_), Err(_)) => None,
+            _ => anyhow::bail!(
+                "QRAB_POD_NAMESPACE, QRAB_POD_NAME and QRAB_POD_UID must be set together"
+            ),
         };
         Ok(Self {
             listen,

@@ -3402,7 +3402,7 @@ async fn fake_prometheus(label: &'static str, delay: Duration) -> (String, PromL
 fn history_store(url: &str) -> qrab_redfish::HistoryStore {
     qrab_redfish::HistoryStore::new(
         qrab_redfish::history::prometheus_url(url).unwrap(),
-        Some(qrab_redfish::history::PodIdentity::new("qrab", "vm-a").unwrap()),
+        Some(qrab_redfish::history::PodIdentity::new("qrab", "vm-a", "pod-vm-a").unwrap()),
     )
     .unwrap()
 }
@@ -3411,7 +3411,7 @@ const HISTORY: &str = "/redfish/v1/TelemetryService/Oem/Qrab/MetricHistory";
 
 #[tokio::test]
 async fn metric_history_sends_only_fixed_promql_for_this_vms_own_pod() {
-    let cadvisor = r#"namespace="qrab",pod="vm-a",container=~"manager|bmc|redfish""#;
+    let cadvisor = r#"namespace="qrab",pod="vm-a",container=~"manager|bmc|redfish",id=~".*/[^/]*pod(pod-vm-a|pod_vm_a)(\\.slice)?(/.*)?""#;
     let expected: [(&str, &'static str, &str, String); 6] = [
         (
             "container-cpu",
@@ -3429,25 +3429,25 @@ async fn metric_history_sends_only_fixed_promql_for_this_vms_own_pod() {
             "block-read",
             "drive",
             "bytes/s",
-            r#"sum by (drive) (rate(qrab_vm_block_read_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+            r#"sum by (drive) (rate(qrab_vm_block_read_bytes_total{namespace="qrab",pod="vm-a",pod_uid="pod-vm-a"}[120s]))"#.into(),
         ),
         (
             "block-write",
             "drive",
             "bytes/s",
-            r#"sum by (drive) (rate(qrab_vm_block_write_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+            r#"sum by (drive) (rate(qrab_vm_block_write_bytes_total{namespace="qrab",pod="vm-a",pod_uid="pod-vm-a"}[120s]))"#.into(),
         ),
         (
             "nic-rx",
             "nic",
             "bytes/s",
-            r#"sum by (nic) (rate(qrab_vm_nic_rx_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+            r#"sum by (nic) (rate(qrab_vm_nic_rx_bytes_total{namespace="qrab",pod="vm-a",pod_uid="pod-vm-a"}[120s]))"#.into(),
         ),
         (
             "nic-tx",
             "nic",
             "bytes/s",
-            r#"sum by (nic) (rate(qrab_vm_nic_tx_bytes_total{namespace="qrab",pod="vm-a"}[120s]))"#.into(),
+            r#"sum by (nic) (rate(qrab_vm_nic_tx_bytes_total{namespace="qrab",pod="vm-a",pod_uid="pod-vm-a"}[120s]))"#.into(),
         ),
     ];
     let mut fixture = fixture();

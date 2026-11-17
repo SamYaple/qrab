@@ -33,7 +33,13 @@ const MAX_INVENTORY: u32 = 512;
 #[derive(Clone, Debug)]
 struct Vm {
     namespace: String,
-    pods: BTreeMap<String, IpAddr>,
+    pods: BTreeMap<String, PodTarget>,
+}
+
+#[derive(Clone, Debug)]
+struct PodTarget {
+    ip: IpAddr,
+    uid: String,
 }
 
 #[derive(Clone)]
@@ -99,13 +105,21 @@ impl Inventory {
                 {
                     continue;
                 }
+                let Some(pod_uid) = pod.uid() else {
+                    continue;
+                };
+                if qrab_redfish::history::PodIdentity::new(namespace, &pod.name_any(), &pod_uid)
+                    .is_err()
+                {
+                    continue;
+                }
                 if let Some(ip) = pod
                     .status
                     .as_ref()
                     .and_then(|s| s.pod_ip.as_ref())
                     .and_then(|ip| ip.parse().ok())
                 {
-                    addresses.insert(pod.name_any(), ip);
+                    addresses.insert(pod.name_any(), PodTarget { ip, uid: pod_uid });
                 }
             }
             // No live Redfish Pod means no authorized client and no scrape.
@@ -297,13 +311,17 @@ fn fields(query: Option<&str>) -> Option<HashMap<String, String>> {
 }
 fn scrape_target(snapshot: &Snapshot, target: &str) -> Option<(SpiffeId, SocketAddr)> {
     let parts: Vec<_> = target.split('/').collect();
-    let [namespace, uid, ip] = parts.as_slice() else {
+    let [namespace, uid, pod_uid, ip] = parts.as_slice() else {
         return None;
     };
     let ip: IpAddr = ip.parse().ok()?;
     let peer = qrab_spiffe::vm_service_id("yapplesauce.com", namespace, uid, "redfish").ok()?;
     let vm = snapshot.vms.get(&peer)?;
-    if !vm.pods.values().any(|address| *address == ip) {
+    if !vm
+        .pods
+        .values()
+        .any(|target| target.ip == ip && target.uid == *pod_uid)
+    {
         return None;
     }
     Some((peer, SocketAddr::new(ip, 9181)))
@@ -362,10 +380,10 @@ fn history_query(vm: &Vm, query: &HashMap<String, String>, now: u64) -> Option<u
     if !(120..=7 * 86400).contains(&window) {
         return None;
     }
-    if !vm.pods.keys().any(|pod| {
+    if !vm.pods.iter().any(|(pod, target)| {
         Metric::ALL
             .iter()
-            .any(|m| m.promql(&vm.namespace, pod, window) == *expression)
+            .any(|m| m.promql(&vm.namespace, pod, &target.uid, window) == *expression)
     }) {
         return None;
     }
@@ -423,7 +441,7 @@ mod tests {
             "metadata":{"name":uid,"namespace":"qrab","uid":uid},"spec":{"stateVolumeClaim":"state"}})).unwrap()
     }
     fn pod(name: &str, uid: &str, ip: &str) -> Pod {
-        serde_json::from_value(json!({"metadata":{"name":name,"namespace":"qrab",
+        serde_json::from_value(json!({"metadata":{"name":name,"namespace":"qrab","uid":format!("pod-{name}"),
             "ownerReferences":[{"apiVersion":"qrab.yapplesauce.com/v1alpha1","kind":"VirtualMachine","name":uid,"uid":uid,"controller":true}]},
             "spec":{"containers":[{"name":"manager","image":"unused"}],
                 "initContainers":[{"name":"redfish","image":"unused","restartPolicy":"Always"}]},
@@ -459,14 +477,16 @@ mod tests {
         let inventory = inventory();
         assert!(inventory.authorizes(&id(VM_ID).unwrap()));
         let snapshot = inventory.snapshot().unwrap();
-        assert!(scrape_target(&snapshot, "qrab/one/10.244.1.5").is_some());
-        assert!(scrape_target(&snapshot, "qrab/one/10.244.2.8").is_some());
+        assert!(scrape_target(&snapshot, "qrab/one/pod-one-source/10.244.1.5").is_some());
+        assert!(scrape_target(&snapshot, "qrab/one/pod-one-target/10.244.2.8").is_some());
         for target in [
-            "qrab/one/10.244.3.1",
-            "qrab/two/10.244.1.5",
-            "other/one/10.244.1.5",
-            "qrab/one/127.0.0.1",
-            "qrab/one/10.244.1.5:9181",
+            "qrab/one/pod-one-source/10.244.3.1",
+            "qrab/two/pod-one-source/10.244.1.5",
+            "other/one/pod-one-source/10.244.1.5",
+            "qrab/one/pod-one-source/127.0.0.1",
+            "qrab/one/pod-one-source/10.244.1.5:9181",
+            "qrab/one/previous-pod/10.244.1.5",
+            "qrab/one/10.244.1.5",
             "http://evil/metrics",
         ] {
             assert!(scrape_target(&snapshot, target).is_none(), "{target}");
@@ -503,18 +523,25 @@ mod tests {
         let vm = snapshot.vms.get(&id(VM_ID).unwrap()).unwrap();
         for metric in Metric::ALL {
             for pod in ["one-source", "one-target"] {
-                assert!(history_query(vm, &query(metric.promql("qrab", pod, 240)), 2000).is_some());
+                assert!(history_query(
+                    vm,
+                    &query(metric.promql("qrab", pod, &format!("pod-{pod}"), 240)),
+                    2000
+                )
+                .is_some());
             }
         }
         for expression in [
-            Metric::BlockRead.promql("qrab", "two-pod", 120),
-            Metric::ContainerCpu.promql("other", "one-source", 120),
+            Metric::BlockRead.promql("qrab", "two-pod", "pod-two-pod", 120),
+            Metric::BlockRead.promql("qrab", "one-source", "previous-incarnation", 120),
+            r#"sum by (drive) (rate(qrab_vm_block_read_bytes_total{namespace="qrab",pod="one-source"}[120s]))"#.into(),
+            Metric::ContainerCpu.promql("other", "one-source", "pod-one-source", 120),
             "up".into(),
             format!(
                 "{} or up",
-                Metric::BlockRead.promql("qrab", "one-source", 120)
+                Metric::BlockRead.promql("qrab", "one-source", "pod-one-source", 120)
             ),
-            Metric::BlockRead.promql("qrab", "one-source", 604801),
+            Metric::BlockRead.promql("qrab", "one-source", "pod-one-source", 604801),
         ] {
             assert!(history_query(vm, &query(expression), 2000).is_none());
         }
@@ -525,11 +552,43 @@ mod tests {
             ("timeout", "30s"),
             ("extra", "admin"),
         ] {
-            let mut q = query(Metric::BlockRead.promql("qrab", "one-source", 120));
+            let mut q =
+                query(Metric::BlockRead.promql("qrab", "one-source", "pod-one-source", 120));
             q.insert(key.into(), value.into());
             assert!(history_query(vm, &q, 2000).is_none());
         }
         assert!(fields(Some("target=a&target=b")).is_none());
+    }
+
+    #[test]
+    fn same_name_and_ip_replacement_invalidates_the_previous_history_scope() {
+        let inventory = inventory();
+        let old = Metric::ContainerMemory.promql("qrab", "one-source", "pod-one-source", 120);
+        let mut current = pod("one-source", "one", "10.244.1.5");
+        current.metadata.uid = Some("replacement-pod".into());
+        inventory
+            .replace("qrab", &[vm("one")], &[current.clone()])
+            .unwrap();
+        let snapshot = inventory.snapshot().unwrap();
+        let vm = snapshot.vms.get(&id(VM_ID).unwrap()).unwrap();
+        assert!(
+            scrape_target(&snapshot, "qrab/one/10.244.1.5").is_none(),
+            "a scrape descriptor without Pod UID could be relabelled across incarnations"
+        );
+        assert!(scrape_target(&snapshot, "qrab/one/pod-one-source/10.244.1.5").is_none());
+        assert!(scrape_target(&snapshot, "qrab/one/replacement-pod/10.244.1.5").is_some());
+        assert!(history_query(vm, &query(old), 2000).is_none());
+        assert!(history_query(
+            vm,
+            &query(Metric::ContainerMemory.promql("qrab", "one-source", "replacement-pod", 120)),
+            2000
+        )
+        .is_some());
+        current.metadata.uid = None;
+        inventory
+            .replace("qrab", &[tests::vm("one")], &[current])
+            .unwrap();
+        assert!(!inventory.authorizes(&id(VM_ID).unwrap()));
     }
     async fn identity(ca: &Authority, name: &str) -> (Workload, Identity) {
         let api = Workload::serve(vec![ca.svid(name)]);
@@ -614,7 +673,7 @@ mod tests {
     }
     fn path(pod: &str) -> String {
         let end = now();
-        let mut q = query(Metric::ContainerMemory.promql("qrab", pod, 120));
+        let mut q = query(Metric::ContainerMemory.promql("qrab", pod, &format!("pod-{pod}"), 120));
         q.insert("start".into(), (end - 900).to_string());
         q.insert("end".into(), end.to_string());
         let encoded: String = url::form_urlencoded::Serializer::new(String::new())

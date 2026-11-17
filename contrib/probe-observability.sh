@@ -12,6 +12,12 @@ probe_kind=$4
 vm_namespace=$5
 vm_uid=$6
 probe_destination=$7
+probe_identity_args=()
+if [[ $probe_kind == history ]]; then
+    history_pod_uid=$(kubectl -n "$vm_namespace" get pod "$probe_destination" -o jsonpath='{.metadata.uid}')
+    [[ -n $history_pod_uid ]] || { echo 'history target lacks Pod UID' >&2; exit 1; }
+    probe_identity_args=("$history_pod_uid")
+fi
 [[ $probe_kind == metrics || $probe_kind == history ]] || exit 2
 architecture=$(kubectl -n "$pod_namespace" exec "$probe_pod" -c "$probe_container" -- uname -m)
 [[ $architecture == x86_64 ]] || { echo 'The in-memory wrapper requires x86_64 Linux.' >&2; exit 1; }
@@ -48,4 +54,4 @@ kubectl -n "$pod_namespace" exec -i "$probe_pod" -c "$probe_container" -- perl -
     die "probe read: $!\n" unless defined($count);
     exec {"/proc/self/fd/$fd"} "workload_probe", @ARGV;
     die "probe exec: $!\n";
-' -- "$probe_kind" "$vm_namespace" "$vm_uid" "$probe_destination" < "$staged_probe"
+' -- "$probe_kind" "$vm_namespace" "$vm_uid" "$probe_destination" "${probe_identity_args[@]}" < "$staged_probe"

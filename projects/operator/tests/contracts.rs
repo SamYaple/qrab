@@ -2073,6 +2073,10 @@ fn redfish_history_uses_workload_tls_9091_and_denies_raw_prometheus_9090() {
         env["QRAB_POD_NAMESPACE"],
         json!({"fieldRef":{"fieldPath":"metadata.namespace"}})
     );
+    assert_eq!(
+        env["QRAB_POD_UID"],
+        json!({"fieldRef":{"fieldPath":"metadata.uid"}})
+    );
 
     let policy = resources::redfish_prometheus_policy(&machine, &settings())
         .unwrap()
