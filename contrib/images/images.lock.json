@@ -36,13 +36,13 @@
     "tpm2-tools\t5.7-1"
   ],
   "operator": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:c75cf38dd6690440e71c1175e5aa6ee872a904273355ebcd21b9de2d3c92d0ad",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:e38132b82ec97b17259d4013baf7ad35d452340dc3515d48e41c3da09df38986",
     "version": "0.1.0",
-    "source_revision": "bc7e422e7d6e4d3d80a3b71fb1ec21f8559977f6"
+    "source_revision": "c10ca28d262883a3ced294b61f7c84495e4896b8"
   },
   "dashboard": {
-    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:b664685495e5caba53352ad7fbd78fda73d8da6bfa545a2d6aafe676f20a6ac0",
-    "source_revision": "16ec9f76f3d7594a74443d92468c8b02bd181eea"
+    "image": "zot.yapplesauce.com/qrab/dashboard@sha256:b3e070001ed1d60d8af21b7a85d09570742daba18eb76a8a64279b4255351602",
+    "source_revision": "c10ca28d262883a3ced294b61f7c84495e4896b8"
   },
   "netd": {
     "image": "zot.yapplesauce.com/qrab/operator@sha256:88818c3fb502a0e51c610bc934132ed72f201a457a5c8a50d62e7a4ac93dba2e",
@@ -70,8 +70,8 @@
     "version": "1.20.2"
   },
   "image_importer": {
-    "image": "zot.yapplesauce.com/qrab/operator@sha256:37c8fcad7a5f4dd7524ca7fdb197183e59f29dc0bfafe981a7fc30dc0ace6ac6",
-    "source_revision": "1b663bea0585b934714c0cb3e5f5ceac4b0d42b0",
+    "image": "zot.yapplesauce.com/qrab/operator@sha256:e38132b82ec97b17259d4013baf7ad35d452340dc3515d48e41c3da09df38986",
+    "source_revision": "c10ca28d262883a3ced294b61f7c84495e4896b8",
     "qemu": "zot.yapplesauce.com/qrab/qemu@sha256:23d0574f7ca8660ff0907795a38bb5818948be4413a3c894d96c387b335b8c4b"
   }
 }
