@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in qrab does not work as documented.
+labels: ["kind/bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. **Do not report security
+        vulnerabilities here**; follow SECURITY.md to report them privately.
+        Remove secrets, tokens and private addresses from anything you paste.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, including error messages.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Steps, manifests or commands that reproduce the problem, as small as possible.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - operator
+        - qrab-manager
+        - BMC / console
+        - Redfish
+        - dashboard
+        - qrab-tpm-issuer
+        - qrab-node-agent / guest NICs
+        - disks / storage
+        - live migration
+        - guest agent / SPIRE relay
+        - install manifests
+        - documentation
+        - other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: qrab version or commit, Kubernetes version and distribution, CNI, CSI driver, QEMU image, node OS and kernel.
+      placeholder: |
+        qrab:
+        Kubernetes:
+        CNI / CSI:
+        Node OS / kernel:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant operator, qrab-manager, BMC or Redfish sidecar logs, and the VirtualMachine status.
+      render: text

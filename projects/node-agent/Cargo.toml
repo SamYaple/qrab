@@ -1,0 +1,8 @@
+[package]
+name = "qrab-node-agent"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Per-node agent that hands each qrab VM the host resources its pod cannot open itself, such as the KVM accelerator and its NICs' tap and vhost-net descriptors"

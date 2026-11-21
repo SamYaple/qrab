@@ -1,0 +1,8 @@
+# Code owners for qrab. The review rules on main require an approving
+# review from an owner listed here, so this file decides who can approve
+# changes. The last matching pattern wins, so keep the catch-all first.
+
+*                   @SamYaple @brk3
+
+# Review policy and automation: changing these changes the gate itself.
+/.github/           @SamYaple @brk3

@@ -1,0 +1,92 @@
+# The required checks of the main-review-gate ruleset: the job names fmt,
+# clippy, test and cargo-deny are the check contexts. Keep them single,
+# non-matrix jobs, and keep this workflow free of path filters, or a required
+# check never reports.
+#
+# Each job runs one stage of contrib/check-runtime.sh, so CI and local checks
+# run the same commands.
+#
+# No third-party action is used, only GitHub's own (actions/*).
+# There is no build cache: every job builds from a clean checkout.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # Without debug info the test build fits the runner's disk.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  # The toolchain the checks are pinned to; the repository has no
+  # rust-toolchain file. Raise it deliberately, fixing new lints in the same PR.
+  RUST_TOOLCHAIN: "1.97.1"
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+      - run: bash contrib/check-runtime.sh fmt
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+      - run: bash contrib/check-runtime.sh clippy
+
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - run: bash contrib/check-runtime.sh test
+
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      # Built from its crates.io source at a pinned version and lock file.
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny@0.19.4
+      - run: bash contrib/check-runtime.sh deny

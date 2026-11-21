@@ -1,0 +1,44 @@
+# cargo-deny configuration: licenses and RustSec advisories.
+#   cargo deny --locked check licenses
+#   cargo deny --locked check advisories
+#
+# `allow` is exactly the CNCF allowed third-party license list
+# (https://github.com/cncf/foundation/blob/main/policies-guidance/allowed-third-party-license-policy.md),
+# with Apache-2.0 as the project's own license. Do not widen it. A crate whose
+# license expression the list cannot satisfy gets a per-crate entry in an
+# `exceptions` list under [licenses], citing either an approved CNCF exception
+# (https://exceptions.cncf.io, cncf/foundation
+# license-exceptions/exceptions.json) or a drafted request.
+# An OR expression passes when any branch is allowed. A `WITH` expression
+# must be allowed as written: allowing Apache-2.0 does not satisfy
+# "Apache-2.0 WITH LLVM-exception".
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "0BSD",
+    "BSD-2-Clause",
+    "BSD-2-Clause-FreeBSD",
+    "BSD-3-Clause",
+    "MIT",
+    "MIT-0",
+    "ISC",
+    "OpenSSL",
+    "OpenSSL-standalone",
+    "PSF-2.0",
+    "Python-2.0",
+    "Python-2.0.1",
+    "PostgreSQL",
+    "SSLeay-standalone",
+    "UPL-1.0",
+    "X11",
+    "Zlib",
+]
+# The allow list mirrors the CNCF policy verbatim, so some entries are unused.
+unused-allowed-license = "allow"
+confidence-threshold = 0.93
+
+# As in `cargo audit`, unmaintained notices are reviewed but do not fail the
+# check.
+[advisories]
+unmaintained = "none"
